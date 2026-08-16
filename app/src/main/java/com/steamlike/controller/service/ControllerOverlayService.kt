@@ -19,6 +19,8 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
+import android.content.pm.ServiceInfo
 import com.steamlike.controller.config.ConfigManager
 import com.steamlike.controller.core.SteamInput
 import com.steamlike.controller.injection.BridgeInputInjector
@@ -73,6 +75,7 @@ class ControllerOverlayService : Service() {
     private var layerText: TextView? = null
     private var hintText: TextView? = null
     private val layerButtons = mutableMapOf<String, Button>()
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
     private var steamInput: SteamInput? = null
     private var mapper: KeyboardMouseMapper? = null
@@ -83,7 +86,13 @@ class ControllerOverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        startForeground(NOTIFICATION_ID, createNotification("启动中..."))
+        // Android 14+ 需要指定前台服务类型
+        ServiceCompat.startForeground(
+            this,
+            NOTIFICATION_ID,
+            createNotification("启动中..."),
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+        )
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         createOverlay()
     }
@@ -116,63 +125,67 @@ class ControllerOverlayService : Service() {
     }
 
     private fun startMapper() {
-        try {
-            val metrics = DisplayMetrics()
-            @Suppress("DEPRECATION")
-            windowManager?.defaultDisplay?.getMetrics(metrics)
+        // DisplayMetrics 必须在主线程获取
+        val metrics = DisplayMetrics()
+        @Suppress("DEPRECATION")
+        windowManager?.defaultDisplay?.getMetrics(metrics)
 
-            // 启动TCP桥接服务器
-            bridgeServer = InputBridgeServer()
-            bridgeServer?.onClientConnected = { addr ->
-                updateStatus("客户端已连接: $addr")
+        // 在后台线程执行，避免 ServerSocket.bind() 触发 NetworkOnMainThreadException
+        Thread {
+            try {
+                // 启动TCP桥接服务器（网络操作，必须在子线程）
+                bridgeServer = InputBridgeServer()
+                bridgeServer?.onClientConnected = { addr ->
+                    updateStatus("客户端已连接: $addr")
+                }
+                bridgeServer?.onClientDisconnected = { addr ->
+                    updateStatus("等待Windows客户端连接... (端口${InputBridgeServer.DEFAULT_PORT})")
+                }
+                bridgeServer?.onServerError = { msg ->
+                    updateStatus("服务器错误: $msg")
+                }
+
+                if (bridgeServer?.start() != true) {
+                    updateStatus("TCP服务器启动失败")
+                    return@Thread
+                }
+
+                // 使用桥接注入器（通过TCP发送事件到Windows客户端）
+                val injector = BridgeInputInjector(bridgeServer!!)
+
+                steamInput = SteamInput(this)
+                configManager = ConfigManager(this)
+
+                mapper = KeyboardMouseMapper(
+                    steamInput = steamInput!!,
+                    injector = injector,
+                    screenWidth = metrics.widthPixels,
+                    screenHeight = metrics.heightPixels
+                )
+
+                mapper?.onLayerChanged = { layers ->
+                    updateLayerText(layers)
+                    updateLayerButtonColors(layers)
+                }
+
+                if (mapper?.start() == true) {
+                    // 加载用户配置（覆盖默认WoW预设的绑定和属性）
+                    // 动作定义和回调保持不变，仅修改绑定关系
+                    loadUserConfig()
+
+                    // 创建焦点输入窗口（addView 必须在主线程执行）
+                    mainHandler.post { createGamepadInputWindow() }
+
+                    updateStatus("等待Windows客户端连接... (端口${InputBridgeServer.DEFAULT_PORT})")
+                    updateLayerText(mapper?.getActiveLayers() ?: emptyList())
+                    updateLayerButtonColors(mapper?.getActiveLayers() ?: emptyList())
+                } else {
+                    updateStatus("启动失败 - 检查悬浮窗权限")
+                }
+            } catch (e: Exception) {
+                updateStatus("错误: ${e.message}")
             }
-            bridgeServer?.onClientDisconnected = { addr ->
-                updateStatus("等待Windows客户端连接... (端口${InputBridgeServer.DEFAULT_PORT})")
-            }
-            bridgeServer?.onServerError = { msg ->
-                updateStatus("服务器错误: $msg")
-            }
-
-            if (bridgeServer?.start() != true) {
-                updateStatus("TCP服务器启动失败")
-                return
-            }
-
-            // 使用桥接注入器（通过TCP发送事件到Windows客户端）
-            val injector = BridgeInputInjector(bridgeServer!!)
-
-            steamInput = SteamInput(this)
-            configManager = ConfigManager(this)
-
-            mapper = KeyboardMouseMapper(
-                steamInput = steamInput!!,
-                injector = injector,
-                screenWidth = metrics.widthPixels,
-                screenHeight = metrics.heightPixels
-            )
-
-            mapper?.onLayerChanged = { layers ->
-                updateLayerText(layers)
-                updateLayerButtonColors(layers)
-            }
-
-            if (mapper?.start() == true) {
-                // 加载用户配置（覆盖默认WoW预设的绑定和属性）
-                // 动作定义和回调保持不变，仅修改绑定关系
-                loadUserConfig()
-
-                // 创建焦点输入窗口（捕获手柄事件）
-                createGamepadInputWindow()
-
-                updateStatus("等待Windows客户端连接... (端口${InputBridgeServer.DEFAULT_PORT})")
-                updateLayerText(mapper?.getActiveLayers() ?: emptyList())
-                updateLayerButtonColors(mapper?.getActiveLayers() ?: emptyList())
-            } else {
-                updateStatus("启动失败 - 检查悬浮窗权限")
-            }
-        } catch (e: Exception) {
-            updateStatus("错误: ${e.message}")
-        }
+        }.start()
     }
 
     // ====================================================================
@@ -365,7 +378,7 @@ class ControllerOverlayService : Service() {
      * @param msg 提示消息
      */
     private fun toast(msg: String) {
-        android.os.Handler(android.os.Looper.getMainLooper()).post {
+        mainHandler.post {
             Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
         }
     }
