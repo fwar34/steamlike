@@ -349,6 +349,15 @@ int main(int argc, char* argv[]) {
     setvbuf(stdout, NULL, _IONBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);
 
+    /* 单进程限制: 使用命名互斥锁确保同时只有一个实例运行 */
+    HANDLE hMutex = CreateMutex(NULL, TRUE, "Global\\SteamLikeInputBridgeClient");
+    if (hMutex == NULL || GetLastError() == ERROR_ALREADY_EXISTS) {
+        printf("[ERROR] Another instance is already running. Exiting.\n");
+        if (hMutex) CloseHandle(hMutex);
+        return 1;
+    }
+    printf("[INFO] Single instance lock acquired.\n");
+
     /* 初始化Winsock */
     WSADATA wsaData;
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
@@ -399,6 +408,12 @@ int main(int argc, char* argv[]) {
     /* 清理 */
     ReleaseAllInputs();
     WSACleanup();
+
+    /* 释放单进程互斥锁 */
+    if (hMutex) {
+        ReleaseMutex(hMutex);
+        CloseHandle(hMutex);
+    }
 
     printf("[EXIT] Program exited\n");
     return 0;

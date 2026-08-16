@@ -219,11 +219,11 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, 24, 0, 8)
         })
 
-        // 导出 exe 到 Download 目录按钮
+        // 导出 Windows 客户端文件到 Download/AControler 目录按钮
         container.addView(Button(this).apply {
-            text = "导出 inputbridge_client.exe 到 Download"
+            text = "导出 Windows 客户端到 Download/AControler"
             setOnClickListener {
-                exportExeToDownload()
+                exportFilesToDownload()
             }
         })
 
@@ -238,11 +238,14 @@ class MainActivity : AppCompatActivity() {
                 3. 切换到Winlator运行游戏
 
                 第二步: Windows端准备
-                1. 点击"导出 inputbridge_client.exe 到 Download"按钮
-                   (exe 已内置在 APK 中，无需自行编译)
-                2. 从 Download 目录取出 inputbridge_client.exe
-                3. 将 exe 复制到Winlator的C盘
-                4. 在Winlator中运行: inputbridge_client.exe
+                1. 点击"导出 Windows 客户端到 Download/AControler"按钮
+                   (exe 和 control.bat 已内置在 APK 中)
+                2. 从 Download/AControler 目录取出文件:
+                   - inputbridge_client.exe
+                   - control.bat
+                3. 将这两个文件复制到Winlator的C盘
+                4. 在Winlator中运行: control.bat start
+                   (或直接运行: inputbridge_client.exe)
                 5. 保持窗口打开, 切到WoW游戏
 
                 架构: Android(焦点窗口捕获手柄 + TCP服务器:27015)
@@ -391,60 +394,71 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ====================================================================
-    // Windows 客户端导出
+    // Windows 客户端文件导出
     // ====================================================================
-    // 将打包在 APK assets 中的 inputbridge_client.exe 释放到 Download 目录，
-    // 方便用户通过文件管理器或 ADB 取出，复制到 Winlator 的 C 盘使用。
+    // 将打包在 APK assets 中的 inputbridge_client.exe 和 control.bat
+    // 释放到 Download/AControler 目录，方便用户通过文件管理器或 ADB 取出，
+    // 复制到 Winlator 的 C 盘使用。
     //
     // 实现策略:
-    // - Android 10+ (API 29+): 使用 MediaStore.Downloads API，无需存储权限
-    // - Android 9 及以下 (API < 29): 直接写入 Environment.DIRECTORY_DOWNLOADS，
-    //   需要 WRITE_EXTERNAL_STORAGE 权限（已在 Manifest 声明，运行时请求）
+    // - Android 10+ (API 29+): 使用 MediaStore.Downloads API + RELATIVE_PATH 子目录
+    // - Android 9 及以下 (API < 29): 直接写入 Environment.DIRECTORY_DOWNLOADS/AControler
     // ====================================================================
 
+    /** 导出目标子目录名 */
+    private val exportDirName = "AControler"
+
+    /** 需要导出的文件列表 (assetName → displayName) */
+    private val exportFiles = listOf(
+        "inputbridge_client.exe" to "inputbridge_client.exe",
+        "control.bat" to "control.bat"
+    )
+
     /**
-     * 导出 inputbridge_client.exe 到 Download 目录
+     * 导出 Windows 客户端文件到 Download/AControler 目录
      *
-     * 从 APK 的 assets 中读取 exe 文件，写入到公共 Download 目录。
+     * 从 APK 的 assets 中读取 exe 和 control.bat，写入到公共 Download/AControler 目录。
      */
-    private fun exportExeToDownload() {
-        val assetName = "inputbridge_client.exe"
-        val displayName = "inputbridge_client.exe"
+    private fun exportFilesToDownload() {
+        val results = mutableListOf<String>()
 
-        // 从 assets 读取 exe 字节流
-        val exeBytes = try {
-            assets.open(assetName).use { it.readBytes() }
-        } catch (e: Exception) {
-            toastLog("读取内置 exe 失败: ${e.message}", long = true)
-            return
+        for ((assetName, displayName) in exportFiles) {
+            // 从 assets 读取文件字节
+            val bytes = try {
+                assets.open(assetName).use { it.readBytes() }
+            } catch (e: Exception) {
+                toastLog("读取 $assetName 失败: ${e.message}", long = true)
+                return
+            }
+
+            // 根据 Android 版本选择写入方式
+            val success = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                exportViaMediaStore(bytes, displayName)
+            } else {
+                exportViaLegacyFile(bytes, displayName)
+            }
+
+            results.add("$displayName: ${if (success) "OK" else "FAIL"} (${bytes.size} bytes)")
         }
 
-        // 根据 Android 版本选择写入方式
-        val success = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            // Android 10+ (API 29+): 使用 MediaStore.Downloads，无需权限
-            exportViaMediaStore(exeBytes, displayName)
+        // 汇总提示
+        val allSuccess = results.all { it.contains("OK") }
+        val msg = if (allSuccess) {
+            "已导出 ${exportFiles.size} 个文件到 Download/$exportDirName 目录:\n" +
+            results.joinToString("\n") { "  $it" } + "\n" +
+            "请将文件复制到 Winlator 的 C 盘后运行 control.bat start"
         } else {
-            // Android 9 及以下: 检查并请求 WRITE_EXTERNAL_STORAGE 权限后直接写文件
-            exportViaLegacyFile(exeBytes, displayName)
+            "导出部分失败:\n" + results.joinToString("\n") { "  $it" }
         }
-
-        if (success) {
-            toastLog(
-                "已导出 $displayName 到 Download 目录\n" +
-                "大小: ${exeBytes.size} 字节\n" +
-                "请将此文件复制到 Winlator 的 C 盘后运行",
-                long = true
-            )
-        }
+        toastLog(msg, long = true)
     }
 
     /**
-     * 通过 MediaStore.Downloads 写入文件 (Android 10+)
+     * 通过 MediaStore.Downloads 写入文件到子目录 (Android 10+)
      *
-     * 使用 MediaStore API 写入公共 Download 目录，无需申请存储权限。
-     * 文件会出现在 /sdcard/Download/inputbridge_client.exe
+     * 使用 MediaStore API 写入公共 Download/AControler 目录，无需申请存储权限。
      *
-     * @param bytes exe 文件字节数组
+     * @param bytes 文件字节数组
      * @param displayName 显示文件名
      * @return true=写入成功
      */
@@ -454,37 +468,37 @@ class MainActivity : AppCompatActivity() {
             val values = android.content.ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
                 put(MediaStore.MediaColumns.MIME_TYPE, "application/octet-stream")
-                // 指定写入 Downloads 集合
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
-                }
+                // 指定写入 Downloads/AControler 子目录
+                put(MediaStore.MediaColumns.RELATIVE_PATH,
+                    "${Environment.DIRECTORY_DOWNLOADS}/$exportDirName")
             }
             val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
             val uri = resolver.insert(collection, values) ?: run {
-                toastLog("创建 Download 文件失败", long = true)
+                Log.e(TAG, "MediaStore insert failed for $displayName")
                 return false
             }
             resolver.openOutputStream(uri)?.use { output ->
                 output.write(bytes)
                 output.flush()
             } ?: run {
-                toastLog("打开输出流失败", long = true)
+                Log.e(TAG, "openOutputStream failed for $displayName")
                 return false
             }
+            Log.i(TAG, "Exported $displayName to Download/$exportDirName (${bytes.size} bytes)")
             true
         } catch (e: Exception) {
-            toastLog("导出失败: ${e.message}", long = true)
+            Log.e(TAG, "Export $displayName failed", e)
             false
         }
     }
 
     /**
-     * 通过直接文件写入 (Android 9 及以下)
+     * 通过直接文件写入到子目录 (Android 9 及以下)
      *
-     * 直接写入 Environment.getExternalStoragePublicDirectory(DIRECTORY_DOWNLOADS)，
+     * 直接写入 Environment.getExternalStoragePublicDirectory(DIRECTORY_DOWNLOADS)/AControler，
      * 需要 WRITE_EXTERNAL_STORAGE 运行时权限。
      *
-     * @param bytes exe 文件字节数组
+     * @param bytes 文件字节数组
      * @param displayName 显示文件名
      * @return true=写入成功
      */
@@ -492,7 +506,6 @@ class MainActivity : AppCompatActivity() {
         // 检查写入权限
         if (checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
             != PackageManager.PERMISSION_GRANTED) {
-            // 请求权限（首次调用会弹出授权对话框）
             requestPermissions(arrayOf(android.Manifest.permission.WRITE_EXTERNAL_STORAGE),
                 REQUEST_WRITE_STORAGE)
             return false
@@ -501,15 +514,17 @@ class MainActivity : AppCompatActivity() {
             val downloadDir = Environment.getExternalStoragePublicDirectory(
                 Environment.DIRECTORY_DOWNLOADS
             )
-            if (!downloadDir.exists()) downloadDir.mkdirs()
-            val targetFile = File(downloadDir, displayName)
+            val targetDir = File(downloadDir, exportDirName)
+            if (!targetDir.exists()) targetDir.mkdirs()
+            val targetFile = File(targetDir, displayName)
             FileOutputStream(targetFile).use { output ->
                 output.write(bytes)
                 output.flush()
             }
+            Log.i(TAG, "Exported $displayName to ${targetFile.absolutePath} (${bytes.size} bytes)")
             true
         } catch (e: Exception) {
-            toastLog("导出失败: ${e.message}", long = true)
+            Log.e(TAG, "Export $displayName failed", e)
             false
         }
     }
