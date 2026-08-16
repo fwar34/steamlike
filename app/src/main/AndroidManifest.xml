@@ -9,11 +9,18 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <!-- 网络权限 (TCP 桥接服务器) -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 写入外部存储 (导出exe到Download目录, Android 10及以下需要) -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
+    <!-- 读取外部存储 (Android 10及以下需要) -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
 
     <application
         android:name=".App"
         android:allowBackup="true"
         android:label="SteamLikeController"
+        android:requestLegacyExternalStorage="true"
         android:supportsRtl="true"
         android:theme="@style/Theme.AppCompat.DayNight.DarkActionBar">
 
