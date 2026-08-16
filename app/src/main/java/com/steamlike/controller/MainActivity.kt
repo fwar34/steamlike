@@ -1,6 +1,9 @@
 package com.steamlike.controller
 
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -8,6 +11,7 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
 import android.provider.Settings
+import android.util.Log
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -27,6 +31,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var startButton: Button
     private lateinit var overlayButton: Button
     private lateinit var configStatusText: TextView
+    private lateinit var connectionStatusText: TextView
 
     // ====================================================================
     // SAF（Storage Access Framework）文件选择器
@@ -121,6 +126,8 @@ class MainActivity : AppCompatActivity() {
                 ContextCompat.startForegroundService(this@MainActivity, intent)
                 // 提示切换到Winlator
                 statusText.append("\n\n✅ 服务已启动！请切换到Winlator")
+                connectionStatusText.text = "Client: waiting for connection..."
+                logD("Start button clicked, service starting")
             }
         }
         container.addView(startButton)
@@ -133,9 +140,26 @@ class MainActivity : AppCompatActivity() {
                 intent.action = ControllerOverlayService.ACTION_STOP
                 startService(intent)
                 stopService(Intent(this@MainActivity, ControllerOverlayService::class.java))
+                connectionStatusText.text = "Client: service stopped"
                 updateUI()
             }
         })
+
+        // ===== 客户端连接状态 =====
+        container.addView(TextView(this).apply {
+            text = "\nConnection Status"
+            textSize = 16f
+            setPadding(0, 24, 0, 8)
+        })
+
+        connectionStatusText = TextView(this).apply {
+            text = "Client: not started"
+            textSize = 13f
+            setLineSpacing(0f, 1.3f)
+            setPadding(0, 0, 0, 12)
+            setTextColor(0xFFAAAAAA.toInt())
+        }
+        container.addView(connectionStatusText)
 
         // ===== 配置管理 =====
         container.addView(TextView(this).apply {
@@ -182,7 +206,7 @@ class MainActivity : AppCompatActivity() {
                 val intent = Intent(this@MainActivity, ControllerOverlayService::class.java)
                 intent.action = ControllerOverlayService.ACTION_RESET_CONFIG
                 ContextCompat.startForegroundService(this@MainActivity, intent)
-                Toast.makeText(this@MainActivity, "正在重置...", Toast.LENGTH_SHORT).show()
+                toastLog("正在重置...")
                 // 延迟刷新UI
                 configStatusText.postDelayed({ updateConfigStatus() }, 1000)
             }
@@ -298,7 +322,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun ensureServiceRunning() {
         if (!Settings.canDrawOverlays(this)) {
-            Toast.makeText(this, "请先授予悬浮窗权限", Toast.LENGTH_LONG).show()
+            toastLog("请先授予悬浮窗权限", long = true)
             return
         }
         // 启动前台服务（如果已启动则不会重复启动，onStartCommand 会再次调用）
@@ -330,7 +354,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun sendConfigIntent(action: String, uri: Uri) {
         if (!Settings.canDrawOverlays(this)) {
-            Toast.makeText(this, "请先授予悬浮窗权限并启动服务", Toast.LENGTH_LONG).show()
+            toastLog("请先授予悬浮窗权限并启动服务", long = true)
             return
         }
         val intent = Intent(this, ControllerOverlayService::class.java).apply {
@@ -339,10 +363,9 @@ class MainActivity : AppCompatActivity() {
         }
         ContextCompat.startForegroundService(this, intent)
         // 显示操作进行中提示
-        Toast.makeText(this,
-            if (action == ControllerOverlayService.ACTION_EXPORT_CONFIG) "正在导出..." else "正在导入...",
-            Toast.LENGTH_SHORT
-        ).show()
+        toastLog(
+            if (action == ControllerOverlayService.ACTION_EXPORT_CONFIG) "正在导出..." else "正在导入..."
+        )
         // 延迟刷新配置状态显示（等待服务完成操作）
         configStatusText.postDelayed({ updateConfigStatus() }, 1000)
     }
@@ -392,7 +415,7 @@ class MainActivity : AppCompatActivity() {
         val exeBytes = try {
             assets.open(assetName).use { it.readBytes() }
         } catch (e: Exception) {
-            Toast.makeText(this, "读取内置 exe 失败: ${e.message}", Toast.LENGTH_LONG).show()
+            toastLog("读取内置 exe 失败: ${e.message}", long = true)
             return
         }
 
@@ -406,11 +429,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (success) {
-            Toast.makeText(this,
+            toastLog(
                 "已导出 $displayName 到 Download 目录\n" +
                 "大小: ${exeBytes.size} 字节\n" +
                 "请将此文件复制到 Winlator 的 C 盘后运行",
-                Toast.LENGTH_LONG).show()
+                long = true
+            )
         }
     }
 
@@ -437,19 +461,19 @@ class MainActivity : AppCompatActivity() {
             }
             val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
             val uri = resolver.insert(collection, values) ?: run {
-                Toast.makeText(this, "创建 Download 文件失败", Toast.LENGTH_LONG).show()
+                toastLog("创建 Download 文件失败", long = true)
                 return false
             }
             resolver.openOutputStream(uri)?.use { output ->
                 output.write(bytes)
                 output.flush()
             } ?: run {
-                Toast.makeText(this, "打开输出流失败", Toast.LENGTH_LONG).show()
+                toastLog("打开输出流失败", long = true)
                 return false
             }
             true
         } catch (e: Exception) {
-            Toast.makeText(this, "导出失败: ${e.message}", Toast.LENGTH_LONG).show()
+            toastLog("导出失败: ${e.message}", long = true)
             false
         }
     }
@@ -485,7 +509,7 @@ class MainActivity : AppCompatActivity() {
             }
             true
         } catch (e: Exception) {
-            Toast.makeText(this, "导出失败: ${e.message}", Toast.LENGTH_LONG).show()
+            toastLog("导出失败: ${e.message}", long = true)
             false
         }
     }
@@ -493,12 +517,70 @@ class MainActivity : AppCompatActivity() {
     companion object {
         /** 请求 WRITE_EXTERNAL_STORAGE 权限的请求码 (仅 Android 9 及以下使用) */
         private const val REQUEST_WRITE_STORAGE = 1001
+        private const val TAG = "SteamLikeUI"
+    }
+
+    // ====================================================================
+    // 客户端连接状态广播接收器
+    // ====================================================================
+    // 接收来自 ControllerOverlayService 的连接状态广播，
+    // 在 UI 上实时显示 Windows 客户端的连接/断开状态。
+    // ====================================================================
+
+    /**
+     * 客户端连接状态广播接收器
+     *
+     * 接收 [ControllerOverlayService.ACTION_CLIENT_STATUS] 广播，
+     * 更新 connectionStatusText 显示连接状态。
+     */
+    private val clientStatusReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == ControllerOverlayService.ACTION_CLIENT_STATUS) {
+                val statusText = intent.getStringExtra(ControllerOverlayService.EXTRA_STATUS_TEXT)
+                    ?: "unknown"
+                val connected = intent.getBooleanExtra(ControllerOverlayService.EXTRA_CONNECTED, false)
+                val displayText = if (connected) {
+                    "Client: connected\n$statusText"
+                } else {
+                    "Client: disconnected\n$statusText"
+                }
+                connectionStatusText.text = displayText
+                connectionStatusText.setTextColor(
+                    if (connected) 0xFF4CAF50.toInt() else 0xFFAAAAAA.toInt()
+                )
+                Log.i(TAG, "Connection status: connected=$connected, msg=$statusText")
+            }
+        }
+    }
+
+    /** 日志辅助方法，所有 UI 操作日志统一输出到 Logcat (tag: SteamLikeUI) */
+    private fun logD(msg: String) = Log.d(TAG, msg)
+
+    /** 日志辅助方法，Toast 同时输出到 Logcat */
+    private fun toastLog(msg: String, long: Boolean = false) {
+        Log.i(TAG, "Toast: $msg")
+        Toast.makeText(this, msg, if (long) Toast.LENGTH_LONG else Toast.LENGTH_SHORT).show()
     }
 
     override fun onResume() {
         super.onResume()
+        // 注册客户端连接状态广播接收器
+        // Android 14+ (API 34+) 要求指定 RECEIVER_EXPORTED 或 RECEIVER_NOT_EXPORTED
+        // 此广播仅用于应用内部通信，使用 NOT_EXPORTED
+        val filter = IntentFilter(ControllerOverlayService.ACTION_CLIENT_STATUS)
+        ContextCompat.registerReceiver(
+            this, clientStatusReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+        logD("onResume: registered client status receiver")
         updateUI()
         updateConfigStatus()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // 注销广播接收器，避免内存泄漏
+        unregisterReceiver(clientStatusReceiver)
+        logD("onPause: unregistered client status receiver")
     }
 
     private fun updateUI() {

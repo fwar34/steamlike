@@ -270,7 +270,7 @@ static int ConnectToServer(const char* ip, int port) {
 
     sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (sock == INVALID_SOCKET) {
-        printf("[错误] 创建socket失败: %d\n", WSAGetLastError());
+        printf("[ERROR] Socket creation failed: %d\n", WSAGetLastError());
         return -1;
     }
 
@@ -278,16 +278,16 @@ static int ConnectToServer(const char* ip, int port) {
     serverAddr.sin_port = htons((u_short)port);
     serverAddr.sin_addr.s_addr = inet_addr(ip);
 
-    printf("[连接] 正在连接 %s:%d ...\n", ip, port);
+    printf("[CONNECT] Connecting to %s:%d ...\n", ip, port);
 
     if (connect(sock, (struct sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR) {
-        printf("[错误] 连接失败: %d\n", WSAGetLastError());
+        printf("[ERROR] Connection failed: %d\n", WSAGetLastError());
         closesocket(sock);
         sock = INVALID_SOCKET;
         return -1;
     }
 
-    printf("[连接] 已连接到Android服务器!\n");
+    printf("[CONNECT] Connected to Android server!\n");
     return 0;
 }
 
@@ -323,7 +323,7 @@ static int ReceiveAndProcess(void) {
  */
 static BOOL WINAPI ConsoleHandler(DWORD signal) {
     if (signal == CTRL_C_EVENT || signal == CTRL_CLOSE_EVENT) {
-        printf("\n[退出] 正在清理...\n");
+        printf("\n[EXIT] Cleaning up...\n");
         running = 0;
         ReleaseAllInputs();
         if (sock != INVALID_SOCKET) {
@@ -345,6 +345,10 @@ int main(int argc, char* argv[]) {
     if (argc >= 2) ip = argv[1];
     if (argc >= 3) port = atoi(argv[2]);
 
+    /* 禁用stdout缓冲，确保管道/重定向环境下实时输出 */
+    setvbuf(stdout, NULL, _IONBF, 0);
+    setvbuf(stderr, NULL, _IONBF, 0);
+
     /* 初始化Winsock */
     WSADATA wsaData;
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
@@ -357,19 +361,19 @@ int main(int argc, char* argv[]) {
 
     printf("========================================\n");
     printf("  InputBridge Client for Winlator\n");
-    printf("  SteamLike手柄控制器 Windows端\n");
+    printf("  SteamLike Controller - Windows Side\n");
     printf("========================================\n");
-    printf("  服务器: %s:%d\n", ip, port);
-    printf("  协议: TCP 8字节定长包\n");
-    printf("  注入方式: SendInput()\n");
+    printf("  Server: %s:%d\n", ip, port);
+    printf("  Protocol: TCP 8-byte fixed-length packets\n");
+    printf("  Injection: SendInput()\n");
     printf("========================================\n");
-    printf("  按Ctrl+C退出\n\n");
+    printf("  Press Ctrl+C to quit\n\n");
 
     /* 主循环: 连接 → 接收 → 断开 → 重连 */
     while (running) {
         /* 连接到服务器 */
         if (ConnectToServer(ip, port) != 0) {
-            printf("[重试] %d秒后重连...\n", reconnectDelay / 1000);
+            printf("[RETRY] Reconnecting in %d seconds...\n", reconnectDelay / 1000);
             Sleep(reconnectDelay);
             continue;
         }
@@ -377,7 +381,7 @@ int main(int argc, char* argv[]) {
         /* 接收并处理数据，直到连接断开 */
         while (running) {
             if (ReceiveAndProcess() != 0) {
-                printf("[断开] 连接已断开\n");
+                printf("[DISCONNECT] Connection closed\n");
                 ReleaseAllInputs();
                 break;
             }
@@ -387,7 +391,7 @@ int main(int argc, char* argv[]) {
         sock = INVALID_SOCKET;
 
         if (running) {
-            printf("[重试] %d秒后重连...\n", reconnectDelay / 1000);
+            printf("[RETRY] Reconnecting in %d seconds...\n", reconnectDelay / 1000);
             Sleep(reconnectDelay);
         }
     }
@@ -396,6 +400,6 @@ int main(int argc, char* argv[]) {
     ReleaseAllInputs();
     WSACleanup();
 
-    printf("[退出] 程序已退出\n");
+    printf("[EXIT] Program exited\n");
     return 0;
 }

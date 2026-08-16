@@ -10,6 +10,7 @@ import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
 import android.util.DisplayMetrics
+import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -55,6 +56,7 @@ import com.steamlike.controller.mapping.WoWActionSets
 class ControllerOverlayService : Service() {
 
     companion object {
+        private const val TAG = "SteamLikeService"
         const val CHANNEL_ID = "steamlike_controller"
         const val NOTIFICATION_ID = 1001
         const val ACTION_STOP = "STOP"
@@ -66,6 +68,13 @@ class ControllerOverlayService : Service() {
         const val ACTION_RESET_CONFIG = "RESET_CONFIG"
         /** Intent extra: 配置文件 URI */
         const val EXTRA_CONFIG_URI = "config_uri"
+
+        /** 广播: 客户端连接状态变化 */
+        const val ACTION_CLIENT_STATUS = "CLIENT_STATUS"
+        /** Intent extra: 连接状态文本 */
+        const val EXTRA_STATUS_TEXT = "status_text"
+        /** Intent extra: 是否已连接 */
+        const val EXTRA_CONNECTED = "connected"
     }
 
     private var windowManager: WindowManager? = null
@@ -136,19 +145,29 @@ class ControllerOverlayService : Service() {
                 // 启动TCP桥接服务器（网络操作，必须在子线程）
                 bridgeServer = InputBridgeServer()
                 bridgeServer?.onClientConnected = { addr ->
-                    updateStatus("客户端已连接: $addr")
+                    Log.i(TAG, "Client connected: $addr")
+                    updateStatus("Client connected: $addr")
+                    broadcastClientStatus("Client connected: $addr", true)
                 }
                 bridgeServer?.onClientDisconnected = { addr ->
-                    updateStatus("等待Windows客户端连接... (端口${InputBridgeServer.DEFAULT_PORT})")
+                    Log.i(TAG, "Client disconnected: $addr")
+                    val msg = "Waiting for Windows client... (port ${InputBridgeServer.DEFAULT_PORT})"
+                    updateStatus(msg)
+                    broadcastClientStatus(msg, false)
                 }
                 bridgeServer?.onServerError = { msg ->
-                    updateStatus("服务器错误: $msg")
+                    Log.e(TAG, "Server error: $msg")
+                    updateStatus("Server error: $msg")
+                    broadcastClientStatus("Server error: $msg", false)
                 }
 
                 if (bridgeServer?.start() != true) {
-                    updateStatus("TCP服务器启动失败")
+                    Log.e(TAG, "TCP server start failed")
+                    updateStatus("TCP server start failed")
+                    broadcastClientStatus("TCP server start failed", false)
                     return@Thread
                 }
+                Log.i(TAG, "TCP server started on port ${InputBridgeServer.DEFAULT_PORT}")
 
                 // 使用桥接注入器（通过TCP发送事件到Windows客户端）
                 val injector = BridgeInputInjector(bridgeServer!!)
@@ -169,6 +188,7 @@ class ControllerOverlayService : Service() {
                 }
 
                 if (mapper?.start() == true) {
+                    Log.i(TAG, "Mapper started successfully")
                     // 加载用户配置（覆盖默认WoW预设的绑定和属性）
                     // 动作定义和回调保持不变，仅修改绑定关系
                     loadUserConfig()
@@ -176,14 +196,20 @@ class ControllerOverlayService : Service() {
                     // 创建焦点输入窗口（addView 必须在主线程执行）
                     mainHandler.post { createGamepadInputWindow() }
 
-                    updateStatus("等待Windows客户端连接... (端口${InputBridgeServer.DEFAULT_PORT})")
+                    val waitMsg = "Waiting for Windows client... (port ${InputBridgeServer.DEFAULT_PORT})"
+                    updateStatus(waitMsg)
+                    broadcastClientStatus(waitMsg, false)
                     updateLayerText(mapper?.getActiveLayers() ?: emptyList())
                     updateLayerButtonColors(mapper?.getActiveLayers() ?: emptyList())
                 } else {
-                    updateStatus("启动失败 - 检查悬浮窗权限")
+                    Log.e(TAG, "Mapper start failed - check overlay permission")
+                    updateStatus("Start failed - check overlay permission")
+                    broadcastClientStatus("Start failed - check overlay permission", false)
                 }
             } catch (e: Exception) {
-                updateStatus("错误: ${e.message}")
+                Log.e(TAG, "startMapper error", e)
+                updateStatus("Error: ${e.message}")
+                broadcastClientStatus("Error: ${e.message}", false)
             }
         }.start()
     }
@@ -371,16 +397,36 @@ class ControllerOverlayService : Service() {
     }
 
     /**
-     * 在主线程显示 Toast 提示
+     * 在主线程显示 Toast 提示，同时输出到 Logcat
      *
      * 配置操作可能在非主线程执行，需要 post 到主线程才能更新 UI。
+     * 所有提示消息同时输出到 Logcat（标签: SteamLikeService），方便调试。
      *
      * @param msg 提示消息
      */
     private fun toast(msg: String) {
+        Log.i(TAG, "Toast: $msg")
         mainHandler.post {
             Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
         }
+    }
+
+    /**
+     * 广播客户端连接状态给 MainActivity
+     *
+     * 当 Windows 客户端连接/断开时，发送广播让 Activity 更新 UI 状态显示。
+     * Activity 通过注册 [ACTION_CLIENT_STATUS] 广播接收器来监听状态变化。
+     *
+     * @param statusText 状态描述文本
+     * @param connected 是否已连接
+     */
+    private fun broadcastClientStatus(statusText: String, connected: Boolean) {
+        val intent = Intent(ACTION_CLIENT_STATUS).apply {
+            setPackage(packageName)
+            putExtra(EXTRA_STATUS_TEXT, statusText)
+            putExtra(EXTRA_CONNECTED, connected)
+        }
+        sendBroadcast(intent)
     }
 
     // ===== 焦点输入窗口 =====
