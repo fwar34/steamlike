@@ -24,6 +24,11 @@
 - [运行时配置 API](#运行时配置-api)
 - [配置文件](#配置文件)
 - [项目结构](#项目结构)
+- [入口点](#入口点)
+- [线程模型](#线程模型)
+- [模块说明](#模块说明)
+- [数据结构](#数据结构)
+- [测试目录](#测试目录)
 - [技术原理](#技术原理)
 - [通信协议](#通信协议)
 - [依赖说明](#依赖说明)
@@ -833,37 +838,50 @@ l:\steamlike/
 ├── app/                             # Android应用
 │   ├── build.gradle.kts             # 应用构建配置
 │   ├── proguard-rules.pro           # ProGuard 规则
-│   └── src/main/
-│       ├── AndroidManifest.xml      # 清单文件
-│       └── java/com/steamlike/controller/
-│           ├── App.kt               # Application 入口
-│           ├── MainActivity.kt      # 主界面(权限管理)
-│           │
-│           ├── core/                # 核心输入系统
-│           │   ├── SteamInput.kt          # 主控制器(公共层+操作层+组合键)
-│           │   ├── ActionSet.kt           # 公共层容器(动作+绑定+chordBindings)
-│           │   ├── ActionSetLayer.kt      # 操作层(覆盖机制, StickOverride/TriggerOverride)
-│           │   ├── ChordBinding.kt        # 组合键绑定(Steam Sub-Command)
-│           │   ├── InputAction.kt         # 动作定义(按钮/扳机/摇杆)
-│           │   ├── ControllerTypes.kt     # 类型定义(按钮/摇杆/向量)
-│           │   └── ControllerDevice.kt    # 设备管理+输入映射
-│           │
-│           ├── config/              # 配置文件系统
-│           │   ├── ControllerConfig.kt   # 配置数据模型 + JSON序列化/反序列化
-│           │   └── ConfigManager.kt      # 导出/导入逻辑 + 文件IO(SAF)
-│           │
-│           ├── injection/           # 输入注入(桥接模式)
-│           │   ├── InputInjector.kt        # 注入器接口
-│           │   ├── InputBridgeServer.kt    # TCP服务器(端口27015)
-│           │   ├── BridgeInputInjector.kt  # 桥接注入器(Android→TCP→Windows)
-│           │   └── GamepadInputView.kt     # 全屏透明焦点窗口(接收系统KeyEvent)
-│           │
-│           ├── mapping/             # 按键映射
-│           │   ├── WoWActionSets.kt        # WoW预设(公共层+10层+组合键)
-│           │   └── KeyboardMouseMapper.kt  # 手柄→键鼠映射器
-│           │
-│           └── service/             # 服务
-│               └── ControllerOverlayService.kt  # 悬浮窗+焦点窗口前台服务
+│   └── src/
+│       ├── main/
+│       │   ├── AndroidManifest.xml      # 清单文件(权限+服务声明)
+│       │   └── java/com/steamlike/controller/
+│       │       ├── App.kt               # Application 入口
+│       │       ├── MainActivity.kt      # 主界面(权限管理+配置UI)
+│       │       │
+│       │       ├── core/                # 核心输入系统
+│       │       │   ├── SteamInput.kt          # 主控制器(公共层+操作层+组合键)
+│       │       │   ├── ActionSet.kt           # 公共层容器(动作+绑定+chordBindings)
+│       │       │   ├── ActionSetLayer.kt      # 操作层(覆盖机制, StickOverride/TriggerOverride)
+│       │       │   ├── ChordBinding.kt        # 组合键绑定(Steam Sub-Command)
+│       │       │   ├── InputAction.kt         # 动作定义(按钮/扳机/摇杆)
+│       │       │   ├── ControllerTypes.kt     # 类型定义(按钮/摇杆/向量)
+│       │       │   └── ControllerDevice.kt    # 设备管理+输入映射
+│       │       │
+│       │       ├── config/              # 配置文件系统
+│       │       │   ├── ControllerConfig.kt   # 配置数据模型 + JSON序列化/反序列化
+│       │       │   └── ConfigManager.kt      # 导出/导入逻辑 + 文件IO(SAF)
+│       │       │
+│       │       ├── injection/           # 输入注入(桥接模式)
+│       │       │   ├── InputInjector.kt        # 注入器接口
+│       │       │   ├── InputBridgeServer.kt    # TCP服务器(端口27015)
+│       │       │   ├── BridgeInputInjector.kt  # 桥接注入器(Android→TCP→Windows)
+│       │       │   └── GamepadInputView.kt     # 全屏透明焦点窗口(接收系统KeyEvent)
+│       │       │
+│       │       ├── mapping/             # 按键映射
+│       │       │   ├── WoWActionSets.kt        # WoW预设(公共层+10层+组合键)
+│       │       │   └── KeyboardMouseMapper.kt  # 手柄→键鼠映射器
+│       │       │
+│       │       └── service/             # 服务
+│       │           └── ControllerOverlayService.kt  # 悬浮窗+焦点窗口前台服务
+│       │
+│       └── test/                            # ★ 单元测试目录
+│           └── java/com/steamlike/controller/
+│               ├── config/
+│               │   └── ControllerConfigTest.kt  # 配置序列化/反序列化测试
+│               └── core/
+│                   ├── ActionSetLayerTest.kt  # 操作层覆盖测试
+│                   ├── ActionSetTest.kt        # 动作集合容器测试
+│                   ├── ChordBindingTest.kt     # 组合键匹配测试
+│                   ├── ControllerTypesTest.kt  # 枚举/向量测试
+│                   ├── SteamInputTest.kt       # 绑定查找逻辑测试
+│                   └── Vector2Test.kt          # 2D向量运算测试
 │
 └── windows/                         # Windows配套程序
     ├── inputbridge_client.c         # C源码(TCP客户端+SendInput)
@@ -890,6 +908,724 @@ l:\steamlike/
 | `BridgeInputInjector` | [BridgeInputInjector.kt](app/src/main/java/com/steamlike/controller/injection/BridgeInputInjector.kt) | 桥接注入器，Android KeyCode→Windows VK Code映射 |
 | `inputbridge_client` | [inputbridge_client.c](windows/inputbridge_client.c) | Windows配套程序，TCP客户端+SendInput注入 |
 | `ControllerOverlayService` | [ControllerOverlayService.kt](app/src/main/java/com/steamlike/controller/service/ControllerOverlayService.kt) | 悬浮窗 + 焦点输入窗口前台服务 |
+| `App` | [App.kt](app/src/main/java/com/steamlike/controller/App.kt) | Application 入口（用于全局初始化） |
+| `MainActivity` | [MainActivity.kt](app/src/main/java/com/steamlike/controller/MainActivity.kt) | 主界面 Activity，权限管理 + 配置 UI |
+| `ControllerDevice` | [ControllerDevice.kt](app/src/main/java/com/steamlike/controller/core/ControllerDevice.kt) | 手柄设备信息 + 输入映射工具 |
+| `ControllerInputMapper` | [ControllerDevice.kt](app/src/main/java/com/steamlike/controller/core/ControllerDevice.kt) | Android KeyCode/MotionEvent → 统一编码 |
+| `WoWConfig` | [WoWActionSets.kt](app/src/main/java/com/steamlike/controller/mapping/WoWActionSets.kt) | WoW 配置数据类（公共层 + 10个操作层映射） |
+| `InputInjector` | [InputInjector.kt](app/src/main/java/com/steamlike/controller/injection/InputInjector.kt) | 注入器接口（多态抽象） |
+| `MouseButton` | [InputInjector.kt](app/src/main/java/com/steamlike/controller/injection/InputInjector.kt) | 鼠标按钮枚举（LEFT/RIGHT/MIDDLE） |
+
+---
+
+## 入口点
+
+应用有三个核心入口点，分别对应 Application / Activity / Service 三个层级。
+
+### 1. Application 入口: `App.kt`
+
+```kotlin
+class App : Application()
+```
+
+- **声明位置**: [AndroidManifest.xml](app/src/main/AndroidManifest.xml) 中 `<application android:name=".App">`
+- **职责**: 应用级初始化（当前为空实现，预留扩展点）
+- **生命周期**: 应用进程启动时创建，进程结束时销毁
+- **当前未使用**: 留作未来扩展（如全局异常处理、日志初始化等）
+
+### 2. Activity 入口: `MainActivity.kt`
+
+```kotlin
+class MainActivity : AppCompatActivity()
+```
+
+- **声明位置**: AndroidManifest.xml 中 `<activity android:name=".MainActivity" android:exported="true">`，包含 `MAIN` / `LAUNCHER` intent-filter
+- **职责**:
+  - 检查并请求悬浮窗权限（`SYSTEM_ALERT_WINDOW`）
+  - 启动/停止 `ControllerOverlayService` 前台服务
+  - 提供配置管理 UI（导出/导入/重置）
+  - 通过 SAF（Storage Access Framework）选择配置文件
+- **UI 构建**: 纯代码构建（无 XML 布局），使用 `ScrollView` + `LinearLayout`
+- **与服务的通信**: 通过 `Intent` + `startForegroundService()` 发送动作指令
+  - `ACTION_EXPORT_CONFIG` / `ACTION_IMPORT_CONFIG` / `ACTION_RESET_CONFIG` / `ACTION_STOP`
+  - 配置文件 URI 通过 `Intent.putExtra(EXTRA_CONFIG_URI, uri)` 传递
+
+### 3. Service 入口: `ControllerOverlayService.kt`
+
+```kotlin
+class ControllerOverlayService : Service()
+```
+
+- **声明位置**: AndroidManifest.xml 中 `<service android:name=".service.ControllerOverlayService" android:foregroundServiceType="specialUse">`
+- **职责**:
+  - 作为前台服务持续运行（带通知栏）
+  - 创建双窗口（GamepadInputView + 悬浮 UI 面板）
+  - 启动 TCP 服务器等待 Windows 客户端
+  - 初始化 `SteamInput` + `KeyboardMouseMapper` + `ConfigManager`
+  - 处理来自 MainActivity 的配置操作 Intent
+- **启动方式**: `ContextCompat.startForegroundService(context, intent)`
+- **Android 14+ 要求**:
+  - 声明 `FOREGROUND_SERVICE_SPECIAL_USE` 权限
+  - 调用 `ServiceCompat.startForeground(..., ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)`
+  - 在 Manifest 中声明 `<property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE">`
+
+### 4. Windows 端入口: `inputbridge_client.c`
+
+- **入口函数**: C 标准 `main(int argc, char *argv[])`
+- **运行环境**: Winlator 内的 Windows 虚拟环境
+- **启动参数**: `inputbridge_client.exe [server_ip] [port]`（默认 127.0.0.1:27015）
+- **职责**: 连接 Android TCP 服务器，接收 8 字节定长数据包，调用 `SendInput()` API 注入键鼠事件
+
+### 启动流程图
+
+```
+用户点击应用图标
+      ↓
+App.onCreate()                      ← Application 初始化
+      ↓
+MainActivity.onCreate()             ← 显示主界面
+      ↓ 用户点击"启动手柄映射"
+ContextCompat.startForegroundService()
+      ↓
+ControllerOverlayService.onCreate()
+      ├─ ServiceCompat.startForeground()  ← 显示通知
+      ├─ createOverlay()                  ← 创建悬浮窗 UI
+      └─ onStartCommand()
+           └─ startMapper() (后台线程)
+                ├─ InputBridgeServer.start()  ← TCP 服务器
+                ├─ SteamInput(context)         ← 输入系统
+                ├─ KeyboardMouseMapper.start() ← 加载 WoW 预设
+                ├─ loadUserConfig()            ← 加载用户配置（覆盖默认）
+                └─ mainHandler.post { createGamepadInputWindow() }  ← 主线程创建焦点窗口
+```
+
+---
+
+## 线程模型
+
+应用涉及多个线程协同工作，关键操作必须放在正确的线程，否则会崩溃或行为异常。
+
+### 线程总览
+
+| 线程 | 创建者 | 职责 | 关键约束 |
+|------|--------|------|---------|
+| **主线程 (UI Thread)** | Android 系统 | UI 操作、Handler 回调、60fps 更新循环 | 禁止网络操作 |
+| **Mapper 后台线程** | `ControllerOverlayService.startMapper()` | TCP 服务器初始化、SteamInput 创建 | 一次性任务 |
+| **BridgeServer-Accept** | `InputBridgeServer.start()` | 接受客户端连接 | 阻塞在 `ServerSocket.accept()` |
+| **BridgeServer-Dispatch** | `InputBridgeServer.start()` | 从消息队列取数据包发送给客户端 | 阻塞在 `queue.poll()` |
+| **BridgeServer-Client-N** | `InputBridgeServer.acceptLoop()` | 监听单个客户端断开（每客户端一线程） | 阻塞在 `input.read()` |
+
+### 线程交互图
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                       主线程 (Main Thread)                       │
+│                                                                  │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐ │
+│  │ MainActivity    │  │ ControllerOver  │  │ SteamInput      │ │
+│  │ UI 事件         │  │ layService      │  │ 60fps 更新循环   │ │
+│  │ (按钮点击)      │  │ (UI 操作)       │  │ (Handler.post)  │ │
+│  └────────┬────────┘  └────────┬────────┘  └─────────────────┘ │
+│           │                    │                                  │
+│           │   startForegroundService(intent)                      │
+│           ↓                    ↓                                  │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                  ┌─────────────┴─────────────┐
+                  ↓                            ↓
+┌───────────────────────────┐  ┌──────────────────────────────────┐
+│   Mapper 后台线程          │  │  BridgeServer-Accept 线程        │
+│   (一次性任务)             │  │  while: serverSocket.accept()    │
+│                            │  │  → 每个客户端启动 Client-N 线程   │
+│   InputBridgeServer.start()│  └──────────────────────────────────┘
+│   SteamInput(context)      │
+│   KeyboardMouseMapper.start│  ┌──────────────────────────────────┐
+│   loadUserConfig()         │  │  BridgeServer-Dispatch 线程      │
+│                            │  │  while: messageQueue.poll()      │
+│   mainHandler.post {       │  │  → client.send(packet)           │
+│     createGamepadInputWindow  │  → 转发到所有已连接客户端         │
+│   }                        │  └──────────────────────────────────┘
+└───────────────────────────┘
+```
+
+### 关键线程规则
+
+#### 规则 1: 网络操作必须在子线程
+
+```kotlin
+// ❌ 错误: 在主线程执行会抛 NetworkOnMainThreadException
+ServerSocket().bind(InetSocketAddress(port))
+
+// ✅ 正确: 在子线程执行
+Thread {
+    ServerSocket().bind(InetSocketAddress(port))
+}.start()
+```
+
+- **原因**: Android 禁止主线程执行网络 IO，防止阻塞 UI
+- **位置**: [ControllerOverlayService.kt](app/src/main/java/com/steamlike/controller/service/ControllerOverlayService.kt) `startMapper()` 整体放在 `Thread { ... }.start()` 中
+
+#### 规则 2: UI 操作必须在主线程
+
+```kotlin
+// ❌ 错误: 在子线程添加 View 会崩溃
+windowManager.addView(gamepadInputView, params)
+
+// ✅ 正确: 通过 Handler 切回主线程
+mainHandler.post {
+    windowManager.addView(gamepadInputView, params)
+}
+```
+
+- **原因**: `WindowManager.addView()`、`TextView.setText()`、`Toast.show()` 等都必须在主线程
+- **位置**: `ControllerOverlayService.startMapper()` 在子线程完成网络初始化后，通过 `mainHandler.post { createGamepadInputWindow() }` 切回主线程创建窗口
+
+#### 规则 3: 更新循环通过 Handler 在主线程执行
+
+```kotlin
+// SteamInput.kt 中的 60fps 更新循环
+private fun startUpdateLoop() {
+    mainHandler.postDelayed(object : Runnable {
+        override fun run() {
+            val now = System.currentTimeMillis()
+            val delta = now - lastUpdateTime
+            lastUpdateTime = now
+            commonLayer.updateAll(delta)  // 更新所有动作状态
+            mainHandler.postDelayed(this, 16)  // ~60fps
+        }
+    }, 16)
+}
+```
+
+- **原因**: 输入事件在主线程分发，更新循环与事件分发同线程可避免竞态
+- **副作用**: 长时间 `updateAll` 会卡 UI，但当前实现非常轻量（仅遍历少量动作）
+
+#### 规则 4: 线程安全集合
+
+```kotlin
+// SteamInput.kt 使用并发安全集合
+val actionSetLayers = ConcurrentHashMap<String, ActionSetLayer>()
+private val activeLayerStack = CopyOnWriteArrayList<ActionSetLayer>()
+private val connectedControllers = ConcurrentHashMap<Int, ControllerDevice>()
+private val heldButtons = CopyOnWriteArraySet<ControllerButton>()
+```
+
+- **原因**: 输入事件可能在多个线程触发（焦点窗口事件分发线程、主线程的 updateLoop）
+- **ConcurrentHashMap**: 高并发读写的层映射表
+- **CopyOnWriteArrayList**: 读多写少的活跃层栈（遍历时不会抛 ConcurrentModificationException）
+
+#### 规则 5: TCP 服务器使用消息队列解耦
+
+```kotlin
+// InputBridgeServer.kt
+private val messageQueue = ConcurrentLinkedQueue<ByteArray>()
+
+// 调用方（任意线程）入队
+fun sendKeyEvent(vkCode: Int, isDown: Boolean) {
+    val packet = ByteArray(PACKET_SIZE)
+    // ... 填充 packet
+    messageQueue.add(packet)  // 入队，不阻塞
+}
+
+// 分发线程（专用线程）出队并发送
+private fun dispatchLoop() {
+    while (isRunning.get()) {
+        val packet = messageQueue.poll()
+        if (packet != null) {
+            for (client in clients) {
+                client.send(packet)  // 实际网络发送
+            }
+        } else {
+            Thread.sleep(1)  // 避免忙等待
+        }
+    }
+}
+```
+
+- **优势**: 调用方（主线程的输入回调）不阻塞，网络发送在专用线程异步执行
+- **背压控制**: 如果队列过长会消耗内存，但实际手柄事件频率有限（~60Hz），不会成为瓶颈
+
+---
+
+## 模块说明
+
+应用按职责划分为 5 个核心模块 + 1 个服务模块 + 1 个入口模块。
+
+### 模块依赖关系
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    入口模块 (顶层)                           │
+│  App.kt         MainActivity.kt                            │
+└─────────────────────────┬───────────────────────────────────┘
+                          │ startForegroundService
+                          ↓
+┌─────────────────────────────────────────────────────────────┐
+│                    服务模块 (协调者)                         │
+│  ControllerOverlayService.kt                                │
+│  - 持有 SteamInput / KeyboardMouseMapper / ConfigManager   │
+│  - 管理 WindowManager 双窗口                                │
+│  - 处理配置操作 Intent                                      │
+└────────┬─────────────────┬──────────────────┬──────────────┘
+         │                 │                  │
+         ↓                 ↓                  ↓
+┌─────────────────┐ ┌──────────────┐ ┌──────────────────┐
+│   核心模块       │ │  映射模块     │ │   配置模块        │
+│   core/         │ │  mapping/    │ │   config/        │
+│                 │ │              │ │                  │
+│  SteamInput     │ │ WoWActionSets│ │ ControllerConfig │
+│  ActionSet      │ │ KeyboardMouse│ │ ConfigManager    │
+│  ActionSetLayer │ │ Mapper       │ │                  │
+│  ChordBinding   │ │              │ │                  │
+│  InputAction    │ │              │ │                  │
+│  ControllerTypes│ │              │ │                  │
+│  ControllerDevice│ │              │ │                  │
+└────────┬────────┘ └──────┬───────┘ └──────────────────┘
+         │                 │
+         │  持有引用        │ 使用注入器
+         ↓                 ↓
+┌─────────────────────────────────────────────────────────────┐
+│                    注入模块 (底层)                           │
+│  injection/                                                 │
+│  InputInjector (接口)                                       │
+│  BridgeInputInjector (实现: 通过 TCP 发送到 Windows)        │
+│  InputBridgeServer (TCP 服务器)                             │
+│  GamepadInputView (焦点窗口, 接收系统手柄事件)              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 各模块详细说明
+
+#### 1. 入口模块 (`com.steamlike.controller`)
+
+| 文件 | 职责 |
+|------|------|
+| [App.kt](app/src/main/java/com/steamlike/controller/App.kt) | Application 入口，预留全局初始化 |
+| [MainActivity.kt](app/src/main/java/com/steamlike/controller/MainActivity.kt) | 主界面，权限管理 + 配置 UI |
+
+#### 2. 服务模块 (`service`)
+
+| 文件 | 职责 |
+|------|------|
+| [ControllerOverlayService.kt](app/src/main/java/com/steamlike/controller/service/ControllerOverlayService.kt) | 前台服务，协调所有模块，管理双窗口 |
+
+#### 3. 核心模块 (`core`)
+
+| 文件 | 职责 |
+|------|------|
+| [SteamInput.kt](app/src/main/java/com/steamlike/controller/core/SteamInput.kt) | 主控制器，管理公共层、操作层栈、组合键匹配、设备监听 |
+| [ActionSet.kt](app/src/main/java/com/steamlike/controller/core/ActionSet.kt) | 公共层容器，定义动作和默认绑定，含 60fps 更新循环 |
+| [ActionSetLayer.kt](app/src/main/java/com/steamlike/controller/core/ActionSetLayer.kt) | 操作层，存储绑定覆盖和属性覆盖 |
+| [ChordBinding.kt](app/src/main/java/com/steamlike/controller/core/ChordBinding.kt) | 组合键绑定数据结构 |
+| [InputAction.kt](app/src/main/java/com/steamlike/controller/core/InputAction.kt) | 动作抽象基类，三种子类型（按钮/扳机/摇杆） |
+| [ControllerTypes.kt](app/src/main/java/com/steamlike/controller/core/ControllerTypes.kt) | 枚举定义（按钮/摇杆/扳机/手柄类型）+ Vector2 + ControllerState |
+| [ControllerDevice.kt](app/src/main/java/com/steamlike/controller/core/ControllerDevice.kt) | 设备信息 + ControllerInputMapper（键码映射工具） |
+
+#### 4. 映射模块 (`mapping`)
+
+| 文件 | 职责 |
+|------|------|
+| [WoWActionSets.kt](app/src/main/java/com/steamlike/controller/mapping/WoWActionSets.kt) | WoW 预设配置（公共层 + 10 操作层 + 组合键示例） |
+| [KeyboardMouseMapper.kt](app/src/main/java/com/steamlike/controller/mapping/KeyboardMouseMapper.kt) | 手柄→键鼠映射器，快捷键拦截，层切换 |
+
+#### 5. 配置模块 (`config`)
+
+| 文件 | 职责 |
+|------|------|
+| [ControllerConfig.kt](app/src/main/java/com/steamlike/controller/config/ControllerConfig.kt) | 配置数据模型 + JSON 序列化/反序列化 |
+| [ConfigManager.kt](app/src/main/java/com/steamlike/controller/config/ConfigManager.kt) | 导出/导入逻辑 + 文件 IO（内部存储 + SAF） |
+
+#### 6. 注入模块 (`injection`)
+
+| 文件 | 职责 |
+|------|------|
+| [InputInjector.kt](app/src/main/java/com/steamlike/controller/injection/InputInjector.kt) | 注入器接口 + MouseButton 枚举 |
+| [BridgeInputInjector.kt](app/src/main/java/com/steamlike/controller/injection/BridgeInputInjector.kt) | 桥接注入器实现，Android KeyCode → Windows VK Code |
+| [InputBridgeServer.kt](app/src/main/java/com/steamlike/controller/injection/InputBridgeServer.kt) | TCP 服务器，端口 27015，8 字节定长包协议 |
+| [GamepadInputView.kt](app/src/main/java/com/steamlike/controller/injection/GamepadInputView.kt) | 全屏透明焦点窗口，捕获系统 KeyEvent/MotionEvent |
+
+---
+
+## 数据结构
+
+### 核心数据结构总览
+
+```
+SteamInput
+  ├─ commonLayer: ActionSet                         ← 公共层（唯一）
+  │    ├─ buttonActions: Map<String, ButtonAction>       ← 按钮动作定义
+  │    ├─ triggerActions: Map<String, AnalogTriggerAction>  ← 扳机动作定义
+  │    ├─ stickActions: Map<String, StickPadGyroAction>  ← 摇杆动作定义
+  │    ├─ buttonBindings: Map<ControllerButton, String>  ← 按钮绑定
+  │    ├─ chordBindings: List<ChordBinding>              ← 组合键绑定
+  │    ├─ stickBindings: Map<ControllerStick, String>    ← 摇杆绑定
+  │    └─ triggerBindings: Map<ControllerTrigger, String> ← 扳机绑定
+  │
+  ├─ actionSetLayers: ConcurrentHashMap<String, ActionSetLayer>  ← 所有已注册层
+  ├─ activeLayerStack: CopyOnWriteArrayList<ActionSetLayer>      ← 活跃层栈
+  ├─ connectedControllers: ConcurrentHashMap<Int, ControllerDevice>  ← 已连接手柄
+  ├─ currentStates: ConcurrentHashMap<Int, ControllerState>          ← 输入状态快照
+  └─ heldButtons: CopyOnWriteArraySet<ControllerButton>             ← 当前按住的按钮
+```
+
+### 枚举类型
+
+#### `ControllerButton` - 标准手柄按键（跨平台统一）
+
+```kotlin
+enum class ControllerButton {
+    A, B, X, Y,                                           // 面部按钮
+    LEFT_SHOULDER, RIGHT_SHOULDER,                        // 肩键 LB/RB
+    LEFT_TRIGGER_CLICK, RIGHT_TRIGGER_CLICK,              // 扳机点击 L2/R2
+    LEFT_STICK_CLICK, RIGHT_STICK_CLICK,                   // 摇杆按下 L3/R3
+    MENU, OPTIONS, GUIDE,                                 // 菜单/选项/Home键
+    DPAD_UP, DPAD_DOWN, DPAD_LEFT, DPAD_RIGHT,            // 十字键
+    TOUCHPAD_CLICK                                        // 触控板点击
+}
+```
+
+- **跨平台**: 无论 Xbox/PS/Switch，都统一映射到此枚举
+- **PS 手柄修正**: PS 的 ×/○ 与 Xbox 的 A/B 位置互换，由 `ControllerInputMapper` 自动修正
+
+#### `ControllerStick` - 摇杆类型
+
+```kotlin
+enum class ControllerStick {
+    LEFT_STICK,        // 左摇杆
+    RIGHT_STICK,       // 右摇杆
+    DPAD_AS_STICK      // 十字键作为摇杆（兼容无左摇杆的设备）
+}
+```
+
+#### `ControllerTrigger` - 扳机类型
+
+```kotlin
+enum class ControllerTrigger {
+    LEFT_TRIGGER,   // 左扳机 (LT/L2/ZL)
+    RIGHT_TRIGGER   // 右扳机 (RT/R2/ZR)
+}
+```
+
+#### `ControllerType` - 手柄类型（用于按键修正）
+
+通过 USB Vendor ID / Product ID 识别：
+
+| 类型 | Vendor ID | Product ID |
+|------|-----------|------------|
+| XBOX_360 | 0x045E | 0x028E |
+| XBOX_ONE | 0x045E | 0x02DD |
+| XBOX_ELITE | 0x045E | 0x0B00 |
+| PS3 | 0x054C | 0x0268 |
+| PS4 | 0x054C | 0x05C4 |
+| PS5_DUALSENSE | 0x054C | 0x0CE6 |
+| SWITCH_PRO | 0x057E | 0x2009 |
+| STEAM_CONTROLLER | 0x28DE | 0x1102 |
+| STEAM_DECK | 0x28DE | 0x1205 |
+| GENERIC | -1 | null |
+
+#### `InputActionType` - 动作类型
+
+```kotlin
+enum class InputActionType {
+    BUTTON,           // 按钮（二进制）
+    ANALOG_TRIGGER,   // 模拟扳机（0.0~1.0）
+    STICK_PAD_GYRO    // 摇杆/触控板/陀螺仪（2D 向量）
+}
+```
+
+#### `MouseButton` - 鼠标按钮
+
+```kotlin
+enum class MouseButton { LEFT, RIGHT, MIDDLE }
+```
+
+### 数据类
+
+#### `InputAction` (sealed class)
+
+三种子类型，每种对应一种输入形态：
+
+```kotlin
+sealed class InputAction {
+    data class ButtonAction(           // 按钮动作
+        val name: String,
+        var onPressed: (() -> Unit)?,  // 按下回调
+        var onReleased: (() -> Unit)?, // 释放回调
+        var onUpdate: ((isHeld: Boolean, heldTimeMs: Long) -> Unit)?,  // 每帧回调
+        var isPressed: Boolean,        // 当前是否按下
+        var heldTimeMs: Long           // 按住时长（ms）
+    )
+
+    data class AnalogTriggerAction(    // 扳机动作
+        val name: String,
+        var pressThreshold: Float,     // 按压阈值（默认 0.5）
+        var onValueChanged: ((value: Float) -> Unit)?,
+        var onPressed: (() -> Unit)?,
+        var onReleased: (() -> Unit)?,
+        var currentValue: Float,       // 当前值（0.0~1.0）
+        var isPressed: Boolean
+    )
+
+    data class StickPadGyroAction(     // 摇杆动作
+        val name: String,
+        var deadzone: Float,           // 死区（默认 0.15）
+        var responseCurve: Float,      // 响应曲线（默认 1.0）
+        var onValueChanged: ((vector: Vector2) -> Unit)?,
+        var onDirectionChanged: ((direction: StickDirection) -> Unit)?,
+        var clickAction: ButtonAction?,
+        var currentValue: Vector2,     // 处理后的值
+        var rawValue: Vector2          // 原始值
+    ) {
+        enum class StickDirection {    // 8方向 + 中心
+            CENTER, UP, UP_RIGHT, RIGHT, DOWN_RIGHT,
+            DOWN, DOWN_LEFT, LEFT, UP_LEFT
+        }
+    }
+}
+```
+
+#### `ChordBinding` - 组合键绑定
+
+```kotlin
+data class ChordBinding(
+    val button: ControllerButton,      // 触发按钮
+    val actionName: String,            // 动作名称
+    val chord: Set<ControllerButton>   // 修饰按钮集合（空=默认绑定）
+) {
+    fun matches(heldButtons: Set<ControllerButton>): Boolean  // chord 是否为 heldButtons 子集
+    val chordSize: Int  // chord.size，用于优先级排序
+}
+```
+
+#### `ActionSetLayer` - 操作层
+
+```kotlin
+class ActionSetLayer(
+    val name: String,                  // 层标识名
+    val displayName: String            // 显示名
+) {
+    val buttonBindingOverrides: MutableMap<ControllerButton, String>  // 按钮绑定覆盖
+    val stickOverrides: MutableMap<String, StickOverride>             // 摇杆属性覆盖
+    val triggerOverrides: MutableMap<String, TriggerOverride>         // 扳机属性覆盖
+    var onActivated: (() -> Unit)?
+    var onDeactivated: (() -> Unit)?
+    internal var stackPosition: Int    // 在栈中的位置（-1=未激活）
+}
+
+data class StickOverride(
+    var deadzone: Float?,              // null=不覆盖
+    var responseCurve: Float?
+)
+
+data class TriggerOverride(
+    var pressThreshold: Float?
+)
+```
+
+#### `Vector2` - 2D 向量
+
+```kotlin
+data class Vector2(
+    val x: Float = 0f,                 // X 轴（右为正）
+    val y: Float = 0f                  // Y 轴（下为正，与 Android 屏幕坐标一致）
+) {
+    val magnitude: Float               // 向量长度（0.0~1.0）
+    fun normalized(): Vector2          // 归一化
+    fun withDeadzone(deadzone: Float): Vector2  // 应用死区
+    companion object { val ZERO = Vector2(0f, 0f) }
+}
+```
+
+#### `ControllerDevice` - 手柄设备信息
+
+```kotlin
+data class ControllerDevice(
+    val deviceId: Int,                 // Android 设备 ID
+    val name: String,                  // 设备名称
+    val controllerType: ControllerType,// 手柄类型
+    val inputDevice: InputDevice,      // Android InputDevice
+    val supportsVibration: Boolean,    // 是否支持震动
+    val hasLeftStick: Boolean,         // 是否有左摇杆
+    val hasRightStick: Boolean,        // 是否有右摇杆
+    val hasAnalogTriggers: Boolean,    // 是否有模拟扳机
+    val hasDpad: Boolean               // 是否有十字键
+)
+```
+
+#### `ControllerState` - 输入状态快照
+
+```kotlin
+data class ControllerState(
+    val deviceId: Int,
+    val timestamp: Long,
+    val buttons: Map<ControllerButton, Boolean>,    // 按钮状态
+    val sticks: Map<ControllerStick, Vector2>,      // 摇杆位置
+    val triggers: Map<ControllerTrigger, Float>     // 扳机值
+)
+```
+
+### 配置文件数据模型
+
+```
+ControllerConfig (根)
+  ├─ version: Int                      ← 配置文件版本号（当前=1）
+  ├─ name: String                      ← 配置名称
+  ├─ description: String               ← 配置描述
+  ├─ commonLayer: CommonLayerConfig    ← 公共层配置
+  │    ├─ buttonBindings: Map<String, String>       ← 按钮名 → 动作名
+  │    ├─ chordBindings: List<ChordBindingConfig>   ← 组合键列表
+  │    ├─ stickBindings: Map<String, String>        ← 摇杆名 → 动作名
+  │    ├─ triggerBindings: Map<String, String>      ← 扳机名 → 动作名
+  │    ├─ stickProperties: Map<String, StickPropertiesConfig>     ← 摇杆属性
+  │    └─ triggerProperties: Map<String, TriggerPropertiesConfig> ← 扳机属性
+  │
+  └─ layers: List<LayerConfig>         ← 操作层配置列表
+       ├─ name: String                 ← 层标识名
+       ├─ displayName: String          ← 显示名
+       ├─ buttonBindingOverrides: Map<String, String>
+       ├─ stickOverrides: Map<String, StickPropertiesConfig>
+       └─ triggerOverrides: Map<String, TriggerPropertiesConfig>
+
+ChordBindingConfig:
+  ├─ button: String      ← 触发按钮枚举名
+  ├─ action: String      ← 动作名
+  └─ chord: List<String> ← 修饰按钮枚举名列表
+
+StickPropertiesConfig:
+  ├─ deadzone: Float?       ← null=不覆盖
+  └─ responseCurve: Float?
+
+TriggerPropertiesConfig:
+  └─ pressThreshold: Float?
+
+ImportResult (导入结果):
+  ├─ appliedCount: Int    ← 成功应用数
+  ├─ skippedCount: Int    ← 跳过数
+  └─ warnings: List<String> ← 警告信息
+```
+
+### 设计模式说明
+
+#### 1. **数据类与回调分离**
+
+- **数据类**（`ControllerConfig`、`StickOverride`）只存储数据，可序列化
+- **回调**（`onPressed`、`onValueChanged`）在代码中定义，不可序列化
+- 因此配置文件只包含绑定关系和属性值，不包含动作行为
+
+#### 2. **密封类（sealed class）多态**
+
+`InputAction` 使用密封类表示三种动作类型，编译器会检查 `when` 表达式的完整性，避免遗漏新增类型。
+
+#### 3. **覆盖模式（Override Pattern）**
+
+操作层不替换公共层，而是通过 `overrides` 增量覆盖：
+- 查找时从栈顶到栈底遍历，第一个找到的覆盖生效
+- 未覆盖的按键回退到公共层默认绑定
+
+#### 4. **接口抽象（多态注入）**
+
+`InputInjector` 接口允许不同的注入实现：
+- 当前实现: `BridgeInputInjector`（通过 TCP 桥接到 Windows）
+- 可扩展: 未来可添加 `LocalInputInjector`（直接注入 Android 系统）
+
+---
+
+## 测试目录
+
+### 测试覆盖
+
+应用在 `app/src/test/` 目录下提供完整的单元测试，使用 JUnit 4 + 纯 JVM 运行（无需 Android 设备/模拟器）。
+
+### 测试文件清单
+
+| 文件 | 测试内容 | 用例数 |
+|------|---------|--------|
+| [Vector2Test.kt](app/src/test/java/com/steamlike/controller/core/Vector2Test.kt) | 2D 向量运算（magnitude/normalized/withDeadzone） | ~10 |
+| [ControllerTypesTest.kt](app/src/test/java/com/steamlike/controller/core/ControllerTypesTest.kt) | 枚举解析（ControllerButton/ControllerType.fromVendorProduct） | ~8 |
+| [ChordBindingTest.kt](app/src/test/java/com/steamlike/controller/core/ChordBindingTest.kt) | 组合键匹配逻辑（matches/chordSize） | ~10 |
+| [ActionSetTest.kt](app/src/test/java/com/steamlike/controller/core/ActionSetTest.kt) | 动作集合容器（注册/更新循环/状态重置/8方向计算） | ~15 |
+| [ActionSetLayerTest.kt](app/src/test/java/com/steamlike/controller/core/ActionSetLayerTest.kt) | 操作层覆盖机制（绑定覆盖/属性覆盖/多层栈） | ~12 |
+| [SteamInputTest.kt](app/src/test/java/com/steamlike/controller/core/SteamInputTest.kt) | 绑定查找逻辑（组合键匹配/层覆盖/栈优先级） | ~14 |
+| [ControllerConfigTest.kt](app/src/test/java/com/steamlike/controller/config/ControllerConfigTest.kt) | 配置 JSON 序列化/反序列化（往返测试/枚举解析） | ~20 |
+
+### 测试策略
+
+#### 1. 纯 JVM 测试（无 Android 依赖）
+
+由于 `SteamInput` 构造需要 Android `Context`（获取 `InputManager`），测试通过以下方式绕过：
+
+```kotlin
+// SteamInputTest.kt 中模拟核心查找逻辑
+private fun lookupBinding(
+    button: ControllerButton,
+    heldButtons: Set<ControllerButton>,
+    commonLayer: ActionSet,           // 直接构造 ActionSet，无需 SteamInput
+    activeLayerStack: List<ActionSetLayer>
+): String? {
+    // 复制 SteamInput.getEffectiveButtonBinding 的算法
+    // 1. 检查组合键绑定（chordSize 最大的匹配优先）
+    // 2. 从栈顶到栈底查找层覆盖
+    // 3. 回退到公共层默认绑定
+}
+```
+
+- **优势**: 测试可在任何 JVM 环境运行，无需 Robolectric 或模拟器
+- **代价**: 测试逻辑需与生产代码保持同步（算法变更需同步更新测试）
+
+#### 2. 配置文件往返测试
+
+```kotlin
+@Test
+fun `往返测试 (Round-trip)`() {
+    val original = ControllerConfig(
+        version = 1,
+        name = "往返测试",
+        commonLayer = CommonLayerConfig(
+            buttonBindings = mapOf("A" to "Jump", "B" to "Interact"),
+            chordBindings = listOf(ChordBindingConfig("A", "Slot5", listOf("RIGHT_SHOULDER")))
+        ),
+        layers = listOf(LayerConfig("Combat", "战斗", mapOf("A" to "Slot5")))
+    )
+
+    val json = original.toJsonString(2)        // 序列化
+    val parsed = parseConfig(json)              // 反序列化
+
+    assertEquals(original.version, parsed.version)
+    assertEquals(original.commonLayer.buttonBindings, parsed.commonLayer.buttonBindings)
+    assertEquals(original.layers.size, parsed.layers.size)
+}
+```
+
+- 验证序列化 + 反序列化的数据一致性
+- 覆盖所有字段（按钮绑定/组合键/摇杆属性/扳机属性/操作层覆盖）
+
+### 运行测试
+
+```bash
+# 运行所有单元测试
+./gradlew test
+
+# 运行特定测试类
+./gradlew test --tests "com.steamlike.controller.core.SteamInputTest"
+
+# 运行特定测试方法
+./gradlew test --tests "com.steamlike.controller.core.SteamInputTest.组合键在修饰键按住时触发"
+```
+
+### 测试依赖
+
+```kotlin
+// app/build.gradle.kts
+dependencies {
+    // ... 实现依赖 ...
+
+    // 单元测试依赖
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")  // JSON 解析（替代 Android org.json）
+}
+```
+
+> **说明**: 测试使用 `org.json:json:20240303`（标准 Java 实现）替代 Android 内置的 `org.json`，因为单元测试运行在纯 JVM 环境，无法访问 Android API。
 
 ---
 

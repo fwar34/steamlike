@@ -333,16 +333,43 @@ object WoWActionSets {
 }
 
 /**
- * WoW配置: 公共层 + 10个操作层
+ * WoW 游戏配置数据类
+ *
+ * 封装 WoW 预设的完整配置: 公共层 + 10 个操作层。
+ * 由 [WoWActionSets.setup] 创建，存储在 [KeyboardMouseMapper.wowConfig] 中。
+ *
+ * ## 字段说明
+ * - [commonLayer]: 公共层，始终激活，定义所有动作和默认绑定
+ * - [layers]: 操作层映射表，按名称索引（如 "Combat" → ActionSetLayer）
+ *
+ * ## 使用场景
+ * [KeyboardMouseMapper] 通过此配置访问操作层，用于:
+ * - 切换层激活状态（[toggleLayer]）
+ * - 查询当前激活层（[getActiveLayers]）
+ * - 获取所有层用于 UI 显示
+ *
+ * @param commonLayer 公共层 ActionSet 实例
+ * @param layers 操作层映射表（名称 → ActionSetLayer）
  */
 data class WoWConfig(
     val commonLayer: ActionSet,
     val layers: Map<String, ActionSetLayer>
 ) {
-    /** 按名称获取操作层 */
+    /**
+     * 按名称获取操作层
+     *
+     * @param name 层名称（如 "Combat"）
+     * @return 对应的操作层；不存在返回 null
+     */
     fun layer(name: String): ActionSetLayer? = layers[name]
 
-    /** 获取所有操作层(按LAYER_NAMES顺序) */
+    /**
+     * 获取所有操作层（按 LAYER_NAMES 定义的顺序）
+     *
+     * 用于 UI 显示所有可用层（如悬浮窗的 2x5 按钮网格）。
+     *
+     * @return 操作层列表（顺序与 LAYER_NAMES 一致）
+     */
     fun allLayers(): List<ActionSetLayer> =
         WoWActionSets.LAYER_NAMES.mapNotNull { (name, _) -> layers[name] }
 }
