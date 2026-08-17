@@ -41,6 +41,13 @@
             android:exported="false"
             android:parentActivityName=".MainActivity" />
 
+        <!-- 手柄按键测试 Activity（调试用） -->
+        <activity
+            android:name=".GamepadTestActivity"
+            android:label="手柄按键测试"
+            android:exported="false"
+            android:parentActivityName=".MainActivity" />
+
         <!-- 悬浮窗前台服务 -->
         <service
             android:name=".service.ControllerOverlayService"

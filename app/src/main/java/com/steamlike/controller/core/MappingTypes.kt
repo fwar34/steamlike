@@ -320,6 +320,8 @@ data class ControllerProfile(
          */
         fun createDefault(): ControllerProfile {
             // Common 层层切换按键映射（保留显示用的 triggerButton 与之一致）
+            // 注意：RIGHT_STICK_CLICK (R3) 保留为 LookAround 视角控制，不作为层切换键
+            // Layer8 的触发键改为 TOUCHPAD_CLICK，避免覆盖 R3 的 LookAround 映射
             val triggerButtons = listOf(
                 ControllerButton.DPAD_UP to "Layer1",
                 ControllerButton.DPAD_DOWN to "Layer2",
@@ -328,7 +330,7 @@ data class ControllerProfile(
                 ControllerButton.LEFT_SHOULDER to "Layer5",
                 ControllerButton.RIGHT_SHOULDER to "Layer6",
                 ControllerButton.LEFT_STICK_CLICK to "Layer7",
-                ControllerButton.RIGHT_STICK_CLICK to "Layer8",
+                ControllerButton.TOUCHPAD_CLICK to "Layer8",
                 ControllerButton.LEFT_TRIGGER_CLICK to "Layer9",
                 ControllerButton.RIGHT_TRIGGER_CLICK to "Layer10"
             )

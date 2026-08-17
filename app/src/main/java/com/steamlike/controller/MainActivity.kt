@@ -262,6 +262,40 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
+        // ===== 调试: 手柄按键测试 =====
+        container.addView(TextView(this).apply {
+            text = "\n调试"
+            textSize = 16f
+            setPadding(0, 24, 0, 8)
+        })
+
+        container.addView(Button(this).apply {
+            text = "测试手柄按键（模拟器调试用）"
+            setOnClickListener {
+                ensureServiceRunning()
+                if (LayerEditActivity.steamInputRef == null) {
+                    toastLog("服务正在初始化，请稍候...")
+                    var waited = 0
+                    val tick = 100
+                    val maxWait = 3000
+                    configStatusText.postDelayed(object : Runnable {
+                        override fun run() {
+                            waited += tick
+                            if (LayerEditActivity.steamInputRef != null) {
+                                startActivity(Intent(this@MainActivity, GamepadTestActivity::class.java))
+                            } else if (waited < maxWait) {
+                                configStatusText.postDelayed(this, tick.toLong())
+                            } else {
+                                toastLog("服务初始化超时，请重试", long = true)
+                            }
+                        }
+                    }, tick.toLong())
+                    return@setOnClickListener
+                }
+                startActivity(Intent(this@MainActivity, GamepadTestActivity::class.java))
+            }
+        })
+
         // 使用说明（动态根据当前 profile 生成操作层切换说明）
         usageTextView = TextView(this).apply {
             textSize = 11f
@@ -662,6 +696,8 @@ class MainActivity : AppCompatActivity() {
         /** 请求 WRITE_EXTERNAL_STORAGE 权限的请求码 (仅 Android 9 及以下使用) */
         private const val REQUEST_WRITE_STORAGE = 1001
         private const val TAG = "SteamLikeUI"
+        /** Debug用: 启动 MainActivity 时传入此 extra=true 会自动启动服务并跳转到测试页面 */
+        const val EXTRA_AUTO_OPEN_TEST = "auto_open_test"
     }
 
     // ====================================================================
@@ -719,6 +755,34 @@ class MainActivity : AppCompatActivity() {
         updateUI()
         updateConfigStatus()
         updateUsageText()
+
+        // Debug: 自动跳转测试页面
+        // 通过 `adb shell am start -n com.steamlike.controller/.MainActivity --ez auto_open_test true` 触发
+        if (intent?.getBooleanExtra(EXTRA_AUTO_OPEN_TEST, false) == true) {
+            // 清除 extra 避免重复跳转
+            intent.removeExtra(EXTRA_AUTO_OPEN_TEST)
+            ensureServiceRunning()
+            if (LayerEditActivity.steamInputRef != null) {
+                startActivity(Intent(this@MainActivity, GamepadTestActivity::class.java))
+            } else {
+                // 等待服务初始化，最多 5 秒
+                var waited = 0
+                val tick = 100
+                val maxWait = 5000
+                configStatusText.postDelayed(object : Runnable {
+                    override fun run() {
+                        waited += tick
+                        if (LayerEditActivity.steamInputRef != null) {
+                            startActivity(Intent(this@MainActivity, GamepadTestActivity::class.java))
+                        } else if (waited < maxWait) {
+                            configStatusText.postDelayed(this, tick.toLong())
+                        } else {
+                            toastLog("服务初始化超时，请检查", long = true)
+                        }
+                    }
+                }, tick.toLong())
+            }
+        }
     }
 
     override fun onPause() {

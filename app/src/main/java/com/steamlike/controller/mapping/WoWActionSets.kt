@@ -17,7 +17,7 @@ package com.steamlike.controller.mapping
  * - Layer5: 潜行 - A→潜行, 移动更小心
  * - Layer6: 钓鱼 - A→钓鱼
  * - Layer7: 对战 - A/B/X/Y→5-8, 摇杆更快
- * - Layer8: 团本 - D-Pad→团队标记
+ * - Layer8: 团本 - D-Pad→团队标记 (触发键: Touchpad)
  * - Layer9: 旅行 - A→自动跑, B→坐骑
  * - Layer10: 自定义 - 空层(可运行时配置)
  */
