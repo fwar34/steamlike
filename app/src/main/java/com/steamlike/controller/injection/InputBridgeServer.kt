@@ -63,13 +63,18 @@ import java.util.concurrent.atomic.AtomicBoolean
  *   Byte 3-7: 保留
  * ```
  *
+ * @param host TCP监听地址，null或空表示监听所有接口(0.0.0.0)
  * @param port TCP监听端口，默认27015
  */
-class InputBridgeServer(private val port: Int = DEFAULT_PORT) {
+class InputBridgeServer(
+    private val host: String? = null,
+    private val port: Int = DEFAULT_PORT
+) {
 
     companion object {
         private const val TAG = "InputBridgeServer"
         const val DEFAULT_PORT = 27015
+        const val DEFAULT_HOST = "0.0.0.0"
 
         // 消息类型
         const val MSG_KEY_EVENT: Byte = 0x01
@@ -100,8 +105,10 @@ class InputBridgeServer(private val port: Int = DEFAULT_PORT) {
         if (isRunning.get()) return true
         return try {
             serverSocket = ServerSocket()
-            // 绑定到所有接口，允许Winlator内的Windows程序通过localhost连接
-            serverSocket!!.bind(InetSocketAddress(port))
+            // 绑定到指定接口，null/空表示监听所有接口(0.0.0.0)
+            val addr = if (host.isNullOrBlank()) InetSocketAddress(port)
+                        else InetSocketAddress(host, port)
+            serverSocket!!.bind(addr)
             isRunning.set(true)
 
             // 启动接受连接的线程
@@ -109,7 +116,7 @@ class InputBridgeServer(private val port: Int = DEFAULT_PORT) {
             // 启动消息分发线程
             Thread(::dispatchLoop, "BridgeServer-Dispatch").start()
 
-            Log.i(TAG, "服务器已启动, 端口=$port")
+            Log.i(TAG, "服务器已启动, 地址=${addr.hostString}:${port}")
             true
         } catch (e: IOException) {
             Log.e(TAG, "启动服务器失败", e)

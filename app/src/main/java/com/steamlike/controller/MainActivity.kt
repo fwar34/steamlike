@@ -13,6 +13,7 @@ import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Log
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -36,6 +37,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var configStatusText: TextView
     private lateinit var connectionStatusText: TextView
     private lateinit var usageTextView: TextView
+    /** TCP监听地址输入框 */
+    private lateinit var hostEditText: EditText
+    /** TCP监听端口输入框 */
+    private lateinit var portEditText: EditText
 
     // ====================================================================
     // SAF（Storage Access Framework）文件选择器
@@ -122,16 +127,67 @@ class MainActivity : AppCompatActivity() {
         }
         container.addView(overlayButton)
 
+        // ===== TCP服务器配置 =====
+        container.addView(TextView(this).apply {
+            text = "\nTCP服务器配置"
+            textSize = 16f
+            setPadding(0, 24, 0, 8)
+        })
+
+        // 地址和端口输入框（水平布局）
+        val hostPortLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        hostEditText = EditText(this).apply {
+            hint = "监听地址 (如 0.0.0.0)"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT
+            isFocusable = true
+            isFocusableInTouchMode = true
+            setText(getSharedPreferences("server_config", MODE_PRIVATE).getString("host", "0.0.0.0"))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 2f)
+            setOnClickListener {
+                requestFocus()
+                val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                imm.showSoftInput(this, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+            }
+        }
+        portEditText = EditText(this).apply {
+            hint = "端口"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            isFocusable = true
+            isFocusableInTouchMode = true
+            setText(getSharedPreferences("server_config", MODE_PRIVATE).getString("port", "27015"))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            setOnClickListener {
+                requestFocus()
+                val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                imm.showSoftInput(this, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+            }
+        }
+        hostPortLayout.addView(hostEditText)
+        hostPortLayout.addView(portEditText)
+        container.addView(hostPortLayout)
+
         // 启动服务按钮
         startButton = Button(this).apply {
             text = "启动手柄映射"
             setOnClickListener {
-                val intent = Intent(this@MainActivity, ControllerOverlayService::class.java)
+                val host = hostEditText.text.toString().trim()
+                val portStr = portEditText.text.toString().trim()
+                val port = portStr.toIntOrNull() ?: 27015
+                // 保存到SharedPreferences
+                getSharedPreferences("server_config", MODE_PRIVATE).edit()
+                    .putString("host", host)
+                    .putString("port", portStr)
+                    .apply()
+                val intent = Intent(this@MainActivity, ControllerOverlayService::class.java).apply {
+                    putExtra(ControllerOverlayService.EXTRA_HOST, host)
+                    putExtra(ControllerOverlayService.EXTRA_PORT, port)
+                }
                 ContextCompat.startForegroundService(this@MainActivity, intent)
-                // 提示切换到Winlator
-                statusText.append("\n\n✅ 服务已启动！请切换到Winlator")
+                statusText.append("\n\n✅ 服务已启动！监听 ${host.ifBlank { "0.0.0.0" }}:$port")
                 connectionStatusText.text = "Client: waiting for connection..."
-                logD("Start button clicked, service starting")
+                logD("Start button clicked, host=$host port=$port")
             }
         }
         container.addView(startButton)
@@ -336,7 +392,14 @@ class MainActivity : AppCompatActivity() {
             return
         }
         // 启动前台服务（如果已启动则不会重复启动，onStartCommand 会再次调用）
-        val intent = Intent(this, ControllerOverlayService::class.java)
+        // 读取用户配置的host和port
+        val prefs = getSharedPreferences("server_config", MODE_PRIVATE)
+        val host = prefs.getString("host", "0.0.0.0") ?: "0.0.0.0"
+        val port = prefs.getString("port", "27015")?.toIntOrNull() ?: 27015
+        val intent = Intent(this, ControllerOverlayService::class.java).apply {
+            putExtra(ControllerOverlayService.EXTRA_HOST, host)
+            putExtra(ControllerOverlayService.EXTRA_PORT, port)
+        }
         ContextCompat.startForegroundService(this, intent)
     }
 

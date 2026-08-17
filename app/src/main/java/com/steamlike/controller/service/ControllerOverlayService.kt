@@ -73,6 +73,10 @@ class ControllerOverlayService : Service() {
         const val ACTION_RESUME_OVERLAY = "RESUME_OVERLAY"
         /** Intent extra: 配置文件 URI */
         const val EXTRA_CONFIG_URI = "config_uri"
+        /** Intent extra: TCP监听地址，空表示监听所有接口 */
+        const val EXTRA_HOST = "server_host"
+        /** Intent extra: TCP监听端口 */
+        const val EXTRA_PORT = "server_port"
 
         /** 广播: 客户端连接状态变化 */
         const val ACTION_CLIENT_STATUS = "CLIENT_STATUS"
@@ -123,6 +127,10 @@ class ControllerOverlayService : Service() {
     private var mapper: KeyboardMouseMapper? = null
     private var bridgeServer: InputBridgeServer? = null
     private var configManager: ConfigManager? = null
+    /** TCP监听地址，由Intent extra EXTRA_HOST设置，null表示监听所有接口 */
+    private var serverHost: String? = null
+    /** TCP监听端口，由Intent extra EXTRA_PORT设置 */
+    private var serverPort: Int = InputBridgeServer.DEFAULT_PORT
 
     /**
      * 悬浮窗是否被暂停（在 LayerEditActivity 等设置界面打开时移除窗口）
@@ -158,6 +166,9 @@ class ControllerOverlayService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // 读取TCP监听地址和端口（每次startService都可更新，但仅在首次startMapper时生效）
+        intent?.getStringExtra(EXTRA_HOST)?.let { serverHost = it }
+        intent?.getIntExtra(EXTRA_PORT, serverPort)?.let { serverPort = it }
         when (intent?.action) {
             ACTION_STOP -> {
                 stopSelf()
@@ -200,7 +211,7 @@ class ControllerOverlayService : Service() {
         Thread {
             try {
                 // 启动TCP桥接服务器（网络操作，必须在子线程）
-                bridgeServer = InputBridgeServer()
+                bridgeServer = InputBridgeServer(serverHost, serverPort)
                 bridgeServer?.onClientConnected = { addr ->
                     Log.i(TAG, "Client connected: $addr")
                     updateStatus("Client connected: $addr")
@@ -208,7 +219,7 @@ class ControllerOverlayService : Service() {
                 }
                 bridgeServer?.onClientDisconnected = { addr ->
                     Log.i(TAG, "Client disconnected: $addr")
-                    val msg = "Waiting for Windows client... (port ${InputBridgeServer.DEFAULT_PORT})"
+                    val msg = "Waiting for Windows client... (${serverHost ?: "0.0.0.0"}:${serverPort})"
                     updateStatus(msg)
                     broadcastClientStatus(msg, false)
                 }
@@ -224,7 +235,7 @@ class ControllerOverlayService : Service() {
                     broadcastClientStatus("TCP server start failed", false)
                     return@Thread
                 }
-                Log.i(TAG, "TCP server started on port ${InputBridgeServer.DEFAULT_PORT}")
+                Log.i(TAG, "TCP server started on ${serverHost ?: "0.0.0.0"}:${serverPort}")
 
                 // 使用桥接注入器（通过TCP发送事件到Windows客户端）
                 val injector = BridgeInputInjector(bridgeServer!!)
@@ -256,7 +267,7 @@ class ControllerOverlayService : Service() {
                     // 创建焦点输入窗口（addView 必须在主线程执行）
                     mainHandler.post { createGamepadInputWindow() }
 
-                    val waitMsg = "Waiting for Windows client... (port ${InputBridgeServer.DEFAULT_PORT})"
+                    val waitMsg = "Waiting for Windows client... (${serverHost ?: "0.0.0.0"}:${serverPort})"
                     updateStatus(waitMsg)
                     broadcastClientStatus(waitMsg, false)
                     updateLayerText(mapper?.getActiveLayers() ?: emptyList())
