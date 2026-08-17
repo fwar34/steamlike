@@ -86,6 +86,10 @@ class ControllerOverlayService : Service() {
     private val layerButtons = mutableMapOf<String, Button>()
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
+    // 悬浮窗收起/展开状态
+    private var isExpanded = false
+    private var overlayParams: WindowManager.LayoutParams? = null
+
     private var steamInput: SteamInput? = null
     private var mapper: KeyboardMouseMapper? = null
     private var bridgeServer: InputBridgeServer? = null
@@ -460,7 +464,71 @@ class ControllerOverlayService : Service() {
 
     // ===== 悬浮窗 UI =====
 
+    /**
+     * 创建悬浮窗（初始为收起状态）
+     *
+     * 悬浮窗有两种状态:
+     * - 收起: 显示一个小图标按钮，可拖动移动位置，点击展开
+     * - 展开: 显示完整的操作层面板（状态、层按钮、提示），可拖动
+     *
+     * 两种状态共享 [overlayParams] 的位置坐标，切换时保持位置不变。
+     */
     private fun createOverlay() {
+        overlayParams = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            else
+                @Suppress("DEPRECATION")
+                WindowManager.LayoutParams.TYPE_PHONE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = 0
+            y = 100
+        }
+        showCollapsedView()
+    }
+
+    /**
+     * 显示收起状态的悬浮窗
+     *
+     * 移除展开视图（如果存在），创建一个小图标按钮。
+     * 点击小图标切换到展开状态。
+     */
+    private fun showCollapsedView() {
+        // 移除展开视图
+        overlayView?.let { windowManager?.removeView(it) }
+        overlayView = null
+
+        // 创建收起视图（小图标按钮）
+        val collapsed = TextView(this).apply {
+            text = "🎮"
+            textSize = 24f
+            setTextColor(0xFFFFFFFF.toInt())
+            setBackgroundColor(0x88000000.toInt())
+            setPadding(20, 8, 20, 8)
+        }
+        setupOverlayTouchListener(collapsed, isCollapsed = true)
+        overlayView = collapsed
+        overlayParams?.let { windowManager?.addView(collapsed, it) }
+        isExpanded = false
+    }
+
+    /**
+     * 显示展开状态的悬浮窗
+     *
+     * 移除收起视图，创建完整的操作层面板。
+     * 面板包含"收起"按钮可切换回收起状态。
+     */
+    private fun showExpandedView() {
+        // 移除收起视图
+        overlayView?.let { windowManager?.removeView(it) }
+        overlayView = null
+
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(0x88000000.toInt())
@@ -497,12 +565,13 @@ class ControllerOverlayService : Service() {
             container.addView(row)
         }
 
-        // 清除/关闭行
+        // 清除/收起/关闭行
         val ctrlRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, 8, 0, 4)
         }
         ctrlRow.addView(createOverlayButton("清除层") { mapper?.clearAllLayers() })
+        ctrlRow.addView(createOverlayButton("收起") { showCollapsedView() })
         ctrlRow.addView(createOverlayButton("关闭") { stopSelf() })
         container.addView(ctrlRow)
 
@@ -515,52 +584,66 @@ class ControllerOverlayService : Service() {
         }
         container.addView(hintText)
 
-        val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            else
-                @Suppress("DEPRECATION")
-                WindowManager.LayoutParams.TYPE_PHONE,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = 0
-            y = 100
-        }
+        setupOverlayTouchListener(container, isCollapsed = false)
+        overlayView = container
+        overlayParams?.let { windowManager?.addView(container, it) }
+        isExpanded = true
 
-        // 拖动
+        // 刷新当前状态（展开后显示最新状态）
+        if (mapper != null) {
+            updateLayerText(mapper?.getActiveLayers() ?: emptyList())
+            updateLayerButtonColors(mapper?.getActiveLayers() ?: emptyList())
+        }
+    }
+
+    /**
+     * 为悬浮窗视图设置拖动和点击监听
+     *
+     * - 拖动: 移动悬浮窗位置（收起和展开状态都支持）
+     * - 点击: 收起状态下点击触发展开；展开状态下不拦截按钮点击
+     *
+     * @param view 目标视图
+     * @param isCollapsed 是否为收起状态（收起状态下点击=展开）
+     */
+    private fun setupOverlayTouchListener(view: View, isCollapsed: Boolean) {
         var initialX = 0
         var initialY = 0
         var initialTouchX = 0f
         var initialTouchY = 0f
+        var hasMoved = false
 
-        container.setOnTouchListener { _, event ->
+        view.setOnTouchListener { _, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    initialX = params.x
-                    initialY = params.y
+                    initialX = overlayParams?.x ?: 0
+                    initialY = overlayParams?.y ?: 0
                     initialTouchX = event.rawX
                     initialTouchY = event.rawY
+                    hasMoved = false
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = event.rawX - initialTouchX
                     val dy = event.rawY - initialTouchY
-                    if (dx > 5 || dy > 5) {
-                        params.x = initialX + dx.toInt()
-                        params.y = initialY + dy.toInt()
-                        windowManager?.updateViewLayout(container, params)
+                    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+                        hasMoved = true
+                        overlayParams?.let { params ->
+                            params.x = initialX + dx.toInt()
+                            params.y = initialY + dy.toInt()
+                            windowManager?.updateViewLayout(view, params)
+                        }
+                    }
+                }
+                MotionEvent.ACTION_UP -> {
+                    // 收起状态下，未移动的点击 = 展开
+                    if (!hasMoved && isCollapsed) {
+                        showExpandedView()
+                        return@setOnTouchListener true
                     }
                 }
             }
-            false
+            // 移动了则消费事件（阻止按钮误触）；未移动则返回 false 让按钮处理
+            hasMoved
         }
-
-        overlayView = container
-        windowManager?.addView(container, params)
     }
 
     private fun createLayerButton(name: String, display: String): Button {
@@ -570,7 +653,18 @@ class ControllerOverlayService : Service() {
             setTextColor(0xFFFFFFFF.toInt())
             setBackgroundColor(0x44000000.toInt())
             setPadding(16, 4, 16, 4)
-            setOnClickListener { mapper?.toggleLayer(name) }
+            // 按住激活层，松开停用层（松开即回到公共层）
+            setOnTouchListener { _, event ->
+                when (event.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        mapper?.activateLayer(name)
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        mapper?.deactivateLayer(name)
+                    }
+                }
+                true
+            }
             val params = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT

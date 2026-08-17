@@ -322,6 +322,7 @@ class KeyboardMouseMapper(
     fun activateLayer(name: String) {
         val layer = wowConfig?.layers?.get(name) ?: return
         if (!steamInput.isLayerActive(name)) {
+            android.util.Log.i("SteamLikeMapper", "Layer activated: $name")
             steamInput.activateActionSetLayer(layer)
             vibrate(50, 120)
             onLayerChanged?.invoke(getActiveLayers())
@@ -335,6 +336,7 @@ class KeyboardMouseMapper(
     fun deactivateLayer(name: String) {
         val layer = wowConfig?.layers?.get(name) ?: return
         if (steamInput.isLayerActive(name)) {
+            android.util.Log.i("SteamLikeMapper", "Layer deactivated: $name")
             steamInput.deactivateActionSetLayer(layer)
             vibrate(30, 80)
             onLayerChanged?.invoke(getActiveLayers())
