@@ -4,6 +4,10 @@
 *.ap_
 *.aab
 
+# Allow committed release APK in apk/ directory
+!apk/
+!apk/*.apk
+
 # Files for the ART/Dalvik VM
 *.dex
 
