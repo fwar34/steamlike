@@ -188,7 +188,9 @@ class LayerEditActivity : AppCompatActivity() {
         val mouseButtonOptions: List<Pair<String, MouseButton>> = listOf(
             "鼠标左键" to MouseButton.LEFT,
             "鼠标中键" to MouseButton.MIDDLE,
-            "鼠标右键" to MouseButton.RIGHT
+            "鼠标右键" to MouseButton.RIGHT,
+            "鼠标前进键" to MouseButton.FORWARD,
+            "鼠标后退键" to MouseButton.BACK
         )
 
         /**
@@ -503,17 +505,18 @@ class LayerEditActivity : AppCompatActivity() {
         tvButtonName.text = "编辑按键: ${buttonDisplayName(button)}"
 
         // ===== 设置动作类型 Spinner =====
-        val actionTypes = listOf("键盘按键", "鼠标点击", "切换操作层")
+        val actionTypes = listOf("键盘按键", "鼠标点击", "鼠标长按", "切换操作层")
         spinnerActionType.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, actionTypes).also {
             it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         }
 
         // 从已有映射确定初始动作类型
-        // 0=键盘按键, 1=鼠标点击, 2=切换操作层
+        // 0=键盘按键, 1=鼠标点击, 2=鼠标长按, 3=切换操作层
         val initialActionType = when (existingMapping?.action) {
             is MappedAction.KeyboardKey -> 0
             is MappedAction.MouseClick -> 1
-            is MappedAction.SwitchLayer -> 2
+            is MappedAction.MouseToggle -> 2
+            is MappedAction.SwitchLayer -> 3
             is MappedAction.MouseMove, is MappedAction.LookAround -> 0  // 摇杆专用，默认显示键盘
             null -> 0  // 新建映射，默认键盘
         }
@@ -531,6 +534,10 @@ class LayerEditActivity : AppCompatActivity() {
                 if (pos >= 0) spinnerActionValue.setSelection(pos)
             }
             is MappedAction.MouseClick -> {
+                val pos = mouseButtonOptions.indexOfFirst { it.second == action.button }
+                if (pos >= 0) spinnerActionValue.setSelection(pos)
+            }
+            is MappedAction.MouseToggle -> {
                 val pos = mouseButtonOptions.indexOfFirst { it.second == action.button }
                 if (pos >= 0) spinnerActionValue.setSelection(pos)
             }
@@ -555,7 +562,7 @@ class LayerEditActivity : AppCompatActivity() {
         updateAddSubCommandButton(btnAddSubCommand, subCommandSpinners.size)
 
         // 子命令区域可见性（切换操作层类型时隐藏，因为子命令对切换层无效）
-        layoutSubCommands.visibility = if (initialActionType == 2) View.GONE else View.VISIBLE
+        layoutSubCommands.visibility = if (initialActionType == 3) View.GONE else View.VISIBLE
 
         // ===== 动作类型切换监听器 =====
         // 用户切换动作类型时，更新动作值 Spinner 的选项
@@ -564,7 +571,7 @@ class LayerEditActivity : AppCompatActivity() {
                 // 重新设置动作值 Spinner 的选项
                 setupActionValueSpinner(spinnerActionValue, tvActionLabel, position)
                 // 切换操作层时隐藏子命令区域
-                layoutSubCommands.visibility = if (position == 2) View.GONE else View.VISIBLE
+                layoutSubCommands.visibility = if (position == 3) View.GONE else View.VISIBLE
             }
 
             override fun onNothingSelected(parent: AdapterView<*>?) {}
@@ -856,7 +863,7 @@ class LayerEditActivity : AppCompatActivity() {
      *
      * @param spinner 动作值 Spinner
      * @param label 动作值标签（根据类型更新文字）
-     * @param actionType 动作类型 (0=键盘, 1=鼠标, 2=切换层)
+     * @param actionType 动作类型 (0=键盘, 1=鼠标点击, 2=鼠标长按, 3=切换层)
      */
     private fun setupActionValueSpinner(spinner: Spinner, label: TextView, actionType: Int) {
         val options: List<String> = when (actionType) {
@@ -868,7 +875,11 @@ class LayerEditActivity : AppCompatActivity() {
                 label.text = "选择鼠标按键:"
                 mouseButtonOptions.map { it.first }
             }
-            2 -> {  // 切换操作层
+            2 -> {  // 鼠标长按
+                label.text = "选择鼠标按键:"
+                mouseButtonOptions.map { it.first }
+            }
+            3 -> {  // 切换操作层
                 label.text = "选择目标层:"
                 layerNames
             }
@@ -883,7 +894,7 @@ class LayerEditActivity : AppCompatActivity() {
     /**
      * 根据动作类型和选中位置构建 [MappedAction]
      *
-     * @param actionType 动作类型 (0=键盘, 1=鼠标, 2=切换层)
+     * @param actionType 动作类型 (0=键盘, 1=鼠标点击, 2=鼠标长按, 3=切换层)
      * @param valuePosition 动作值 Spinner 的选中位置
      * @return 对应的 MappedAction 实例
      */
@@ -895,7 +906,10 @@ class LayerEditActivity : AppCompatActivity() {
             1 -> {  // 鼠标点击
                 MappedAction.MouseClick(mouseButtonOptions[valuePosition].second)
             }
-            2 -> {  // 切换操作层
+            2 -> {  // 鼠标长按
+                MappedAction.MouseToggle(mouseButtonOptions[valuePosition].second)
+            }
+            3 -> {  // 切换操作层
                 MappedAction.SwitchLayer(layerNames[valuePosition])
             }
             else -> MappedAction.KeyboardKey(keyboardKeyOptions[0].second)

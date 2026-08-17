@@ -193,6 +193,10 @@ object ControllerConfig {
                 json.put("type", "mouse")
                 json.put("button", action.button.name)
             }
+            is MappedAction.MouseToggle -> {
+                json.put("type", "mouseToggle")
+                json.put("button", action.button.name)
+            }
             is MappedAction.SwitchLayer -> {
                 json.put("type", "switchLayer")
                 json.put("layerName", action.layerName)
@@ -219,6 +223,12 @@ object ControllerConfig {
                 val button = runCatching { MouseButton.valueOf(buttonStr) }.getOrNull()
                     ?: return null
                 MappedAction.MouseClick(button)
+            }
+            "mouseToggle" -> {
+                val buttonStr = json.getString("button")
+                val button = runCatching { MouseButton.valueOf(buttonStr) }.getOrNull()
+                    ?: return null
+                MappedAction.MouseToggle(button)
             }
             "switchLayer" -> {
                 val layerName = json.getString("layerName")

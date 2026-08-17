@@ -42,9 +42,11 @@
 #define MSG_PING         0x06
 
 /* 鼠标按钮ID */
-#define MOUSE_LEFT   0
-#define MOUSE_RIGHT  1
-#define MOUSE_MIDDLE 2
+#define MOUSE_LEFT    0
+#define MOUSE_RIGHT   1
+#define MOUSE_MIDDLE  2
+#define MOUSE_FORWARD 3
+#define MOUSE_BACK    4
 
 /* ===== 全局状态 ===== */
 
@@ -53,7 +55,7 @@ static int running = 1;
 
 /* 当前按下的键集合（用于ReleaseAll） */
 static unsigned char pressedKeys[256] = {0};
-static int pressedMouseButtons[3] = {0, 0, 0};
+static int pressedMouseButtons[5] = {0, 0, 0, 0, 0};
 
 /* ===== 输入注入函数 ===== */
 
@@ -99,7 +101,7 @@ static void InjectMouseMove(int dx, int dy) {
 
 /*
  * 注入鼠标按钮事件
- * button: 0=左, 1=右, 2=中
+ * button: 0=左, 1=右, 2=中, 3=前进, 4=后退
  * isDown: 1=按下, 0=释放
  */
 static void InjectMouseButton(int button, int isDown) {
@@ -108,6 +110,7 @@ static void InjectMouseButton(int button, int isDown) {
     input.type = INPUT_MOUSE;
 
     DWORD downFlag, upFlag;
+    DWORD mouseData = 0;
     switch (button) {
         case MOUSE_LEFT:
             downFlag = MOUSEEVENTF_LEFTDOWN;
@@ -121,18 +124,29 @@ static void InjectMouseButton(int button, int isDown) {
             downFlag = MOUSEEVENTF_MIDDLEDOWN;
             upFlag = MOUSEEVENTF_MIDDLEUP;
             break;
+        case MOUSE_FORWARD:
+            downFlag = MOUSEEVENTF_XDOWN;
+            upFlag = MOUSEEVENTF_XUP;
+            mouseData = XBUTTON1;
+            break;
+        case MOUSE_BACK:
+            downFlag = MOUSEEVENTF_XDOWN;
+            upFlag = MOUSEEVENTF_XUP;
+            mouseData = XBUTTON2;
+            break;
         default:
             return;
     }
 
     input.mi.dwFlags = isDown ? downFlag : upFlag;
+    input.mi.mouseData = mouseData;
     input.mi.time = 0;
     input.mi.dwExtraInfo = 0;
 
     SendInput(1, &input, sizeof(INPUT));
 
     /* 更新状态 */
-    if (button >= 0 && button < 3) {
+    if (button >= 0 && button < 5) {
         pressedMouseButtons[button] = isDown ? 1 : 0;
     }
 }
@@ -193,6 +207,22 @@ static void ReleaseAllInputs(void) {
         inputs[count].mi.dwFlags = MOUSEEVENTF_MIDDLEUP;
         count++;
         pressedMouseButtons[MOUSE_MIDDLE] = 0;
+    }
+    if (pressedMouseButtons[MOUSE_FORWARD]) {
+        memset(&inputs[count], 0, sizeof(INPUT));
+        inputs[count].type = INPUT_MOUSE;
+        inputs[count].mi.dwFlags = MOUSEEVENTF_XUP;
+        inputs[count].mi.mouseData = XBUTTON1;
+        count++;
+        pressedMouseButtons[MOUSE_FORWARD] = 0;
+    }
+    if (pressedMouseButtons[MOUSE_BACK]) {
+        memset(&inputs[count], 0, sizeof(INPUT));
+        inputs[count].type = INPUT_MOUSE;
+        inputs[count].mi.dwFlags = MOUSEEVENTF_XUP;
+        inputs[count].mi.mouseData = XBUTTON2;
+        count++;
+        pressedMouseButtons[MOUSE_BACK] = 0;
     }
 
     if (count > 0) {

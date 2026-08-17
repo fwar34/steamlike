@@ -1,5 +1,18 @@
 package com.steamlike.controller.core
 
+import com.steamlike.controller.injection.MouseButton
+
+/**
+ * 鼠标按钮显示名称扩展函数
+ */
+fun MouseButton.toDisplayName(): String = when (this) {
+    MouseButton.LEFT -> "鼠标左键"
+    MouseButton.RIGHT -> "鼠标右键"
+    MouseButton.MIDDLE -> "鼠标中键"
+    MouseButton.FORWARD -> "鼠标前进键"
+    MouseButton.BACK -> "鼠标后退键"
+}
+
 /**
  * 映射动作类型（sealed class，密封类）
  *
@@ -71,6 +84,16 @@ sealed class MappedAction {
      * 摇杆X/Y值会乘以 [GlobalSettings.lookSensitivity] 后发送给 Windows。
      */
     data object LookAround : MappedAction()
+
+    /**
+     * 鼠标长按切换动作
+     *
+     * 第一次按下发送 MouseDown（不松开），第二次按下发送 MouseUp。
+     * 适用于"按一下开始长按，再按一下释放"的场景。
+     *
+     * @param button 鼠标按钮（[MouseButton.LEFT]/[MouseButton.RIGHT]等）
+     */
+    data class MouseToggle(val button: MouseButton) : MappedAction()
 }
 
 /**
@@ -121,14 +144,11 @@ data class KeyMapping(
         val parts = mutableListOf<String>()
         when (action) {
             is MappedAction.KeyboardKey -> parts.add(keyCodeToName(action.keyCode))
-            is MappedAction.MouseClick -> parts.add(when (action.button) {
-                MouseButton.LEFT -> "鼠标左键"
-                MouseButton.RIGHT -> "鼠标右键"
-                MouseButton.MIDDLE -> "鼠标中键"
-            })
+            is MappedAction.MouseClick -> parts.add(action.button.toDisplayName())
             is MappedAction.SwitchLayer -> parts.add("切换→${action.layerName}")
             is MappedAction.MouseMove -> parts.add("鼠标移动")
             is MappedAction.LookAround -> parts.add("视角控制")
+            is MappedAction.MouseToggle -> parts.add("长按${action.button.toDisplayName()}")
         }
         subCommands.forEach { parts.add(keyCodeToName(it)) }
         return parts.joinToString("+")

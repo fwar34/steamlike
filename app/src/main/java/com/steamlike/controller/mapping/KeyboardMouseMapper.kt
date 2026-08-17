@@ -84,6 +84,14 @@ class KeyboardMouseMapper(
     private val leftStickPressedKeys = mutableSetOf<Int>()
 
     /**
+     * MouseToggle 当前处于"按下"状态的手柄按钮集合
+     *
+     * 第一次按下 → 发送 MouseDown，加入集合
+     * 第二次按下 → 发送 MouseUp，移出集合
+     */
+    private val toggledMouseButtons = mutableSetOf<ControllerButton>()
+
+    /**
      * 操作层变化回调
      *
      * 当激活的操作层发生变化时调用，传递当前所有激活层的名称列表。
@@ -121,6 +129,7 @@ class KeyboardMouseMapper(
         pressedSubKeys.clear()
         pressedMouseButtons.clear()
         leftStickPressedKeys.clear()
+        toggledMouseButtons.clear()
         Log.i(TAG, "KeyboardMouseMapper stopped")
     }
 
@@ -193,6 +202,9 @@ class KeyboardMouseMapper(
             }
             is MappedAction.MouseClick -> {
                 handleMouseClick(button, isPressed, action.button)
+            }
+            is MappedAction.MouseToggle -> {
+                handleMouseToggle(button, isPressed, action.button)
             }
             is MappedAction.SwitchLayer -> {
                 // SwitchLayer 已在 SteamInput.handleButtonEvent 中处理
@@ -279,6 +291,32 @@ class KeyboardMouseMapper(
             val mb = pressedMouseButtons.remove(button) ?: return
             injector.sendMouseUp(mb)
             Log.d(TAG, "MouseUp: $mb")
+        }
+    }
+
+    /**
+     * 处理鼠标长按切换映射
+     *
+     * 第一次按下 → 发送 MouseDown（不松开）
+     * 第二次按下 → 发送 MouseUp（不再按下）
+     * 松开手柄键不触发任何操作（保持 toggle 状态）
+     *
+     * @param button 手柄按钮
+     * @param isPressed true=按下, false=释放（toggle模式中释放无操作）
+     * @param mouseButton 鼠标按钮
+     */
+    private fun handleMouseToggle(button: ControllerButton, isPressed: Boolean, mouseButton: MouseButton) {
+        if (!isPressed) return  // toggle模式：松开手柄键不触发任何操作
+        if (toggledMouseButtons.contains(button)) {
+            // 第二次按下 → 释放
+            injector.sendMouseUp(mouseButton)
+            toggledMouseButtons.remove(button)
+            Log.d(TAG, "Toggle MouseUp: $mouseButton")
+        } else {
+            // 第一次按下 → 按下
+            injector.sendMouseDown(mouseButton)
+            toggledMouseButtons.add(button)
+            Log.d(TAG, "Toggle MouseDown: $mouseButton")
         }
     }
 

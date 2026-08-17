@@ -74,6 +74,8 @@ class BridgeInputInjector(
             MouseButton.LEFT -> 0
             MouseButton.RIGHT -> 1
             MouseButton.MIDDLE -> 2
+            MouseButton.FORWARD -> 3
+            MouseButton.BACK -> 4
         }
         pressedButtons.add(button)
         server.sendMouseButton(btnId, isDown = true)
@@ -84,6 +86,8 @@ class BridgeInputInjector(
             MouseButton.LEFT -> 0
             MouseButton.RIGHT -> 1
             MouseButton.MIDDLE -> 2
+            MouseButton.FORWARD -> 3
+            MouseButton.BACK -> 4
         }
         pressedButtons.remove(button)
         server.sendMouseButton(btnId, isDown = false)
