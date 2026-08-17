@@ -6,7 +6,10 @@ import android.util.Log
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.LayoutInflater
+import android.view.MenuItem
 import android.view.View
+import android.view.WindowManager
+import android.view.inputmethod.InputMethodManager
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
@@ -16,10 +19,12 @@ import android.widget.ListView
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.steamlike.controller.config.ConfigManager
 import com.steamlike.controller.core.ControllerButton
+import com.steamlike.controller.service.ControllerOverlayService
 import com.steamlike.controller.core.ControllerProfile
 import com.steamlike.controller.core.KeyMapping
 import com.steamlike.controller.core.MappedAction
@@ -266,6 +271,12 @@ class LayerEditActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_layer_edit)
 
+        // 启用 ActionBar 返回箭头（替代边缘滑动返回手势，模拟器/手机上更可靠）
+        supportActionBar?.apply {
+            setDisplayHomeAsUpEnabled(true)
+            setDisplayShowHomeEnabled(true)
+        }
+
         // 检查 SteamInput 实例是否可用（由 ControllerOverlayService 设置）
         if (steamInputRef == null) {
             Toast.makeText(this, "控制器服务未启动，请先启动手柄映射服务", Toast.LENGTH_LONG).show()
@@ -273,6 +284,11 @@ class LayerEditActivity : AppCompatActivity() {
             finish()
             return
         }
+
+        // 暂停悬浮窗：全屏焦点窗口会拦截系统手势（边缘返回滑动），
+        // 进入设置界面时移除悬浮窗和焦点窗口，让出屏幕给设置界面。
+        // 仅在服务就绪时发送（避免服务未启动时被 startForegroundService 拉起）
+        sendOverlayAction(ControllerOverlayService.ACTION_PAUSE_OVERLAY)
 
         // 初始化 UI 元素
         layerSpinner = findViewById(R.id.spinner_layer)
@@ -297,6 +313,53 @@ class LayerEditActivity : AppCompatActivity() {
         }
 
         Log.i(TAG, "LayerEditActivity created, profile layers: ${steamInputRef?.profile?.allLayers?.size}")
+    }
+
+    /**
+     * 处理 ActionBar 菜单项点击
+     *
+     * 处理返回箭头（home）点击，等价于按返回键。
+     *
+     * ## Android 知识点: ActionBar 返回箭头
+     * - `setDisplayHomeAsUpEnabled(true)` 在 ActionBar 左侧显示返回箭头
+     * - 点击箭头会触发 [android.R.id.home] 的 onOptionsItemSelected
+     * - 必须手动调用 finish() 才能返回（不会自动返回）
+     */
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        if (item.itemId == android.R.id.home) {
+            finish()
+            return true
+        }
+        return super.onOptionsItemSelected(item)
+    }
+
+    /**
+     * Activity 销毁时调用
+     *
+     * 通知 ControllerOverlayService 恢复悬浮窗和焦点窗口。
+     *
+     * ## 重要性
+     * 必须在 onDestroy 调用 RESUME_OVERLAY，否则悬浮窗不会重建，
+     * 用户将无法看到状态、激活层，也无法接收手柄事件。
+     */
+    override fun onDestroy() {
+        super.onDestroy()
+        sendOverlayAction(ControllerOverlayService.ACTION_RESUME_OVERLAY)
+    }
+
+    /**
+     * 发送 overlay 控制意图到 ControllerOverlayService
+     *
+     * 用于通知服务暂停/恢复悬浮窗。
+     *
+     * @param action ControllerOverlayService.ACTION_PAUSE_OVERLAY
+     *               或 ControllerOverlayService.ACTION_RESUME_OVERLAY
+     */
+    private fun sendOverlayAction(action: String) {
+        val intent = Intent(this, ControllerOverlayService::class.java).apply {
+            this.action = action
+        }
+        ContextCompat.startForegroundService(this, intent)
     }
 
     // ====================================================================
@@ -549,6 +612,12 @@ class LayerEditActivity : AppCompatActivity() {
      * 显示层名称编辑对话框
      *
      * 使用 EditText 输入新名称，保存后重建 profile。
+     *
+     * ## 主动弹出软键盘
+     * AlertDialog 中的 EditText 默认不会自动弹出软键盘，需要：
+     * 1. 对话框显示后请求 EditText 焦点
+     * 2. 通过 InputMethodManager.showSoftInput 主动弹出键盘
+     * 3. 设置 windowSoftInputMode 让对话框窗口自动调整布局
      */
     private fun showLayerNameEditDialog() {
         val layer = currentLayer ?: return
@@ -557,9 +626,13 @@ class LayerEditActivity : AppCompatActivity() {
             setText(layer.name)
             setSelection(layer.name.length)
             hint = "输入操作层名称"
+            // 单行输入，避免多行模式导致回车键无法确定
+            setSingleLine(true)
+            // 请求焦点以便接收输入
+            requestFocus()
         }
 
-        AlertDialog.Builder(this)
+        val dialog = AlertDialog.Builder(this)
             .setTitle("编辑层名称")
             .setView(editText)
             .setPositiveButton("确定") { _, _ ->
@@ -572,7 +645,18 @@ class LayerEditActivity : AppCompatActivity() {
                 }
             }
             .setNegativeButton("取消", null)
-            .show()
+            .create()
+
+        // 对话框窗口显示时主动弹出软键盘
+        dialog.window?.setSoftInputMode(
+            WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE
+        )
+        dialog.show()
+
+        // 对话框显示后再请求一次焦点并弹出软键盘（双保险）
+        editText.requestFocus()
+        val imm = getSystemService(InputMethodManager::class.java)
+        imm?.showSoftInput(editText, InputMethodManager.SHOW_IMPLICIT)
     }
 
     /**

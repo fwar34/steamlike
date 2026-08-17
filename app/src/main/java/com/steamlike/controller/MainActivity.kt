@@ -21,6 +21,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.appcompat.app.AppCompatActivity
 import com.steamlike.controller.config.ConfigManager
+import com.steamlike.controller.config.ControllerConfig
+import com.steamlike.controller.core.ControllerButton
+import com.steamlike.controller.core.ControllerProfile
 import com.steamlike.controller.service.ControllerOverlayService
 import java.io.File
 import java.io.FileOutputStream
@@ -32,6 +35,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var overlayButton: Button
     private lateinit var configStatusText: TextView
     private lateinit var connectionStatusText: TextView
+    private lateinit var usageTextView: TextView
 
     // ====================================================================
     // SAF（Storage Access Framework）文件选择器
@@ -212,6 +216,37 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
+        // 操作层设置按钮
+        container.addView(Button(this).apply {
+            text = "操作层设置"
+            setOnClickListener {
+                // 必须先启动服务（LayerEditActivity.steamInputRef 在服务启动后才非空）
+                ensureServiceRunning()
+                if (LayerEditActivity.steamInputRef == null) {
+                    // 服务正在异步初始化，提示并轮询等待最多3秒
+                    toastLog("服务正在初始化，请稍候...")
+                    var waited = 0
+                    val tick = 100
+                    val maxWait = 3000
+                    configStatusText.postDelayed(object : Runnable {
+                        override fun run() {
+                            waited += tick
+                            if (LayerEditActivity.steamInputRef != null) {
+                                startActivity(Intent(this@MainActivity, LayerEditActivity::class.java))
+                            } else if (waited < maxWait) {
+                                configStatusText.postDelayed(this, tick.toLong())
+                            } else {
+                                toastLog("服务初始化超时，请重试", long = true)
+                            }
+                        }
+                    }, tick.toLong())
+                    return@setOnClickListener
+                }
+                val intent = Intent(this@MainActivity, LayerEditActivity::class.java)
+                startActivity(intent)
+            }
+        })
+
         // ===== Windows 客户端导出 =====
         container.addView(TextView(this).apply {
             text = "\nWindows 客户端"
@@ -227,76 +262,14 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
-        // 使用说明
-        container.addView(TextView(this).apply {
-            text = """
-                使用说明:
-
-                第一步: Android端准备
-                1. 授予悬浮窗权限
-                2. 点击"启动手柄映射"
-                3. 切换到Winlator运行游戏
-
-                第二步: Windows端准备
-                1. 点击"导出 Windows 客户端到 Download/AControler"按钮
-                   (exe 和 control.bat 已内置在 APK 中)
-                2. 从 Download/AControler 目录取出文件:
-                   - inputbridge_client.exe
-                   - control.bat
-                3. 将这两个文件复制到Winlator的C盘
-                4. 在Winlator中运行: control.bat start
-                   (或直接运行: inputbridge_client.exe)
-                5. 保持窗口打开, 切到WoW游戏
-
-                架构: Android(焦点窗口捕获手柄 + TCP服务器:27015)
-                      ←→ Windows(SendInput注入)
-
-                公共层（默认按键映射）:
-                  A=跳跃  B=互动  X=攻击  Y=背包
-                  LB=选怪  RB=面向  L3=自动跑  R3=回复
-                  LT=Shift  RT=鼠标左键
-                  D-Pad=快捷栏1-4
-                  左摇杆=移动  右摇杆=视角
-                  MENU=Esc  OPTIONS=回车  GUIDE=地图
-
-                组合键（参考Steam子指令）:
-                  A+RB=选怪   B+RB=面向目标
-                  X+RB=回复   Y+RB=地图
-                  D-Pad+L3=快捷栏5-8
-                  D-Pad+R3=快捷栏9/0/-/=
-                  (D-Pad单独=快捷栏1-4, 共12栏全覆盖)
-
-                10个操作层（可叠加, 继承公共层）:
-                  战斗 - A/B/X/Y→技能5-8, D-Pad→9/0/-/=
-                  骑乘 - 移动摇杆更灵敏
-                  瞄准 - 右摇杆更精准、移动更慢
-                  拾取 - A→右键拾取, X→左键全拿
-                  潜行 - A→潜行, 移动更小心
-                  钓鱼 - A→钓鱼
-                  对战 - A/B/X/Y→5-8, 摇杆更快
-                  团本 - D-Pad→团队标记
-                  旅行 - A→自动跑, B→坐骑
-                  自定义 - 空层(可运行时配置)
-
-                快捷键:
-                  LB + D-Pad 上/下/左/右 → 切换 战斗/骑乘/瞄准/拾取
-                  LB + A/B/X/Y           → 切换 潜行/钓鱼/对战/团本
-                  LB + L3/R3             → 切换 旅行/自定义
-                  LB + HOME              → 清除所有层
-
-                配置管理:
-                  导出配置 → 将当前按键映射保存为 JSON 文件
-                  导入配置 → 从 JSON 文件加载按键映射
-                  重置配置 → 恢复默认 WoW 预设
-                  配置文件格式见 config/ControllerConfig.kt
-
-                悬浮窗可拖动到任意位置
-            """.trimIndent()
+        // 使用说明（动态根据当前 profile 生成操作层切换说明）
+        usageTextView = TextView(this).apply {
             textSize = 11f
             setLineSpacing(0f, 1.3f)
             setPadding(0, 32, 0, 0)
             setTextColor(0xFFAAAAAA.toInt())
-        })
+        }
+        container.addView(usageTextView)
 
         scroll.addView(container)
         setContentView(scroll)
@@ -391,6 +364,138 @@ class MainActivity : AppCompatActivity() {
         } else {
             "配置文件: 未加载（使用默认 WoW 预设）"
         }
+    }
+
+    /**
+     * 更新使用说明文本
+     *
+     * 操作层切换说明根据当前 profile 的 triggerButton 动态生成，
+     * 不再硬编码 LB+D-Pad 等组合。公共层和操作层的内部按键映射
+     * 不在使用说明中列出，用户可通过"操作层设置"按钮查看具体映射。
+     */
+    private fun updateUsageText() {
+        // 动态生成操作层切换说明
+        val layerSwitchLines = buildLayerSwitchLines()
+
+        usageTextView.text = """
+            使用说明:
+
+            第一步: Android端准备
+            1. 授予悬浮窗权限
+            2. 点击"启动手柄映射"
+            3. 切换到Winlator运行游戏
+
+            第二步: Windows端准备
+            1. 点击"导出 Windows 客户端到 Download/AControler"按钮
+               (exe 和 control.bat 已内置在 APK 中)
+            2. 从 Download/AControler 目录取出文件:
+               - inputbridge_client.exe
+               - control.bat
+            3. 将这两个文件复制到Winlator的C盘
+            4. 在Winlator中运行: control.bat start
+               (或直接运行: inputbridge_client.exe)
+            5. 保持窗口打开, 切到WoW游戏
+
+            架构: Android(焦点窗口捕获手柄 + TCP服务器:27015)
+                  ←→ Windows(SendInput注入)
+
+            操作层切换（按住触发键激活，松开回公共层）:
+            $layerSwitchLines
+
+            配置管理:
+              操作层设置 → 打开设置界面，可视化编辑每个操作层的按键映射
+              导出配置 → 将当前按键映射保存为 JSON 文件
+              导入配置 → 从 JSON 文件加载按键映射
+              重置配置 → 恢复默认 WoW 预设
+              配置文件格式见 config/ControllerConfig.kt
+
+            操作层设置界面:
+              - 顶部下拉框切换操作层（公共层 + Layer1-Layer10）
+              - 点击按键映射列表项编辑单个按键
+                可选: 键盘按键/鼠标点击/切换操作层
+                每个映射可添加最多3个子命令形成组合键（如 Alt+3）
+              - "名称"按钮修改操作层名称
+              - "触发"按钮设置该层触发按键（公共层禁用）
+              - 按住触发按键激活层，松开回到公共层
+              - 进入设置界面时悬浮窗自动隐藏（避免遮挡手势）
+                退出后自动恢复
+
+            悬浮窗操作:
+              - 默认收起显示当前激活层名（无激活层时显示"公共层"）
+              - 操作层切换时收起悬浮窗文本同步刷新
+              - 可拖动到任意位置，点击展开面板
+              - 点击"收起"回到收起状态
+              - 层按钮按住激活对应层，松开回公共层
+              - 点击"清除层"清除所有激活层
+              - 点击"关闭"停止服务
+        """.trimIndent()
+    }
+
+    /**
+     * 根据当前 profile 的 layers.triggerButton 动态构建操作层切换说明
+     *
+     * 优先级:
+     * 1. 服务已启动 → 使用 steamInput.profile（包含运行时修改）
+     * 2. 配置文件存在 → 读取并解析（用户导入的自定义配置）
+     * 3. 兜底 → ControllerProfile.createDefault()（代码内置默认）
+     *
+     * 已设置 triggerButton 的层显示为 "按住 <按键名> → 激活 <层名>"
+     * 未设置 triggerButton 的层显示为 "<层名>: 未设置触发键"
+     *
+     * @return 多行字符串，每行一个操作层
+     */
+    private fun buildLayerSwitchLines(): String {
+        // 1. 服务已启动：直接读取运行时 profile
+        // 2. 服务未启动：尝试从内部存储配置文件加载
+        // 3. 都没有：使用代码内置默认 profile
+        val profile: ControllerProfile = LayerEditActivity.steamInputRef?.profile
+            ?: run {
+                val configFile = File(filesDir, "steamlike_config.json")
+                if (configFile.exists()) {
+                    try {
+                        ControllerConfig.fromJson(configFile.readText())
+                    } catch (e: Exception) {
+                        ControllerProfile.createDefault()
+                    }
+                } else {
+                    ControllerProfile.createDefault()
+                }
+            }
+        val lines = profile.layers.map { layer ->
+            val triggerName = layer.triggerButton?.let { buttonDisplayName(it) }
+            if (triggerName != null) {
+                "  按住 $triggerName → 激活 ${layer.name}"
+            } else {
+                "  ${layer.name}: 未设置触发键（可在操作层设置中配置）"
+            }
+        }
+        return lines.joinToString("\n")
+    }
+
+    /**
+     * 将 ControllerButton 转换为可读名称
+     *
+     * 与 LayerEditActivity.buttonDisplayName 保持一致。
+     */
+    private fun buttonDisplayName(button: ControllerButton): String = when (button) {
+        ControllerButton.A -> "A"
+        ControllerButton.B -> "B"
+        ControllerButton.X -> "X"
+        ControllerButton.Y -> "Y"
+        ControllerButton.LEFT_SHOULDER -> "LB"
+        ControllerButton.RIGHT_SHOULDER -> "RB"
+        ControllerButton.LEFT_TRIGGER_CLICK -> "L2"
+        ControllerButton.RIGHT_TRIGGER_CLICK -> "R2"
+        ControllerButton.LEFT_STICK_CLICK -> "L3"
+        ControllerButton.RIGHT_STICK_CLICK -> "R3"
+        ControllerButton.MENU -> "Menu"
+        ControllerButton.OPTIONS -> "Options"
+        ControllerButton.GUIDE -> "Guide"
+        ControllerButton.DPAD_UP -> "D-Pad ↑"
+        ControllerButton.DPAD_DOWN -> "D-Pad ↓"
+        ControllerButton.DPAD_LEFT -> "D-Pad ←"
+        ControllerButton.DPAD_RIGHT -> "D-Pad →"
+        ControllerButton.TOUCHPAD_CLICK -> "Touchpad"
     }
 
     // ====================================================================
@@ -589,6 +694,7 @@ class MainActivity : AppCompatActivity() {
         logD("onResume: registered client status receiver")
         updateUI()
         updateConfigStatus()
+        updateUsageText()
     }
 
     override fun onPause() {

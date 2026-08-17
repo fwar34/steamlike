@@ -295,6 +295,8 @@ gcc -O2 -o inputbridge_client.exe inputbridge_client.c -lws2_32 -luser32
       ↓
 点击"启动手柄映射" → 悬浮窗显示"等待连接"
       ↓
+（可选）点击"操作层设置" → 自定义按键映射/触发键/层名
+      ↓  注: 进入设置界面时悬浮窗自动隐藏，退出后恢复
 切换到 Winlator → 运行 control.bat start
       ↓
 客户端显示"[CONNECT] Connected" → 启动 WoW 游戏
@@ -725,6 +727,100 @@ val intent = Intent(context, LayerEditActivity::class.java).apply {
     putExtra(LayerEditActivity.EXTRA_LAYER_NAME, "Layer1")  // 可选: 初始选中的层名
 }
 startActivity(intent)
+```
+
+MainActivity 中"操作层设置"按钮的入口逻辑会自动等待服务初始化完成（最多轮询 3 秒），就绪后再跳转，避免用户在服务未就绪时点击导致失败：
+
+```kotlin
+// MainActivity.kt 操作层设置按钮
+if (LayerEditActivity.steamInputRef == null) {
+    toastLog("服务正在初始化，请稍候...")
+    var waited = 0
+    configStatusText.postDelayed(object : Runnable {
+        override fun run() {
+            waited += 100
+            if (LayerEditActivity.steamInputRef != null) {
+                startActivity(Intent(this@MainActivity, LayerEditActivity::class.java))
+            } else if (waited < 3000) {
+                configStatusText.postDelayed(this, 100)
+            } else {
+                toastLog("服务初始化超时，请重试", long = true)
+            }
+        }
+    }, 100)
+    return@setOnClickListener
+}
+```
+
+#### 悬浮窗自动暂停/恢复
+
+LayerEditActivity 在 `onCreate` 和 `onDestroy` 中通过 Intent action 通知 `ControllerOverlayService` 暂停/恢复悬浮窗：
+
+| 时机 | Intent Action | 服务端处理 |
+|------|---------------|------------|
+| `onCreate` | `ACTION_PAUSE_OVERLAY` | 移除 `gamepadInputView` 和 `overlayView`，置 null，保留 TCP 服务器和 mapper 运行 |
+| `onDestroy` | `ACTION_RESUME_OVERLAY` | 重新调用 `createGamepadInputWindow()` 和 `showCollapsedView()` |
+
+**为什么需要暂停悬浮窗**：GamepadInputView 是全屏透明焦点窗口（即使设置了 `FLAG_NOT_TOUCHABLE`），仍可能拦截 Android 系统的边缘返回手势（predictive back gesture）。进入设置界面时临时移除窗口，让出屏幕给 Activity，退出后自动重建。
+
+```kotlin
+// LayerEditActivity.kt
+override fun onCreate(savedInstanceState: Bundle?) {
+    // ...
+    sendOverlayAction(ControllerOverlayService.ACTION_PAUSE_OVERLAY)
+}
+
+override fun onDestroy() {
+    super.onDestroy()
+    sendOverlayAction(ControllerOverlayService.ACTION_RESUME_OVERLAY)
+}
+```
+
+#### 返回操作
+
+LayerEditActivity 启用 ActionBar 返回箭头（顶部左侧 ←），点击等价于按返回键：
+
+```kotlin
+// onCreate 中启用返回箭头
+supportActionBar?.apply {
+    setDisplayHomeAsUpEnabled(true)
+    setDisplayShowHomeEnabled(true)
+}
+
+// 处理点击
+override fun onOptionsItemSelected(item: MenuItem): Boolean {
+    if (item.itemId == android.R.id.home) {
+        finish()
+        return true
+    }
+    return super.onOptionsItemSelected(item)
+}
+```
+
+> **说明**: 由于悬浮窗在设置界面期间被暂停，边缘滑动返回手势也可正常使用。ActionBar 返回箭头作为补充，对模拟器和老版本 Android 更可靠。
+
+#### 名称编辑自动弹出软键盘
+
+AlertDialog 中的 EditText 默认不会自动弹出软键盘。`showLayerNameEditDialog()` 通过三重保险主动唤起：
+
+1. EditText 设为 `setSingleLine(true)` 并调用 `requestFocus()`
+2. 对话框 Window 设置 `SOFT_INPUT_STATE_ALWAYS_VISIBLE`
+3. 显示后调用 `InputMethodManager.showSoftInput()`
+
+```kotlin
+val dialog = AlertDialog.Builder(this)
+    .setTitle("编辑层名称")
+    .setView(editText)
+    .setPositiveButton("确定") { ... }
+    .create()
+
+dialog.window?.setSoftInputMode(
+    WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE
+)
+dialog.show()
+editText.requestFocus()
+val imm = getSystemService(InputMethodManager::class.java)
+imm?.showSoftInput(editText, InputMethodManager.SHOW_IMPLICIT)
 ```
 
 #### SteamInput 引用传递

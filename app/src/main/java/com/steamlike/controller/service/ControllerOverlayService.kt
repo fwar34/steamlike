@@ -67,6 +67,10 @@ class ControllerOverlayService : Service() {
         const val ACTION_IMPORT_CONFIG = "IMPORT_CONFIG"
         /** 重置为默认配置（删除内部配置文件并重新初始化） */
         const val ACTION_RESET_CONFIG = "RESET_CONFIG"
+        /** 暂停悬浮窗（移除焦点窗口和悬浮窗UI，保留TCP服务器和映射器运行） */
+        const val ACTION_PAUSE_OVERLAY = "PAUSE_OVERLAY"
+        /** 恢复悬浮窗（重新创建焦点窗口和悬浮窗UI） */
+        const val ACTION_RESUME_OVERLAY = "RESUME_OVERLAY"
         /** Intent extra: 配置文件 URI */
         const val EXTRA_CONFIG_URI = "config_uri"
 
@@ -84,6 +88,14 @@ class ControllerOverlayService : Service() {
     private var statusText: TextView? = null
     private var layerText: TextView? = null
     private var hintText: TextView? = null
+    /**
+     * 收起状态下显示当前激活层名的 TextView 引用
+     *
+     * 用于操作层切换时动态更新悬浮窗文本（替代原静态 🎮 图标）。
+     * - 无激活层时显示"公共层"
+     * - 多个激活层时显示最上层（最后激活的）名称
+     */
+    private var collapsedTextView: TextView? = null
     private val layerButtons = mutableMapOf<String, Button>()
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
@@ -91,10 +103,39 @@ class ControllerOverlayService : Service() {
     private var isExpanded = false
     private var overlayParams: WindowManager.LayoutParams? = null
 
+    /**
+     * 最新状态文本缓存
+     *
+     * 用于解决"展开悬浮窗后仍显示'初始化中'"的问题：
+     * startMapper() 在子线程异步完成并调用 updateStatus() 时，
+     * 如果用户尚未展开悬浮窗，statusText 为 null，post 的内容被丢弃。
+     * 展开时 showExpandedView() 会重新创建 statusText，
+     * 通过此字段恢复最近一次的状态文本。
+     */
+    private var currentStatus: String = "初始化中..."
+
     private var steamInput: SteamInput? = null
     private var mapper: KeyboardMouseMapper? = null
     private var bridgeServer: InputBridgeServer? = null
     private var configManager: ConfigManager? = null
+
+    /**
+     * 悬浮窗是否被暂停（在 LayerEditActivity 等设置界面打开时移除窗口）
+     *
+     * ## 作用
+     * 全屏透明焦点窗口 (GamepadInputView) 虽然设置 FLAG_NOT_TOUCHABLE，
+     * 仍可能拦截系统手势（如边缘滑动返回）。当用户进入设置 Activity 时，
+     * 临时移除所有 WindowManager 添加的 View，避免干扰系统手势。
+     *
+     * ## 调用流程
+     * ```
+     * LayerEditActivity.onCreate → ACTION_PAUSE_OVERLAY → pauseOverlay()
+     *   ↓ 移除 gamepadInputView + overlayView
+     * LayerEditActivity.onDestroy → ACTION_RESUME_OVERLAY → resumeOverlay()
+     *   ↓ 重新创建 gamepadInputView + overlayView
+     * ```
+     */
+    private var isOverlayPaused = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -129,6 +170,12 @@ class ControllerOverlayService : Service() {
             }
             ACTION_RESET_CONFIG -> {
                 handleResetConfig()
+            }
+            ACTION_PAUSE_OVERLAY -> {
+                pauseOverlay()
+            }
+            ACTION_RESUME_OVERLAY -> {
+                resumeOverlay()
             }
         }
         // 首次启动时初始化映射器
@@ -192,6 +239,7 @@ class ControllerOverlayService : Service() {
                 mapper?.onLayerChanged = { layers ->
                     updateLayerText(layers)
                     updateLayerButtonColors(layers)
+                    updateCollapsedViewText(layers)
                 }
 
                 if (mapper?.start() == true) {
@@ -419,6 +467,54 @@ class ControllerOverlayService : Service() {
         sendBroadcast(intent)
     }
 
+    // ===== 悬浮窗暂停/恢复 =====
+
+    /**
+     * 暂停悬浮窗（移除焦点窗口和悬浮窗UI）
+     *
+     * 由 LayerEditActivity onCreate 调用，移除所有 WindowManager 添加的 View：
+     * - GamepadInputView（全屏透明焦点窗口，会拦截边缘返回手势）
+     * - overlayView（悬浮窗 UI）
+     *
+     * 保留 TCP 服务器和映射器运行，仅移除窗口视图。
+     * 用户退出 LayerEditActivity 时调用 [resumeOverlay] 重建窗口。
+     */
+    private fun pauseOverlay() {
+        if (isOverlayPaused) return
+        isOverlayPaused = true
+        mainHandler.post {
+            gamepadInputView?.let { windowManager?.removeView(it) }
+            gamepadInputView = null
+            overlayView?.let { windowManager?.removeView(it) }
+            overlayView = null
+            Log.i(TAG, "Overlay paused (windows removed)")
+        }
+    }
+
+    /**
+     * 恢复悬浮窗（重新创建焦点窗口和悬浮窗UI）
+     *
+     * 由 LayerEditActivity onDestroy 调用，重新创建被 [pauseOverlay] 移除的窗口。
+     * - 重建 GamepadInputView 捕获手柄事件
+     * - 重建悬浮窗 UI 显示状态
+     */
+    private fun resumeOverlay() {
+        if (!isOverlayPaused) return
+        isOverlayPaused = false
+        mainHandler.post {
+            // 重新创建焦点输入窗口（pauseOverlay 已将 gamepadInputView 置 null）
+            if (gamepadInputView == null && mapper != null) {
+                createGamepadInputWindow()
+            }
+            // 重新创建悬浮窗 UI（pauseOverlay 已将 overlayView 置 null）
+            // showCollapsedView 内部会读取当前激活层并显示对应文本
+            if (overlayView == null) {
+                showCollapsedView()
+            }
+            Log.i(TAG, "Overlay resumed (windows recreated)")
+        }
+    }
+
     // ===== 焦点输入窗口 =====
 
     /**
@@ -489,19 +585,49 @@ class ControllerOverlayService : Service() {
         // 移除展开视图
         overlayView?.let { windowManager?.removeView(it) }
         overlayView = null
+        collapsedTextView = null
 
-        // 创建收起视图（小图标按钮）
+        // 创建收起视图（显示当前激活层名，点击展开）
         val collapsed = TextView(this).apply {
-            text = "🎮"
-            textSize = 24f
+            text = buildCollapsedText(mapper?.getActiveLayers() ?: emptyList())
+            textSize = 14f
             setTextColor(0xFFFFFFFF.toInt())
             setBackgroundColor(0x88000000.toInt())
             setPadding(20, 8, 20, 8)
         }
         setupOverlayTouchListener(collapsed, isCollapsed = true)
         overlayView = collapsed
+        collapsedTextView = collapsed
         overlayParams?.let { windowManager?.addView(collapsed, it) }
         isExpanded = false
+    }
+
+    /**
+     * 根据激活层列表构建收起悬浮窗的显示文本
+     *
+     * - 空列表（无激活层）: 显示"公共层"
+     * - 单个激活层: 显示该层名
+     * - 多个激活层: 显示最上层名（最后激活的）
+     *
+     * @param activeLayers 激活层名称列表
+     * @return 显示文本
+     */
+    private fun buildCollapsedText(activeLayers: List<String>): String {
+        return if (activeLayers.isEmpty()) "公共层" else activeLayers.last()
+    }
+
+    /**
+     * 更新收起悬浮窗的层名显示
+     *
+     * 操作层切换时调用，让用户无需展开即可知道当前激活的层。
+     * 仅在收起状态下生效（展开状态由 layerText 显示完整堆栈）。
+     *
+     * @param activeLayers 激活层名称列表
+     */
+    private fun updateCollapsedViewText(activeLayers: List<String>) {
+        collapsedTextView?.post {
+            collapsedTextView?.text = buildCollapsedText(activeLayers)
+        }
     }
 
     /**
@@ -521,9 +647,9 @@ class ControllerOverlayService : Service() {
             setPadding(24, 16, 24, 16)
         }
 
-        // 状态
+        // 状态（恢复最近一次的状态文本，避免展开后仍显示"初始化中"）
         statusText = TextView(this).apply {
-            text = "初始化中..."
+            text = currentStatus
             setTextColor(0xFFFFFFFF.toInt())
             textSize = 12f
         }
@@ -680,6 +806,8 @@ class ControllerOverlayService : Service() {
     }
 
     private fun updateStatus(text: String) {
+        // 缓存最新状态，showExpandedView() 重建 statusText 时使用
+        currentStatus = text
         statusText?.post { statusText?.text = text }
         updateNotification(text)
     }
