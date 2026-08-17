@@ -21,6 +21,7 @@
 - [组合键绑定](#组合键绑定)
 - [10个操作层](#10个操作层)
 - [快捷键](#快捷键)
+- [悬浮窗 UI](#悬浮窗-ui)
 - [运行时配置 API](#运行时配置-api)
 - [配置文件](#配置文件)
 - [项目结构](#项目结构)
@@ -64,8 +65,11 @@
 - **多手柄类型支持**: Xbox/PS/Switch/Steam Controller 自动识别和按键修正
 - **摇杆精细控制**: 支持死区(Deadzone)和响应曲线(ResponseCurve)
 - **运行时配置**: 可动态修改任意操作层的按键映射
-- **悬浮窗 UI**: 可拖动的状态显示、连接状态和层切换按钮
+- **悬浮窗 UI**: 可收起/展开的拖动面板，按住层按钮临时激活、松开回公共层
 - **震动反馈**: 层切换时的触觉反馈
+- **单进程限制**: Windows 客户端使用命名互斥锁确保单实例运行
+- **控制脚本**: `control.bat` 提供 start/stop/status/restart 命令
+- **内置导出**: APK 内置 exe 和 control.bat，一键导出到 Download/AControler
 - **自动重连**: Windows客户端断线自动重连
 - **60fps 更新循环**: 流畅的摇杆响应和长按检测
 
@@ -193,7 +197,7 @@ WoW游戏接收 → 角色跳跃!
 - Android 7.0 (API 24) 或更高（推荐 Android 8.0+ 以使用 `TYPE_APPLICATION_OVERLAY`）
 - 蓝牙/USB 手柄
 - Winlator（用于运行 WoW）
-- MinGW gcc（用于编译Windows配套程序）
+- MinGW gcc（可选，仅自行编译 Windows 配套程序时需要）
 
 ### 第一步: Android端安装
 
@@ -215,39 +219,45 @@ WoW游戏接收 → 角色跳跃!
    - 悬浮窗显示"等待Windows客户端连接... (端口27015)"
    - 焦点输入窗口已自动创建并请求焦点，可接收手柄事件
 
-### 第二步: Windows配套程序编译
+### 第二步: 获取Windows配套程序
+
+**方式1: 从APK内导出（推荐，无需编译）**
+
+1. 在 SteamLike 控制器主界面点击"导出 Windows 客户端到 Download/AControler"
+2. 文件会导出到 `/sdcard/Download/AControler/` 目录：
+   - `inputbridge_client.exe` - Windows 客户端程序
+   - `control.bat` - 控制脚本（启停管理）
+3. 通过文件管理器或 ADB 取出这两个文件
+
+**方式2: 自行编译**
 
 ```bash
 # 进入windows目录
 cd l:\steamlike\windows
 
-# 方式1: 使用build.bat (需要MinGW)
+# 使用build.bat (需要MinGW)
 build.bat
 
-# 方式2: 手动编译
+# 或手动编译
 gcc -O2 -o inputbridge_client.exe inputbridge_client.c -lws2_32 -luser32
-
-# 方式3: 使用CMake
-mkdir build && cd build
-cmake .. && make
 ```
 
 ### 第三步: 在Winlator中运行
 
 1. **复制程序到Winlator**
-   - 将 `inputbridge_client.exe` 复制到 Winlator 的虚拟C盘
+   - 将 `inputbridge_client.exe` 和 `control.bat` 复制到 Winlator 的虚拟C盘
    - 通常路径: `Winlator容器内部 → C:\`
 
 2. **启动顺序**
    ```
    ① 打开 SteamLike 控制器 → 授予悬浮窗权限 → 启动手柄映射
-   ② 切换到 Winlator → 运行 inputbridge_client.exe
+   ② 切换到 Winlator → 运行 control.bat start (或直接运行 inputbridge_client.exe)
    ③ 启动 WoW 游戏
    ```
 
 3. **验证连接**
-   - Windows客户端控制台显示 `[连接] 已连接到Android服务器!`
-   - Android悬浮窗显示 `客户端已连接: /127.0.0.1:xxxxx`
+   - Windows客户端控制台显示 `[CONNECT] Connected to Android server!`
+   - Android主界面显示 `Client: connected`
    - 按手柄按键，WoW游戏有响应 = 成功
    - 若手柄无响应，请点击悬浮窗区域使焦点窗口重新获取焦点
 
@@ -260,11 +270,11 @@ cmake .. && make
       ↓
 点击"启动手柄映射" → 悬浮窗显示"等待连接"
       ↓
-切换到 Winlator → 运行 inputbridge_client.exe
+切换到 Winlator → 运行 control.bat start
       ↓
-客户端显示"已连接" → 启动 WoW 游戏
+客户端显示"[CONNECT] Connected" → 启动 WoW 游戏
       ↓
-通过悬浮窗或手柄快捷键切换操作层
+点击悬浮窗🎮图标展开 → 按住层按钮临时切换操作层
       ↓
 （若手柄无响应）点击屏幕使焦点窗口重新获取焦点
 ```
@@ -300,10 +310,22 @@ inputbridge_client.exe 192.168.1.100 27015
 
 ### 程序特性
 
+- **单进程限制**: 使用命名互斥锁 `Global\SteamLikeInputBridgeClient` 确保同时只有一个实例运行，重复启动提示 `[ERROR] Another instance is already running.`
 - **自动重连**: 连接断开后自动重试（默认1秒间隔）
 - **状态跟踪**: 跟踪所有按下的键和按钮，断开时自动释放
 - **Ctrl+C退出**: 退出时自动释放所有按下的键，防止按键卡住
-- **控制台日志**: 显示连接状态和数据流
+- **控制台日志**: 全英文输出，显示连接状态和数据流（`[INFO]`/`[CONNECT]`/`[ERROR]`/`[RETRY]`/`[EXIT]`）
+- **禁用缓冲**: `setvbuf` 禁用 stdout 缓冲，确保管道/重定向环境下实时输出
+
+### control.bat 控制脚本
+
+| 命令 | 功能 |
+|------|------|
+| `control.bat start` | 启动 exe（新窗口运行，显示连接输出） |
+| `control.bat stop` | 停止 exe（taskkill /F） |
+| `control.bat status` | 显示运行状态 + 端口 27015 监听信息 |
+| `control.bat restart` | 先 stop 再 start |
+| `control.bat help` | 显示帮助 |
 
 ---
 
@@ -533,9 +555,19 @@ Aim层: (未覆盖A) (激活)
 
 **注意**: LB 按下时会自动释放所有当前按下的按钮，防止切换层时按键卡住。切换层时有震动反馈。
 
-### 悬浮窗按钮
+### 悬浮窗 UI
 
-悬浮窗提供 10 个操作层按钮（2列×5行网格），激活的层显示绿色，未激活的层半透明。点击按钮即可切换对应层。还提供"清除层"和"关闭"按钮。
+悬浮窗支持**收起/展开**两种状态：
+
+- **收起状态**: 显示一个小 🎮 图标，可拖动移动位置，点击展开
+- **展开状态**: 显示完整的操作层面板，包含状态文本、层按钮、控制按钮，可拖动
+
+展开后的操作层按钮（2列×5行网格）采用**按住激活**模式：
+- **按住按钮**: 临时激活对应操作层，覆盖公共层绑定
+- **松开按钮**: 停用该层，立即回到公共层默认绑定
+- 激活的层显示绿色，未激活的层半透明
+
+展开面板还提供"清除层"（清除所有激活层）、"收起"（切换回收起状态）和"关闭"（停止服务）按钮。
 
 ---
 
