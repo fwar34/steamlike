@@ -92,6 +92,15 @@ class KeyboardMouseMapper(
     private val toggledMouseButtons = mutableSetOf<ControllerButton>()
 
     /**
+     * 右摇杆平滑滤波后的 X/Y 值
+     *
+     * 指数移动平均（EMA）: smoothed = smoothed * α + raw * (1 - α)
+     * α 越大越平滑，但延迟增加。
+     */
+    private var smoothedLookX = 0f
+    private var smoothedLookY = 0f
+
+    /**
      * 操作层变化回调
      *
      * 当激活的操作层发生变化时调用，传递当前所有激活层的名称列表。
@@ -130,6 +139,8 @@ class KeyboardMouseMapper(
         pressedMouseButtons.clear()
         leftStickPressedKeys.clear()
         toggledMouseButtons.clear()
+        smoothedLookX = 0f
+        smoothedLookY = 0f
         Log.i(TAG, "KeyboardMouseMapper stopped")
     }
 
@@ -335,9 +346,35 @@ class KeyboardMouseMapper(
         val settings = steamInput.profile.globalSettings
         when (stick) {
             ControllerStick.RIGHT_STICK -> {
-                // 右摇杆 → 视角控制
-                val dx = x * settings.lookSensitivity * 15f
-                val dy = y * settings.lookSensitivity * 15f
+                // 右摇杆 → 视角控制（死区 + 加速曲线 + 平滑滤波）
+                // 1. 死区处理：消除中心漂移
+                var rx = x
+                var ry = y
+                val mag = Math.sqrt((rx * rx + ry * ry).toDouble()).toFloat()
+                if (mag < settings.deadzone) {
+                    rx = 0f
+                    ry = 0f
+                } else if (mag > 1f) {
+                    val scale = 1f / mag
+                    rx *= scale
+                    ry *= scale
+                }
+                // 2. 加速曲线：pow(mag, accel) 使轻推更慢、重推更快
+                val accel = settings.lookAcceleration.coerceIn(0.5f, 3.0f)
+                if (rx != 0f || ry != 0f) {
+                    val normMag = Math.sqrt((rx * rx + ry * ry).toDouble()).toFloat()
+                    val curve = Math.pow(normMag.toDouble(), accel.toDouble()).toFloat()
+                    val scale = if (normMag > 0f) curve / normMag else 0f
+                    rx *= scale
+                    ry *= scale
+                }
+                // 3. 平滑滤波（EMA）：减少抖动，让移动更顺滑
+                val alpha = settings.lookSmoothing.coerceIn(0f, 0.95f)
+                smoothedLookX = smoothedLookX * alpha + rx * (1f - alpha)
+                smoothedLookY = smoothedLookY * alpha + ry * (1f - alpha)
+                // 4. 发送鼠标移动（基础速度 8px/帧 * 灵敏度）
+                val dx = smoothedLookX * settings.lookSensitivity * 8f
+                val dy = smoothedLookY * settings.lookSensitivity * 8f
                 if (dx != 0f || dy != 0f) {
                     injector.sendMouseMove(dx, dy)
                 }

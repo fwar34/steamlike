@@ -269,14 +269,18 @@ data class OperationLayer(
  *
  * 摇杆相关参数统一配置，不区分操作层。
  *
- * @param deadzone 摇杆死区（0.0~1.0），小于此值的输入归零。默认 0（完全灵敏）
- * @param lookSensitivity 右摇杆视角灵敏度（>1.0 更快，<1.0 更慢）
- * @param cursorSpeed 光标移动速度（>1.0 更快，<1.0 更慢）
+ * @param deadzone 摇杆死区（0.0~1.0），小于此值的输入归零。默认 0.15
+ * @param lookSensitivity 右摇杆视角灵敏度倍率（0.1~5.0），越大移动越快。默认 0.5
+ * @param cursorSpeed 光标移动速度倍率（>1.0 更快，<1.0 更慢）。默认 1.0
+ * @param lookSmoothing 视角平滑系数（0.0~0.95），0=关闭平滑，越大越顺滑但延迟略增。默认 0.5
+ * @param lookAcceleration 视角加速曲线指数（0.5~3.0），1.0=线性，>1轻推更慢重推更快，<1相反。默认 1.5
  */
 data class GlobalSettings(
-    val deadzone: Float = 0.0f,
-    val lookSensitivity: Float = 1.0f,
-    val cursorSpeed: Float = 1.0f
+    val deadzone: Float = 0.15f,
+    val lookSensitivity: Float = 0.5f,
+    val cursorSpeed: Float = 1.0f,
+    val lookSmoothing: Float = 0.5f,
+    val lookAcceleration: Float = 1.5f
 )
 
 /**

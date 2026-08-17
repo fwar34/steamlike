@@ -71,12 +71,24 @@ class ControllerOverlayService : Service() {
         const val ACTION_PAUSE_OVERLAY = "PAUSE_OVERLAY"
         /** 恢复悬浮窗（重新创建焦点窗口和悬浮窗UI） */
         const val ACTION_RESUME_OVERLAY = "RESUME_OVERLAY"
+        /** 更新右摇杆优化设置（GlobalSettings） */
+        const val ACTION_UPDATE_SETTINGS = "UPDATE_SETTINGS"
         /** Intent extra: 配置文件 URI */
         const val EXTRA_CONFIG_URI = "config_uri"
         /** Intent extra: TCP监听地址，空表示监听所有接口 */
         const val EXTRA_HOST = "server_host"
         /** Intent extra: TCP监听端口 */
         const val EXTRA_PORT = "server_port"
+        /** Intent extra: 摇杆死区 (Float, 0.0~1.0) */
+        const val EXTRA_DEADZONE = "deadzone"
+        /** Intent extra: 右摇杆视角灵敏度 (Float, 0.1~5.0) */
+        const val EXTRA_LOOK_SENSITIVITY = "look_sensitivity"
+        /** Intent extra: 光标移动速度倍率 (Float) */
+        const val EXTRA_CURSOR_SPEED = "cursor_speed"
+        /** Intent extra: 视角平滑系数 (Float, 0.0~0.95) */
+        const val EXTRA_LOOK_SMOOTHING = "look_smoothing"
+        /** Intent extra: 视角加速曲线指数 (Float, 0.5~3.0) */
+        const val EXTRA_LOOK_ACCELERATION = "look_acceleration"
 
         /** 广播: 客户端连接状态变化 */
         const val ACTION_CLIENT_STATUS = "CLIENT_STATUS"
@@ -192,6 +204,9 @@ class ControllerOverlayService : Service() {
             }
             ACTION_RESUME_OVERLAY -> {
                 resumeOverlay()
+            }
+            ACTION_UPDATE_SETTINGS -> {
+                handleUpdateSettings(intent)
             }
         }
         // 首次启动时初始化映射器
@@ -448,6 +463,39 @@ class ControllerOverlayService : Service() {
         // 清除 LayerEditActivity 的 SteamInput 引用（startMapper 会重新设置）
         LayerEditActivity.steamInputRef = null
         startMapper()
+    }
+
+    /**
+     * 处理右摇杆优化设置更新
+     *
+     * 从 Intent 读取 5 个 Float 参数，更新 SteamInput.profile.globalSettings，
+     * 并保存到内部配置文件（持久化），下次启动自动加载。
+     *
+     * 参数缺省时使用当前 profile 中已有的值（保持不变）。
+     */
+    private fun handleUpdateSettings(intent: Intent) {
+        val si = steamInput ?: run {
+            toast("映射器未启动，请先启动手柄映射")
+            return
+        }
+        val old = si.profile.globalSettings
+        val newSettings = com.steamlike.controller.core.GlobalSettings(
+            deadzone = intent.getFloatExtra(EXTRA_DEADZONE, old.deadzone),
+            lookSensitivity = intent.getFloatExtra(EXTRA_LOOK_SENSITIVITY, old.lookSensitivity),
+            cursorSpeed = intent.getFloatExtra(EXTRA_CURSOR_SPEED, old.cursorSpeed),
+            lookSmoothing = intent.getFloatExtra(EXTRA_LOOK_SMOOTHING, old.lookSmoothing),
+            lookAcceleration = intent.getFloatExtra(EXTRA_LOOK_ACCELERATION, old.lookAcceleration)
+        )
+        // 更新运行时 profile（loadProfile 会重置操作层状态，设置更新时合理）
+        si.loadProfile(si.profile.copy(globalSettings = newSettings))
+        // 持久化到内部配置文件
+        val cm = configManager ?: ConfigManager(this, si).also { configManager = it }
+        cm.saveToInternal(si.profile)
+        Log.i(TAG, "GlobalSettings updated: deadzone=${newSettings.deadzone}, " +
+                "sensitivity=${newSettings.lookSensitivity}, " +
+                "smoothing=${newSettings.lookSmoothing}, " +
+                "acceleration=${newSettings.lookAcceleration}")
+        toast("右摇杆设置已保存（灵敏度=${newSettings.lookSensitivity}, 平滑=${newSettings.lookSmoothing}）")
     }
 
     /**

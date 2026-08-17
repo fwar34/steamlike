@@ -18,9 +18,11 @@ import org.json.JSONObject
  * {
  *   "version": 2,
  *   "globalSettings": {
- *     "deadzone": 0.0,
- *     "lookSensitivity": 1.0,
- *     "cursorSpeed": 1.0
+ *     "deadzone": 0.15,
+ *     "lookSensitivity": 0.5,
+ *     "cursorSpeed": 1.0,
+ *     "lookSmoothing": 0.5,
+ *     "lookAcceleration": 1.5
  *   },
  *   "commonLayer": {
  *     "name": "Common",
@@ -110,14 +112,18 @@ object ControllerConfig {
         json.put("deadzone", settings.deadzone)
         json.put("lookSensitivity", settings.lookSensitivity)
         json.put("cursorSpeed", settings.cursorSpeed)
+        json.put("lookSmoothing", settings.lookSmoothing)
+        json.put("lookAcceleration", settings.lookAcceleration)
         return json
     }
 
     private fun parseGlobalSettings(json: JSONObject): GlobalSettings {
         return GlobalSettings(
-            deadzone = json.optDouble("deadzone", 0.0).toFloat(),
-            lookSensitivity = json.optDouble("lookSensitivity", 1.0).toFloat(),
-            cursorSpeed = json.optDouble("cursorSpeed", 1.0).toFloat()
+            deadzone = json.optDouble("deadzone", 0.15).toFloat(),
+            lookSensitivity = json.optDouble("lookSensitivity", 0.5).toFloat(),
+            cursorSpeed = json.optDouble("cursorSpeed", 1.0).toFloat(),
+            lookSmoothing = json.optDouble("lookSmoothing", 0.5).toFloat(),
+            lookAcceleration = json.optDouble("lookAcceleration", 1.5).toFloat()
         )
     }
 

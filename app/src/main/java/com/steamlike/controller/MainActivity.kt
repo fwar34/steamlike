@@ -25,6 +25,7 @@ import com.steamlike.controller.config.ConfigManager
 import com.steamlike.controller.config.ControllerConfig
 import com.steamlike.controller.core.ControllerButton
 import com.steamlike.controller.core.ControllerProfile
+import com.steamlike.controller.core.GlobalSettings
 import com.steamlike.controller.service.ControllerOverlayService
 import java.io.File
 import java.io.FileOutputStream
@@ -303,6 +304,113 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
+        // ===== 右摇杆优化设置 =====
+        container.addView(TextView(this).apply {
+            text = "\n右摇杆优化设置"
+            textSize = 16f
+            setPadding(0, 24, 0, 8)
+        })
+
+        // 总体说明
+        container.addView(TextView(this).apply {
+            text = ("右摇杆控制鼠标视角时，可通过以下参数调节手感。\n"
+                + "• 觉得滑动过快 → 降低「灵敏度」或提高「加速曲线指数」\n"
+                + "• 觉得不够流畅/抖动 → 提高「平滑系数」(0.5~0.8 推荐)\n"
+                + "• 摇杆居中时仍在漂移 → 提高「死区」(0.1~0.25)\n"
+                + "• 轻推难以精确瞄准 → 降低「加速曲线指数」靠近 1.0")
+            textSize = 11f
+            setLineSpacing(0f, 1.3f)
+            setTextColor(0xFFAAAAAA.toInt())
+            setPadding(0, 0, 0, 16)
+        })
+
+        // 读取当前设置值
+        val currentSettings = getCurrentProfile().globalSettings
+
+        // 死区
+        val deadzoneEdit = makeSettingsEdit(
+            title = "死区 (Deadzone)",
+            hint = "0.0 ~ 1.0，默认 0.15",
+            desc = ("小于此值的摇杆输入会被视为零输入，消除摇杆中心漂移。\n"
+                + "推荐: 0.10~0.25。摇杆容易漂移可调高；摇杆精准可调低。"),
+            value = currentSettings.deadzone
+        )
+        container.addView(deadzoneEdit.first)
+
+        // 视角灵敏度
+        val sensitivityEdit = makeSettingsEdit(
+            title = "右摇杆视角灵敏度 (Look Sensitivity)",
+            hint = "0.1 ~ 5.0，默认 0.5",
+            desc = ("右摇杆控制视角/鼠标移动的整体速度倍率。\n"
+                + "数值越大移动越快。觉得滑动过快请降低此值(如 0.3)；过慢可提高(如 0.8)。"),
+            value = currentSettings.lookSensitivity
+        )
+        container.addView(sensitivityEdit.first)
+
+        // 平滑系数
+        val smoothingEdit = makeSettingsEdit(
+            title = "视角平滑系数 (Look Smoothing)",
+            hint = "0.0 ~ 0.95，默认 0.5",
+            desc = ("指数移动平均(EMA)滤波系数，降低摇杆抖动让移动更顺滑。\n"
+                + "0=关闭平滑(最跟手但有抖动)，越大越顺滑但延迟增加。\n"
+                + "推荐: 0.3~0.7。觉卡顿降一点，觉延迟降一点。"),
+            value = currentSettings.lookSmoothing
+        )
+        container.addView(smoothingEdit.first)
+
+        // 加速曲线指数
+        val accelerationEdit = makeSettingsEdit(
+            title = "视角加速曲线指数 (Look Acceleration)",
+            hint = "0.5 ~ 3.0，默认 1.5",
+            desc = ("非线性响应曲线。1.0=线性(轻推重推一致)；\n"
+                + ">1.0 轻推更慢、重推更快(利于精确瞄准又保证转向速度)；\n"
+                + "<1.0 轻推更快、重推相对变慢。\n"
+                + "觉得轻推过快难以瞄准 → 提高此值(如 1.8~2.2)。"),
+            value = currentSettings.lookAcceleration
+        )
+        container.addView(accelerationEdit.first)
+
+        // 光标速度倍率
+        val cursorSpeedEdit = makeSettingsEdit(
+            title = "光标移动速度倍率 (Cursor Speed)",
+            hint = "默认 1.0",
+            desc = ("左摇杆/其他鼠标移动场景的速度倍率(右摇杆视角由灵敏度控制)。\n"
+                + ">1.0 更快，<1.0 更慢。一般保持 1.0 即可。"),
+            value = currentSettings.cursorSpeed
+        )
+        container.addView(cursorSpeedEdit.first)
+
+        // 保存按钮
+        container.addView(Button(this).apply {
+            text = "保存右摇杆设置"
+            setOnClickListener {
+                val dz = deadzoneEdit.second.text.toString().trim().toFloatOrNull()
+                val sens = sensitivityEdit.second.text.toString().trim().toFloatOrNull()
+                val sm = smoothingEdit.second.text.toString().trim().toFloatOrNull()
+                val ac = accelerationEdit.second.text.toString().trim().toFloatOrNull()
+                val cs = cursorSpeedEdit.second.text.toString().trim().toFloatOrNull()
+                if (dz == null || sens == null || sm == null || ac == null || cs == null) {
+                    toastLog("请填写全部 5 个数值", long = true)
+                    return@setOnClickListener
+                }
+                if (!Settings.canDrawOverlays(this@MainActivity)) {
+                    toastLog("请先授予悬浮窗权限并启动服务", long = true)
+                    return@setOnClickListener
+                }
+                ensureServiceRunning()
+                val intent = Intent(this@MainActivity, ControllerOverlayService::class.java).apply {
+                    action = ControllerOverlayService.ACTION_UPDATE_SETTINGS
+                    putExtra(ControllerOverlayService.EXTRA_DEADZONE, dz)
+                    putExtra(ControllerOverlayService.EXTRA_LOOK_SENSITIVITY, sens)
+                    putExtra(ControllerOverlayService.EXTRA_LOOK_SMOOTHING, sm)
+                    putExtra(ControllerOverlayService.EXTRA_LOOK_ACCELERATION, ac)
+                    putExtra(ControllerOverlayService.EXTRA_CURSOR_SPEED, cs)
+                }
+                ContextCompat.startForegroundService(this@MainActivity, intent)
+                toastLog("正在保存右摇杆设置...")
+            }
+        })
+
         // ===== Windows 客户端导出 =====
         container.addView(TextView(this).apply {
             text = "\nWindows 客户端"
@@ -529,12 +637,78 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * 根据当前 profile 的 layers.triggerButton 动态构建操作层切换说明
+     * 获取当前生效的 ControllerProfile
      *
-     * 优先级:
-     * 1. 服务已启动 → 使用 steamInput.profile（包含运行时修改）
-     * 2. 配置文件存在 → 读取并解析（用户导入的自定义配置）
-     * 3. 兜底 → ControllerProfile.createDefault()（代码内置默认）
+     * 数据源优先级:
+     * 1. 服务已启动: 读取运行时 [LayerEditActivity.steamInputRef] 的 profile
+     * 2. 服务未启动但配置文件存在: 从内部配置文件加载
+     * 3. 都没有: 使用代码内置默认 profile
+     */
+    private fun getCurrentProfile(): ControllerProfile {
+        LayerEditActivity.steamInputRef?.profile?.let { return it }
+        val configFile = File(filesDir, "steamlike_config.json")
+        if (configFile.exists()) {
+            return try {
+                ControllerConfig.fromJson(configFile.readText())
+            } catch (e: Exception) {
+                ControllerProfile.createDefault()
+            }
+        }
+        return ControllerProfile.createDefault()
+    }
+
+    /**
+     * 创建一个设置项 UI 区块（标题 + 说明 + 输入框）
+     *
+     * @param title 设置项名称
+     * @param hint 输入框提示
+     * @param desc 设置项说明文本（多行）
+     * @param value 当前值（Float）
+     * @return Pair(LinearLayout 视图, EditText 输入框)
+     */
+    private fun makeSettingsEdit(
+        title: String,
+        hint: String,
+        desc: String,
+        value: Float
+    ): Pair<LinearLayout, EditText> {
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 12, 0, 12)
+        }
+        layout.addView(TextView(this).apply {
+            text = title
+            textSize = 13f
+            setTextColor(0xFFCCCCCC.toInt())
+            setPadding(0, 0, 0, 4)
+        })
+        layout.addView(TextView(this).apply {
+            text = desc
+            textSize = 10f
+            setLineSpacing(0f, 1.3f)
+            setTextColor(0xFF999999.toInt())
+            setPadding(0, 0, 0, 4)
+        })
+        val edit = EditText(this).apply {
+            this.hint = hint
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or
+                android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+            isFocusable = true
+            isFocusableInTouchMode = true
+            setText(value.toString())
+            setOnClickListener {
+                requestFocus()
+                val imm = getSystemService(Context.INPUT_METHOD_SERVICE)
+                    as android.view.inputmethod.InputMethodManager
+                imm.showSoftInput(this, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+            }
+        }
+        layout.addView(edit)
+        return Pair(layout, edit)
+    }
+
+    /**
+     * 根据当前 profile 的 layers.triggerButton 动态构建操作层切换说明
      *
      * 已设置 triggerButton 的层显示为 "按住 <按键名> → 激活 <层名>"
      * 未设置 triggerButton 的层显示为 "<层名>: 未设置触发键"
@@ -542,22 +716,7 @@ class MainActivity : AppCompatActivity() {
      * @return 多行字符串，每行一个操作层
      */
     private fun buildLayerSwitchLines(): String {
-        // 1. 服务已启动：直接读取运行时 profile
-        // 2. 服务未启动：尝试从内部存储配置文件加载
-        // 3. 都没有：使用代码内置默认 profile
-        val profile: ControllerProfile = LayerEditActivity.steamInputRef?.profile
-            ?: run {
-                val configFile = File(filesDir, "steamlike_config.json")
-                if (configFile.exists()) {
-                    try {
-                        ControllerConfig.fromJson(configFile.readText())
-                    } catch (e: Exception) {
-                        ControllerProfile.createDefault()
-                    }
-                } else {
-                    ControllerProfile.createDefault()
-                }
-            }
+        val profile = getCurrentProfile()
         // 先计算所有已设置触发键的最大显示宽度，确保 → 箭头对齐
         val triggerNames = profile.layers.mapNotNull { it.triggerButton?.let { b -> buttonDisplayName(b) } }
         val maxDisplayWidth = if (triggerNames.isEmpty()) 0 else triggerNames.maxOf { displayWidth(it) }
