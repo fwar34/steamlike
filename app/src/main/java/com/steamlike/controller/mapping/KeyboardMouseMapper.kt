@@ -73,6 +73,17 @@ class KeyboardMouseMapper(
     private val pressedMouseButtons = mutableMapOf<ControllerButton, MouseButton>()
 
     /**
+     * 左摇杆当前按下的方向键集合（WASD映射）
+     *
+     * 摇杆8方向映射:
+     * - 上(W), 下(S), 左(A), 右(D)
+     * - 左上(A+W), 右上(D+W), 左下(A+S), 右下(D+S)
+     *
+     * 每次摇杆移动时计算新方向集合，与旧集合差异发送按键事件。
+     */
+    private val leftStickPressedKeys = mutableSetOf<Int>()
+
+    /**
      * 操作层变化回调
      *
      * 当激活的操作层发生变化时调用，传递当前所有激活层的名称列表。
@@ -109,6 +120,7 @@ class KeyboardMouseMapper(
         pressedMainKeys.clear()
         pressedSubKeys.clear()
         pressedMouseButtons.clear()
+        leftStickPressedKeys.clear()
         Log.i(TAG, "KeyboardMouseMapper stopped")
     }
 
@@ -293,8 +305,25 @@ class KeyboardMouseMapper(
                 }
             }
             ControllerStick.LEFT_STICK -> {
-                // 左摇杆 → 暂不映射（可在设置中配置为 MouseMove）
-                // 如需启用，检查公共层是否有 MouseMove 映射
+                // 左摇杆 → WASD 8方向映射（固定映射，不随操作层变化）
+                // 8方向: 上(W)/下(S)/左(A)/右(D)/左上(A+W)/右上(D+W)/左下(A+S)/右下(D+S)
+                val threshold = 0.5f
+                val newKeys = mutableSetOf<Int>()
+                if (x > threshold) newKeys.add(KeyEvent.KEYCODE_D)
+                else if (x < -threshold) newKeys.add(KeyEvent.KEYCODE_A)
+                if (y > threshold) newKeys.add(KeyEvent.KEYCODE_S)
+                else if (y < -threshold) newKeys.add(KeyEvent.KEYCODE_W)
+
+                // 释放不再按下的方向键
+                for (key in leftStickPressedKeys) {
+                    if (key !in newKeys) injector.sendKeyUp(key)
+                }
+                // 按下新增的方向键
+                for (key in newKeys) {
+                    if (key !in leftStickPressedKeys) injector.sendKeyDown(key)
+                }
+                leftStickPressedKeys.clear()
+                leftStickPressedKeys.addAll(newKeys)
             }
             ControllerStick.DPAD_AS_STICK -> {
                 // D-Pad 作为摇杆 → 不处理
