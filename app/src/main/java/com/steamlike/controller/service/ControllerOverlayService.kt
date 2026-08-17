@@ -22,6 +22,7 @@ import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import android.content.pm.ServiceInfo
+import com.steamlike.controller.LayerEditActivity
 import com.steamlike.controller.config.ConfigManager
 import com.steamlike.controller.core.SteamInput
 import com.steamlike.controller.injection.BridgeInputInjector
@@ -177,7 +178,9 @@ class ControllerOverlayService : Service() {
                 val injector = BridgeInputInjector(bridgeServer!!)
 
                 steamInput = SteamInput(this)
-                configManager = ConfigManager(this)
+                // 将 SteamInput 实例暴露给 LayerEditActivity，供操作层设置界面读写配置
+                LayerEditActivity.steamInputRef = steamInput
+                configManager = ConfigManager(this, steamInput!!)
 
                 mapper = KeyboardMouseMapper(
                     steamInput = steamInput!!,
@@ -253,16 +256,8 @@ class ControllerOverlayService : Service() {
     private fun loadUserConfig() {
         val si = steamInput ?: return
         val cm = configManager ?: return
-        // 读取内部配置文件，不存在则使用默认配置
-        val config = cm.loadFromFile() ?: return
-
-        // 应用配置（含验证，跳过无效项）
-        val result = cm.applyConfig(si, config)
-        if (result.hasWarnings) {
-            android.util.Log.w("ConfigManager",
-                "配置加载完成: ${result.appliedCount}项生效, ${result.skippedCount}项跳过\n" +
-                result.warnings.joinToString("\n"))
-        }
+        // 从内部存储加载配置（不存在则使用默认配置，自动应用到 SteamInput）
+        cm.loadFromInternal()
     }
 
     /**
@@ -290,19 +285,18 @@ class ControllerOverlayService : Service() {
             toast("映射器未启动，请先启动手柄映射")
             return
         }
-        val cm = configManager ?: ConfigManager(this)
+        val cm = configManager ?: ConfigManager(this, si)
         if (uri == null) {
             toast("导出失败: 无效的文件路径")
             return
         }
         try {
-            // 从 SteamInput 提取当前配置
-            val config = cm.exportConfig(si, name = "SteamLike导出配置")
-            // 写入用户选择的位置
-            cm.saveToUri(config, uri)
+            val profile = si.profile
+            // 导出到用户选择的位置（saveToUri 使用当前 steamInput.profile）
+            cm.saveToUri(uri)
             // 同时保存到内部存储（确保自动持久化）
-            cm.saveToFile(config)
-            toast("配置已导出 (${config.commonLayer.buttonBindings.size}个绑定, ${config.layers.size}个层)")
+            cm.saveToInternal(profile)
+            toast("配置已导出 (${profile.commonLayer.buttonMappings.size}个绑定, ${profile.layers.size}个层)")
         } catch (e: Exception) {
             toast("导出失败: ${e.message}")
         }
@@ -334,33 +328,20 @@ class ControllerOverlayService : Service() {
             toast("映射器未启动，请先启动手柄映射")
             return
         }
-        val cm = configManager ?: ConfigManager(this)
+        val cm = configManager ?: ConfigManager(this, si)
         if (uri == null) {
             toast("导入失败: 无效的文件路径")
             return
         }
         try {
-            // 从 URI 读取并解析配置
-            val config = cm.loadFromUri(uri) ?: run {
+            // 从 URI 读取、解析、应用到 SteamInput、保存到内部存储
+            val success = cm.loadFromUri(uri)
+            if (success) {
+                toast("配置已导入")
+            } else {
                 toast("导入失败: 无法读取配置文件")
                 return
             }
-            // 应用配置到 SteamInput（含验证，跳过无效项）
-            val result = cm.applyConfig(si, config)
-            // 保存到内部存储（下次启动自动加载）
-            cm.saveToFile(config)
-
-            // 构建提示消息
-            val msg = buildString {
-                append("配置已导入: ${result.appliedCount}项生效")
-                if (result.skippedCount > 0) {
-                    append(", ${result.skippedCount}项跳过")
-                }
-                if (result.hasWarnings) {
-                    append("\n警告: ${result.warnings.first()}")
-                }
-            }
-            toast(msg)
 
             // 更新悬浮窗的层显示（导入可能修改了层定义）
             updateLayerText(mapper?.getActiveLayers() ?: emptyList())
@@ -387,16 +368,21 @@ class ControllerOverlayService : Service() {
      * ```
      */
     private fun handleResetConfig() {
-        val cm = configManager ?: ConfigManager(this)
-        // 删除内部配置文件
-        cm.deleteConfigFile()
+        val si = steamInput ?: run {
+            toast("映射器未启动，请先启动手柄映射")
+            return
+        }
+        val cm = configManager ?: ConfigManager(this, si)
+        // 重置为默认配置（应用到 SteamInput 并保存到内部存储）
+        cm.resetToDefault()
         toast("已重置为默认配置，正在重新初始化...")
 
         // 停止并重新启动映射器
-        // 重新启动时 loadUserConfig() 会发现配置文件不存在，使用默认 WoW 预设
         mapper?.stop()
         mapper = null
         steamInput = null
+        // 清除 LayerEditActivity 的 SteamInput 引用（startMapper 会重新设置）
+        LayerEditActivity.steamInputRef = null
         startMapper()
     }
 
@@ -753,6 +739,8 @@ class ControllerOverlayService : Service() {
         mapper?.stop()
         mapper = null
         steamInput = null
+        // 清除 LayerEditActivity 的 SteamInput 引用
+        LayerEditActivity.steamInputRef = null
         configManager = null
         // 停止TCP服务器
         bridgeServer?.stop()

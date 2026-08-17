@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  编辑按键映射的对话框布局
+
+  用于 AlertDialog 的自定义视图，展示在 LayerEditActivity 点击某个手柄按键时弹出。
+
+  布局结构（垂直 LinearLayout）:
+  1. 正在编辑的按键名称（标题）
+  2. 动作类型 Spinner（键盘按键 / 鼠标点击 / 切换操作层）
+  3. 动作值 Spinner（根据动作类型动态切换选项）
+  4. 子命令区域（最多3个键盘按键选择，切换操作层时隐藏）
+  5. 添加子命令按钮（子命令未满3个时显示）
+
+  Android 知识点:
+  - ScrollView 包裹内容，防止内容过多时无法滚动（键盘按键列表较长）
+  - View.GONE: 隐藏视图且不占空间；View.VISIBLE: 显示视图
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:maxHeight="480dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp">
+
+        <!-- ===== 正在编辑的按键名称 ===== -->
+        <TextView
+            android:id="@+id/tv_button_name"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:paddingBottom="16dp" />
+
+        <!-- ===== 动作类型选择 ===== -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="动作类型:"
+            android:textSize="14sp" />
+
+        <!--
+          动作类型 Spinner
+          选项: 键盘按键 / 鼠标点击 / 切换操作层
+          选择后触发下方动作值 Spinner 的选项更新
+        -->
+        <Spinner
+            android:id="@+id/spinner_action_type"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingBottom="12dp" />
+
+        <!-- ===== 动作值选择（根据类型动态切换） ===== -->
+        <TextView
+            android:id="@+id/tv_action_label"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="选择按键:"
+            android:textSize="14sp" />
+
+        <!--
+          动作值 Spinner
+          - 键盘按键: 显示字母/数字/功能键/修饰键/符号键列表
+          - 鼠标点击: 显示 左键/中键/右键
+          - 切换操作层: 显示 Common + Layer1-Layer10 层名
+        -->
+        <Spinner
+            android:id="@+id/spinner_action_value"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingBottom="16dp" />
+
+        <!-- ===== 子命令区域 ===== -->
+        <!-- 整个子命令容器，切换操作层类型时整体隐藏 -->
+        <LinearLayout
+            android:id="@+id/layout_sub_commands"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="子命令（最多3个，组合键）:"
+                android:textStyle="bold"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp" />
+
+            <!--
+              子命令动态容器
+              子命令 Spinner 在代码中动态添加到此容器。
+              每个子命令 Spinner 第一项为"无"（表示该位置不设子命令）。
+            -->
+            <LinearLayout
+                android:id="@+id/layout_sub_command_list"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
+            <!-- 添加子命令按钮（已满3个时隐藏） -->
+            <Button
+                android:id="@+id/btn_add_sub_command"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="+ 添加子命令" />
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>

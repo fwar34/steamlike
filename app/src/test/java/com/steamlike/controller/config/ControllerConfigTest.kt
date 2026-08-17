@@ -1,8 +1,12 @@
 package com.steamlike.controller.config
 
 import com.steamlike.controller.core.ControllerButton
-import com.steamlike.controller.core.ControllerStick
-import com.steamlike.controller.core.ControllerTrigger
+import com.steamlike.controller.core.ControllerProfile
+import com.steamlike.controller.core.GlobalSettings
+import com.steamlike.controller.core.KeyMapping
+import com.steamlike.controller.core.MappedAction
+import com.steamlike.controller.core.MouseButton
+import com.steamlike.controller.core.OperationLayer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -10,339 +14,202 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * ControllerConfig 配置文件序列化/反序列化测试
+ * ControllerConfig JSON 序列化/反序列化测试
  *
  * 测试内容:
- * - JSON 序列化 (toJsonString)
- * - JSON 反序列化 (parseConfig)
- * - 往返测试 (序列化→反序列化→验证一致性)
- * - 枚举名解析 (parseButton/parseStick/parseTrigger)
- * - 边界情况 (空配置、缺失字段、无效枚举名)
+ * - 往返测试 (Round-trip): 序列化 → 反序列化 → 验证一致性
+ * - 各种动作类型序列化
+ * - 子命令序列化
+ * - 默认配置序列化
+ * - 错误处理
  */
 class ControllerConfigTest {
 
-    // ===== 序列化测试 =====
+    // ===== 往返测试 =====
 
     @Test
-    fun `空配置序列化为有效JSON`() {
-        val config = ControllerConfig()
-        val json = config.toJsonString()
+    fun `往返测试 - 简单配置`() {
+        val original = ControllerProfile(
+            commonLayer = OperationLayer("Common").apply {
+                buttonMappings[ControllerButton.A] = KeyMapping(
+                    MappedAction.KeyboardKey(29)  // KEYCODE_A = 29
+                )
+                buttonMappings[ControllerButton.B] = KeyMapping(
+                    MappedAction.MouseClick(MouseButton.RIGHT)
+                )
+            },
+            layers = listOf(
+                OperationLayer("Layer1", ControllerButton.DPAD_UP).apply {
+                    buttonMappings[ControllerButton.A] = KeyMapping(
+                        MappedAction.KeyboardKey(30),  // KEYCODE_B = 30
+                        listOf(7, 8)  // 子命令
+                    )
+                }
+            ),
+            globalSettings = GlobalSettings(deadzone = 0.1f, lookSensitivity = 2.0f, cursorSpeed = 1.5f)
+        )
 
-        // 解析回来验证
-        val parsed = parseConfig(json)
-        assertEquals(ControllerConfig.CURRENT_VERSION, parsed.version)
-        assertTrue(parsed.name.isEmpty())
+        val json = ControllerConfig.toJson(original, 2)
+        val parsed = ControllerConfig.fromJson(json)
+
+        assertEquals(original.layers.size, parsed.layers.size)
+        assertEquals(original.commonLayer.name, parsed.commonLayer.name)
+        assertEquals(original.globalSettings.deadzone, parsed.globalSettings.deadzone, 0.001f)
+        assertEquals(original.globalSettings.lookSensitivity, parsed.globalSettings.lookSensitivity, 0.001f)
+    }
+
+    @Test
+    fun `往返测试 - 键盘按键带子命令`() {
+        val original = ControllerProfile(
+            commonLayer = OperationLayer("Common").apply {
+                buttonMappings[ControllerButton.X] = KeyMapping(
+                    MappedAction.KeyboardKey(57),  // KEYCODE_ALT_LEFT = 57
+                    listOf(7, 8, 9)  // 3个子命令
+                )
+            },
+            layers = emptyList()
+        )
+
+        val json = ControllerConfig.toJson(original, 0)
+        val parsed = ControllerConfig.fromJson(json)
+
+        val mapping = parsed.commonLayer.getMapping(ControllerButton.X)
+        assertNotNull(mapping)
+        val action = mapping!!.action as MappedAction.KeyboardKey
+        assertEquals(57, action.keyCode)
+        assertEquals(3, mapping.subCommands.size)
+    }
+
+    @Test
+    fun `往返测试 - 切换层动作`() {
+        val original = ControllerProfile(
+            commonLayer = OperationLayer("Common").apply {
+                buttonMappings[ControllerButton.LEFT_SHOULDER] = KeyMapping(
+                    MappedAction.SwitchLayer("Layer5")
+                )
+            },
+            layers = emptyList()
+        )
+
+        val json = ControllerConfig.toJson(original, 0)
+        val parsed = ControllerConfig.fromJson(json)
+
+        val mapping = parsed.commonLayer.getMapping(ControllerButton.LEFT_SHOULDER)
+        assertNotNull(mapping)
+        val action = mapping!!.action as MappedAction.SwitchLayer
+        assertEquals("Layer5", action.layerName)
+    }
+
+    @Test
+    fun `往返测试 - 视角控制动作`() {
+        val original = ControllerProfile(
+            commonLayer = OperationLayer("Common").apply {
+                buttonMappings[ControllerButton.RIGHT_STICK_CLICK] = KeyMapping(
+                    MappedAction.LookAround
+                )
+            },
+            layers = emptyList()
+        )
+
+        val json = ControllerConfig.toJson(original, 0)
+        val parsed = ControllerConfig.fromJson(json)
+
+        val mapping = parsed.commonLayer.getMapping(ControllerButton.RIGHT_STICK_CLICK)
+        assertNotNull(mapping)
+        assertTrue(mapping!!.action is MappedAction.LookAround)
+    }
+
+    // ===== 默认配置序列化测试 =====
+
+    @Test
+    fun `默认配置序列化`() {
+        val original = ControllerProfile.createDefault()
+
+        val json = ControllerConfig.toJson(original, 2)
+        val parsed = ControllerConfig.fromJson(json)
+
+        assertEquals(original.layers.size, parsed.layers.size)
+        assertEquals("Common", parsed.commonLayer.name)
+        // 验证所有10个层都在
+        for (i in 1..10) {
+            assertNotNull(parsed.findLayer("Layer$i"))
+        }
+    }
+
+    @Test
+    fun `默认配置触发键保留`() {
+        val original = ControllerProfile.createDefault()
+
+        val json = ControllerConfig.toJson(original, 0)
+        val parsed = ControllerConfig.fromJson(json)
+
+        assertEquals(ControllerButton.DPAD_UP, parsed.layers[0].triggerButton)
+        assertEquals(ControllerButton.RIGHT_TRIGGER_CLICK, parsed.layers[9].triggerButton)
+    }
+
+    // ===== 全局设置测试 =====
+
+    @Test
+    fun `全局设置往返`() {
+        val original = ControllerProfile(
+            commonLayer = OperationLayer("Common"),
+            layers = emptyList(),
+            globalSettings = GlobalSettings(deadzone = 0.25f, lookSensitivity = 3.5f, cursorSpeed = 2.0f)
+        )
+
+        val json = ControllerConfig.toJson(original, 0)
+        val parsed = ControllerConfig.fromJson(json)
+
+        assertEquals(0.25f, parsed.globalSettings.deadzone, 0.001f)
+        assertEquals(3.5f, parsed.globalSettings.lookSensitivity, 0.001f)
+        assertEquals(2.0f, parsed.globalSettings.cursorSpeed, 0.001f)
+    }
+
+    @Test
+    fun `缺失全局设置使用默认值`() {
+        val json = """{"version":2,"commonLayer":{"name":"Common","buttonMappings":{}},"layers":[]}"""
+        val parsed = ControllerConfig.fromJson(json)
+
+        assertEquals(0.0f, parsed.globalSettings.deadzone, 0.001f)
+        assertEquals(1.0f, parsed.globalSettings.lookSensitivity, 0.001f)
+        assertEquals(1.0f, parsed.globalSettings.cursorSpeed, 0.001f)
+    }
+
+    // ===== 错误处理 =====
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `错误版本号抛异常`() {
+        val json = """{"version":1,"commonLayer":{"name":"Common"}}"""
+        ControllerConfig.fromJson(json)
+    }
+
+    @Test
+    fun `空层列表可解析`() {
+        val json = """{"version":2,"commonLayer":{"name":"Common","buttonMappings":{}},"layers":[]}"""
+        val parsed = ControllerConfig.fromJson(json)
+
+        assertEquals("Common", parsed.commonLayer.name)
         assertTrue(parsed.layers.isEmpty())
     }
 
     @Test
-    fun `完整配置序列化包含所有字段`() {
-        val config = ControllerConfig(
-            version = 1,
-            name = "测试配置",
-            description = "用于测试的配置文件",
-            commonLayer = CommonLayerConfig(
-                buttonBindings = mapOf("A" to "Jump", "B" to "Interact"),
-                chordBindings = listOf(
-                    ChordBindingConfig("A", "TargetEnemy", listOf("RIGHT_SHOULDER"))
-                ),
-                stickBindings = mapOf("LEFT_STICK" to "Move"),
-                triggerBindings = mapOf("RIGHT_TRIGGER" to "Cast"),
-                stickProperties = mapOf("Move" to StickPropertiesConfig(0.2f, 1.3f)),
-                triggerProperties = mapOf("Cast" to TriggerPropertiesConfig(0.3f))
-            ),
-            layers = listOf(
-                LayerConfig(
-                    name = "Combat",
-                    displayName = "战斗模式",
-                    buttonBindingOverrides = mapOf("A" to "Slot5"),
-                    stickOverrides = mapOf("Look" to StickPropertiesConfig(0.25f, 0.8f)),
-                    triggerOverrides = emptyMap()
-                )
-            )
-        )
-
-        val json = config.toJsonString(2)
-
-        // 验证关键字段存在
-        assertTrue(json.contains("\"version\""))
-        assertTrue(json.contains("\"name\""))
-        assertTrue(json.contains("\"测试配置\""))
-        assertTrue(json.contains("\"commonLayer\""))
-        assertTrue(json.contains("\"buttonBindings\""))
-        assertTrue(json.contains("\"Jump\""))
-        assertTrue(json.contains("\"chordBindings\""))
-        assertTrue(json.contains("\"TargetEnemy\""))
-        assertTrue(json.contains("\"layers\""))
-        assertTrue(json.contains("\"Combat\""))
-        assertTrue(json.contains("\"Slot5\""))
-    }
-
-    // ===== 反序列化测试 =====
-
-    @Test
-    fun `从JSON字符串解析完整配置`() {
-        val jsonStr = """{
-            "version": 1,
-            "name": "测试",
-            "description": "测试描述",
+    fun `未知按钮名跳过`() {
+        val json = """
+        {
+            "version": 2,
             "commonLayer": {
-                "buttonBindings": {"A": "Jump", "B": "Interact"},
-                "chordBindings": [
-                    {"button": "A", "action": "TargetEnemy", "chord": ["RIGHT_SHOULDER"]}
-                ],
-                "stickBindings": {"LEFT_STICK": "Move"},
-                "triggerBindings": {"RIGHT_TRIGGER": "Cast"},
-                "stickProperties": {"Move": {"deadzone": 0.2, "responseCurve": 1.3}},
-                "triggerProperties": {"Cast": {"pressThreshold": 0.3}}
-            },
-            "layers": [
-                {
-                    "name": "Combat",
-                    "displayName": "战斗模式",
-                    "buttonBindingOverrides": {"A": "Slot5"},
-                    "stickOverrides": {"Look": {"deadzone": 0.25, "responseCurve": 0.8}},
-                    "triggerOverrides": {}
+                "name": "Common",
+                "buttonMappings": {
+                    "UNKNOWN_BUTTON": {"action": {"type": "keyboard", "keyCode": 29}, "subCommands": []},
+                    "A": {"action": {"type": "keyboard", "keyCode": 30}, "subCommands": []}
                 }
-            ]
-        }"""
+            },
+            "layers": []
+        }
+        """.trimIndent()
+        val parsed = ControllerConfig.fromJson(json)
 
-        val config = parseConfig(jsonStr)
-
-        assertEquals(1, config.version)
-        assertEquals("测试", config.name)
-        assertEquals("测试描述", config.description)
-        assertEquals("Jump", config.commonLayer.buttonBindings["A"])
-        assertEquals("Interact", config.commonLayer.buttonBindings["B"])
-        assertEquals(1, config.commonLayer.chordBindings.size)
-        assertEquals("TargetEnemy", config.commonLayer.chordBindings[0].action)
-        assertEquals(listOf("RIGHT_SHOULDER"), config.commonLayer.chordBindings[0].chord)
-        assertEquals("Move", config.commonLayer.stickBindings["LEFT_STICK"])
-        assertEquals("Cast", config.commonLayer.triggerBindings["RIGHT_TRIGGER"])
-        assertEquals(0.2f, config.commonLayer.stickProperties["Move"]!!.deadzone!!, 0.001f)
-        assertEquals(1.3f, config.commonLayer.stickProperties["Move"]!!.responseCurve!!, 0.001f)
-        assertEquals(0.3f, config.commonLayer.triggerProperties["Cast"]!!.pressThreshold!!, 0.001f)
-
-        assertEquals(1, config.layers.size)
-        val layer = config.layers[0]
-        assertEquals("Combat", layer.name)
-        assertEquals("战斗模式", layer.displayName)
-        assertEquals("Slot5", layer.buttonBindingOverrides["A"])
-        assertEquals(0.25f, layer.stickOverrides["Look"]!!.deadzone!!, 0.001f)
-        assertEquals(0.8f, layer.stickOverrides["Look"]!!.responseCurve!!, 0.001f)
-    }
-
-    @Test
-    fun `解析缺失可选字段的JSON`() {
-        val jsonStr = """{"version":1,"name":"最小配置"}"""
-        val config = parseConfig(jsonStr)
-
-        assertEquals(1, config.version)
-        assertEquals("最小配置", config.name)
-        assertTrue(config.description.isEmpty())
-        assertTrue(config.commonLayer.buttonBindings.isEmpty())
-        assertTrue(config.layers.isEmpty())
-    }
-
-    @Test
-    fun `解析缺失version字段时使用当前版本`() {
-        val jsonStr = """{"name":"无版本号"}"""
-        val config = parseConfig(jsonStr)
-        assertEquals(ControllerConfig.CURRENT_VERSION, config.version)
-    }
-
-    @Test
-    fun `解析null commonLayer时返回空配置`() {
-        val jsonStr = """{"version":1,"name":"无公共层"}"""
-        val config = parseConfig(jsonStr)
-        assertTrue(config.commonLayer.buttonBindings.isEmpty())
-        assertTrue(config.commonLayer.chordBindings.isEmpty())
-    }
-
-    @Test
-    fun `解析空chord的组合键绑定`() {
-        val jsonStr = """{
-            "version":1,
-            "name":"test",
-            "commonLayer": {
-                "chordBindings": [
-                    {"button": "A", "action": "Jump"}
-                ]
-            }
-        }"""
-
-        val config = parseConfig(jsonStr)
-        assertEquals(1, config.commonLayer.chordBindings.size)
-        assertEquals("A", config.commonLayer.chordBindings[0].button)
-        assertEquals("Jump", config.commonLayer.chordBindings[0].action)
-        assertTrue(config.commonLayer.chordBindings[0].chord.isEmpty())
-    }
-
-    @Test
-    fun `解析多键chord的组合键绑定`() {
-        val jsonStr = """{
-            "version":1,
-            "name":"test",
-            "commonLayer": {
-                "chordBindings": [
-                    {"button": "A", "action": "Potion", "chord": ["RIGHT_SHOULDER", "LEFT_TRIGGER_CLICK"]}
-                ]
-            }
-        }"""
-
-        val config = parseConfig(jsonStr)
-        val cb = config.commonLayer.chordBindings[0]
-        assertEquals(2, cb.chord.size)
-        assertEquals("RIGHT_SHOULDER", cb.chord[0])
-        assertEquals("LEFT_TRIGGER_CLICK", cb.chord[1])
-    }
-
-    @Test
-    fun `解析摇杆属性缺失responseCurve时返回null`() {
-        val jsonStr = """{
-            "version":1,
-            "name":"test",
-            "commonLayer": {
-                "stickProperties": {"Move": {"deadzone": 0.2}}
-            }
-        }"""
-
-        val config = parseConfig(jsonStr)
-        val props = config.commonLayer.stickProperties["Move"]!!
-        assertEquals(0.2f, props.deadzone!!, 0.001f)
-        assertNull(props.responseCurve)
-    }
-
-    @Test
-    fun `解析层配置缺失displayName时使用name`() {
-        val jsonStr = """{
-            "version":1,
-            "name":"test",
-            "layers": [{"name": "Combat"}]
-        }"""
-
-        val config = parseConfig(jsonStr)
-        val layer = config.layers[0]
-        assertEquals("Combat", layer.name)
-        assertEquals("Combat", layer.displayName)
-    }
-
-    // ===== 往返测试 (Round-trip) =====
-
-    @Test
-    fun `配置序列化后反序列化保持一致`() {
-        val original = ControllerConfig(
-            version = 1,
-            name = "往返测试",
-            description = "验证序列化+反序列化的一致性",
-            commonLayer = CommonLayerConfig(
-                buttonBindings = mapOf("A" to "Jump", "B" to "Interact", "X" to "Attack"),
-                chordBindings = listOf(
-                    ChordBindingConfig("A", "Jump"),
-                    ChordBindingConfig("A", "Slot5", listOf("RIGHT_SHOULDER")),
-                    ChordBindingConfig("DPAD_UP", "Slot9", listOf("RIGHT_STICK_CLICK"))
-                ),
-                stickBindings = mapOf("LEFT_STICK" to "Move", "RIGHT_STICK" to "Look"),
-                triggerBindings = mapOf("LEFT_TRIGGER" to "Modifier", "RIGHT_TRIGGER" to "Cast"),
-                stickProperties = mapOf(
-                    "Move" to StickPropertiesConfig(0.2f, 1.3f),
-                    "Look" to StickPropertiesConfig(0.15f, 1.0f)
-                ),
-                triggerProperties = mapOf(
-                    "Cast" to TriggerPropertiesConfig(0.3f),
-                    "Modifier" to TriggerPropertiesConfig(0.5f)
-                )
-            ),
-            layers = listOf(
-                LayerConfig("Combat", "战斗", mapOf("A" to "Slot5"), emptyMap(), emptyMap()),
-                LayerConfig("Aim", "瞄准", emptyMap(),
-                    mapOf("Look" to StickPropertiesConfig(0.25f, 0.5f)),
-                    mapOf("Cast" to TriggerPropertiesConfig(0.6f))
-                )
-            )
-        )
-
-        val json = original.toJsonString(2)
-        val parsed = parseConfig(json)
-
-        assertEquals(original.version, parsed.version)
-        assertEquals(original.name, parsed.name)
-        assertEquals(original.description, parsed.description)
-        assertEquals(original.commonLayer.buttonBindings, parsed.commonLayer.buttonBindings)
-        assertEquals(original.commonLayer.stickBindings, parsed.commonLayer.stickBindings)
-        assertEquals(original.commonLayer.triggerBindings, parsed.commonLayer.triggerBindings)
-        assertEquals(original.commonLayer.chordBindings.size, parsed.commonLayer.chordBindings.size)
-        assertEquals(original.layers.size, parsed.layers.size)
-        assertEquals(original.layers[0].buttonBindingOverrides, parsed.layers[0].buttonBindingOverrides)
-        assertEquals(original.layers[1].stickOverrides, parsed.layers[1].stickOverrides)
-    }
-
-    @Test
-    fun `空配置往返测试`() {
-        val original = ControllerConfig()
-        val json = original.toJsonString()
-        val parsed = parseConfig(json)
-        assertEquals(original, parsed)
-    }
-
-    // ===== 枚举名解析测试 =====
-
-    @Test
-    fun `parseButton解析有效按钮名`() {
-        assertEquals(ControllerButton.A, parseButton("A"))
-        assertEquals(ControllerButton.B, parseButton("B"))
-        assertEquals(ControllerButton.RIGHT_SHOULDER, parseButton("RIGHT_SHOULDER"))
-        assertEquals(ControllerButton.DPAD_UP, parseButton("DPAD_UP"))
-        assertEquals(ControllerButton.LEFT_STICK_CLICK, parseButton("LEFT_STICK_CLICK"))
-    }
-
-    @Test
-    fun `parseButton无效名称返回null`() {
-        assertNull(parseButton("Invalid"))
-        assertNull(parseButton("a"))  // 大小写敏感
-        assertNull(parseButton(""))
-    }
-
-    @Test
-    fun `parseStick解析有效摇杆名`() {
-        assertEquals(ControllerStick.LEFT_STICK, parseStick("LEFT_STICK"))
-        assertEquals(ControllerStick.RIGHT_STICK, parseStick("RIGHT_STICK"))
-        assertEquals(ControllerStick.DPAD_AS_STICK, parseStick("DPAD_AS_STICK"))
-    }
-
-    @Test
-    fun `parseStick无效名称返回null`() {
-        assertNull(parseStick("left_stick"))  // 大小写敏感
-        assertNull(parseStick("Invalid"))
-    }
-
-    @Test
-    fun `parseTrigger解析有效扳机名`() {
-        assertEquals(ControllerTrigger.LEFT_TRIGGER, parseTrigger("LEFT_TRIGGER"))
-        assertEquals(ControllerTrigger.RIGHT_TRIGGER, parseTrigger("RIGHT_TRIGGER"))
-    }
-
-    @Test
-    fun `parseTrigger无效名称返回null`() {
-        assertNull(parseTrigger("LT"))
-        assertNull(parseTrigger("Invalid"))
-    }
-
-    // ===== 紧凑 vs 格式化输出 =====
-
-    @Test
-    fun `缩进为0时输出紧凑JSON`() {
-        val config = ControllerConfig(name = "test")
-        val json = config.toJsonString(0)
-        // 紧凑模式不应包含换行
-        assertTrue(!json.contains("\n"))
-    }
-
-    @Test
-    fun `缩进为2时输出格式化JSON`() {
-        val config = ControllerConfig(name = "test")
-        val json = config.toJsonString(2)
-        // 格式化模式应包含换行
-        assertTrue(json.contains("\n"))
+        assertNull(parsed.commonLayer.getMapping(ControllerButton.B))  // UNKNOWN_BUTTON 被跳过
+        assertNotNull(parsed.commonLayer.getMapping(ControllerButton.A))
     }
 }

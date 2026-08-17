@@ -101,6 +101,14 @@ enum class ControllerButton {
 }
 
 /**
+ * 鼠标按键类型（类型别名）
+ *
+ * 指向 [com.steamlike.controller.injection.MouseButton]，统一使用同一个 MouseButton 枚举。
+ * 用于 [com.steamlike.controller.core.MappedAction.MouseClick] 动作。
+ */
+typealias MouseButton = com.steamlike.controller.injection.MouseButton
+
+/**
  * 手柄摇杆类型
  *
  * 摇杆是2D模拟量输入，X/Y范围均为 -1.0~1.0。

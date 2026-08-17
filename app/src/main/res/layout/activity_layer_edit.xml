@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  操作层设置 Activity 布局
+
+  布局结构（垂直 LinearLayout）:
+  1. 标题文字
+  2. 操作层选择行（标签 + Spinner）
+  3. 层信息行（编辑名称按钮 + 编辑触发按键按钮）
+  4. 按键映射标题
+  5. 按键映射列表（ListView，占满剩余空间）
+  6. 底部保存按钮
+
+  Android 知识点:
+  - layout_weight: 在 LinearLayout 中按比例分配剩余空间。ListView 设 weight=1 会占满中间区域。
+  - match_parent / wrap_content: 前者填满父容器，后者根据内容自适应大小。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <!-- ===== 标题 ===== -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="操作层设置"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        android:paddingBottom="12dp" />
+
+    <!-- ===== 操作层选择行 ===== -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingBottom="8dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="选择操作层: "
+            android:textSize="16sp" />
+
+        <!-- 操作层下拉选择器，包含 Common + Layer1-Layer10 -->
+        <Spinner
+            android:id="@+id/spinner_layer"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1" />
+    </LinearLayout>
+
+    <!-- ===== 层信息行（名称 + 触发按键） ===== -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingBottom="8dp">
+
+        <!-- 编辑当前操作层名称 -->
+        <Button
+            android:id="@+id/btn_edit_layer_name"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="层名称" />
+
+        <!-- 编辑当前操作层触发按键（Common 层禁用） -->
+        <Button
+            android:id="@+id/btn_edit_trigger"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="触发按键" />
+    </LinearLayout>
+
+    <!-- ===== 按键映射列表标题 ===== -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="按键映射（点击编辑）:"
+        android:textSize="16sp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp" />
+
+    <!--
+      按键映射列表
+      显示当前操作层中所有手柄按键的映射情况。
+      layout_weight=1 让列表占据剩余的所有垂直空间。
+    -->
+    <ListView
+        android:id="@+id/list_mappings"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <!-- ===== 底部保存按钮 ===== -->
+    <Button
+        android:id="@+id/btn_save"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="保存配置"
+        android:layout_marginTop="8dp" />
+
+</LinearLayout>

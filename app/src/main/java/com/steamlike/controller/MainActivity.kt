@@ -383,9 +383,9 @@ class MainActivity : AppCompatActivity() {
      * 在 [onResume] 和配置操作完成后调用。
      */
     private fun updateConfigStatus() {
-        val cm = ConfigManager(this)
-        val hasConfig = cm.hasConfigFile()
-        val configFile = ConfigManager.getConfigFile(this)
+        // 配置文件路径: {filesDir}/steamlike_config.json
+        val configFile = File(filesDir, "steamlike_config.json")
+        val hasConfig = configFile.exists()
         configStatusText.text = if (hasConfig) {
             "配置文件: 已加载\n路径: ${configFile.name}\n大小: ${configFile.length()} 字节"
         } else {

@@ -1,564 +1,304 @@
 package com.steamlike.controller.mapping
 
+import android.util.Log
 import android.view.KeyEvent
 import android.view.MotionEvent
-import com.steamlike.controller.core.*
+import com.steamlike.controller.core.ControllerButton
+import com.steamlike.controller.core.ControllerStick
+import com.steamlike.controller.core.KeyMapping
+import com.steamlike.controller.core.MappedAction
+import com.steamlike.controller.core.MouseButton
+import com.steamlike.controller.core.SteamInput
 import com.steamlike.controller.injection.InputInjector
-import com.steamlike.controller.injection.MouseButton
 
 /**
- * 手柄 -> 键盘/鼠标映射器（无操作集版本）
+ * 键盘/鼠标映射器
  *
- * ## 职责
- * 将手柄输入转换为 WoW 游戏所需的键盘/鼠标事件，通过 TCP 桥接发送给 Windows 客户端。
- * 同时管理10个操作层的切换和运行时按键映射配置。
+ * 监听 [SteamInput] 的映射回调，将手柄按键映射转换为键盘/鼠标事件，
+ * 通过 [InputInjector] 注入到目标应用。
  *
- * ## 架构
- * - 公共层(commonLayer): 始终激活, 定义所有动作和默认按键绑定
- * - 10个操作层: 可叠加切换, 每个层继承公共层并可覆盖按键映射
- * - 组合键(ChordBinding): 同一按钮在不同修饰键下触发不同动作（参考Steam子指令）
+ * ## 子命令（Sub-Command）处理
  *
- * ## 核心数据流
+ * 当按键映射包含子命令时，按以下顺序注入:
+ * 1. 按下主键
+ * 2. 按下所有子命令键
+ * 3. 松开所有子命令键
+ * 4. 松开主键
+ *
+ * 示例: 手柄X → KeyMapping(KeyboardKey(Alt), subCommands=[KEYCODE_3])
  * ```
- * 手柄硬件
- *      ↓
- * GamepadInputView (焦点窗口捕获)
- *      ↓
- * SteamInput.dispatchKeyEvent / dispatchGenericMotionEvent
- *      ↓
- * onInterceptButton 回调 ← 快捷键拦截(LB+按键 切换层)
- *      ↓ 未拦截?
- * getEffectiveButtonBinding ← 层路由 + 组合键匹配
- *      ↓
- * commonLayer.buttonActions[name].onPressed ← 触发动作回调
- *      ↓
- * InputInjector.sendKeyPress/sendMouseClick ← 注入键鼠事件
- *      ↓
- * TCP桥接 → Windows SendInput → WoW游戏响应
+ * 按下X: sendKeyDown(Alt) → sendKeyDown(3)
+ * 松开X: sendKeyUp(3) → sendKeyUp(Alt)
+ * 最终输出: Alt+3 组合键
  * ```
  *
- * ## 快捷键
- * - LB + D-Pad Up/Down/Left/Right → 切换前4个操作层(Combat/Mount/Aim/Loot)
- * - LB + A/B/X/Y/L3/R3           → 切换后6个操作层(Stealth/Fishing/PvP/Raid/Travel/Custom)
- * - LB + GUIDE                    → 清除所有层
+ * ## 摇杆处理
  *
- * ## 组合键（参考Steam子指令）
- * 通过 commonLayer.addChordBinding() 定义，例如:
- * - A + RB → TargetEnemy（覆盖A的默认动作Jump）
- * - D-Pad Up + L3 → Slot5（覆盖D-Pad Up的默认动作Slot1）
+ * - 左摇杆: 默认不映射（可在设置中配置为 MouseMove）
+ * - 右摇杆: 默认映射为视角控制（LookAround），发送鼠标相对移动
+ * - 灵敏度由 [SteamInput.profile] 的 [com.steamlike.controller.core.GlobalSettings] 控制
  *
- * @param steamInput Steam输入控制器
- * @param injector 输入注入器（TCP桥接实现）
- * @param screenWidth 屏幕宽度（像素）
- * @param screenHeight 屏幕高度（像素）
+ * ## 线程安全
+ * 所有回调在主线程执行（View 事件分发线程），无需额外同步。
+ *
+ * @param steamInput Steam 输入控制器
+ * @param injector 输入注入器
  */
 class KeyboardMouseMapper(
     private val steamInput: SteamInput,
     private val injector: InputInjector,
-    private val screenWidth: Int = 1920,
-    private val screenHeight: Int = 1080
+    screenWidth: Int = 0,
+    screenHeight: Int = 0
 ) {
-    /** WoW操作层配置（公共层 + 10个操作层） */
-    private var wowConfig: WoWConfig? = null
 
-    /** 当前按下的WASD键集合（用于摇杆→键盘映射的状态管理） */
-    private val wasdKeys = mutableSetOf<Int>()
-
-    /** 鼠标右键是否按下（用于右摇杆视角控制时自动按住右键） */
-    private var rightMouseDown = false
-
-    /** 右摇杆视角移动灵敏度（像素/帧） */
-    var lookSensitivity = 15f
-
-    /** 光标移动速度（像素/帧，用于Cursor摇杆模式） */
-    var cursorSpeed = 8f
-
-    /** 操作层变化时的回调（通知UI更新显示） */
-    var onLayerChanged: ((List<String>) -> Unit)? = null
-
-    /** LB(左肩键)是否按住（用于快捷键检测） */
-    private var lbHeld = false
+    private val TAG = "SteamLikeMapper"
 
     /**
-     * 启动映射器
+     * 当前按下的主键集合（用于松开时释放）
      *
-     * 流程:
-     * 1. 检查注入器是否可用
-     * 2. 初始化WoW操作层配置（公共层 + 10个操作层）
-     * 3. 设置公共层中所有动作的回调（按键→键鼠注入）
-     * 4. 设置按钮事件拦截器（LB+按钮 切换操作层）
-     * 5. 通知初始状态
+     * key = 手柄按钮, value = 主键的 Android KeyCode
+     */
+    private val pressedMainKeys = mutableMapOf<ControllerButton, Int>()
+
+    /**
+     * 当前按下的子命令键集合（用于松开时释放）
      *
-     * 注意: 手柄事件由 GamepadInputView（焦点窗口）捕获并转发到 SteamInput，
-     * 本方法不再启动任何后台读取线程。
+     * key = 手柄按钮, value = 子命令的 Android KeyCode 列表
+     */
+    private val pressedSubKeys = mutableMapOf<ControllerButton, List<Int>>()
+
+    /**
+     * 当前按下鼠标按钮的手柄按钮集合
+     */
+    private val pressedMouseButtons = mutableMapOf<ControllerButton, MouseButton>()
+
+    /**
+     * 操作层变化回调
+     *
+     * 当激活的操作层发生变化时调用，传递当前所有激活层的名称列表。
+     * 由 ControllerOverlayService 设置，用于更新悬浮窗 UI。
+     */
+    var onLayerChanged: ((List<String>) -> Unit)? = null
+
+    /**
+     * 启动映射器，注册回调
      *
      * @return true=启动成功
      */
     fun start(): Boolean {
-        if (!injector.isAvailable()) return false
-
-        // 1. 初始化操作层配置
-        wowConfig = WoWActionSets.setup(steamInput)
-
-        // 2. 设置公共层动作回调
-        setupCommonLayerCallbacks()
-
-        // 3. 设置按钮事件拦截器（处理 LB+按钮 快捷键）
-        steamInput.onInterceptButton = { button, pressed ->
-            interceptButton(button, pressed)
+        steamInput.onButtonMapped = { button, isPressed, mapping ->
+            handleMapping(button, isPressed, mapping)
         }
-
-        // 4. 通知初始状态
-        onLayerChanged?.invoke(getActiveLayers())
+        steamInput.onStickMapped = { stick, x, y ->
+            handleStick(stick, x, y)
+        }
+        steamInput.onLayerChanged = { layerName ->
+            Log.i(TAG, "Active layer: $layerName")
+            // 通知外部监听器，传递当前所有激活层名称列表
+            onLayerChanged?.invoke(getActiveLayers())
+        }
+        Log.i(TAG, "KeyboardMouseMapper started")
         return true
     }
 
     /**
-     * 停止映射器
-     *
-     * - 释放所有按下的键鼠（防止按键卡住）
-     * - 销毁SteamInput
+     * 停止映射器，释放所有按键
      */
     fun stop() {
-        steamInput.onInterceptButton = null
-        cleanupAllInputs()
-        steamInput.destroy()
+        injector.releaseAll()
+        pressedMainKeys.clear()
+        pressedSubKeys.clear()
+        pressedMouseButtons.clear()
+        Log.i(TAG, "KeyboardMouseMapper stopped")
     }
 
     // ====================================================================
-    // 输入事件转发（供 GamepadInputView 调用）
+    // SteamInput 委托方法
+    // ====================================================================
+    // 以下方法将调用转发到 SteamInput，供 ControllerOverlayService 使用。
     // ====================================================================
 
     /**
-     * 处理 KeyEvent（按钮按下/释放）
+     * 获取当前激活的操作层名称列表
      *
-     * 由 GamepadInputView 的 onKeyEvent 回调调用，转发到 SteamInput。
-     * SteamInput 内部会进行按键映射、拦截器检查、组合键匹配和动作分发。
+     * @return 激活层名称列表（空列表=仅公共层）
+     */
+    fun getActiveLayers(): List<String> = steamInput.getActiveLayers().map { it.name }
+
+    /**
+     * 处理系统 KeyEvent（按钮按下/释放）
+     *
+     * 转发到 [SteamInput.dispatchKeyEvent] 进行手柄按键映射。
      *
      * @param event 系统按键事件
      * @return true=已处理
      */
-    fun onKeyEvent(event: KeyEvent): Boolean {
-        return steamInput.dispatchKeyEvent(event)
-    }
+    fun onKeyEvent(event: KeyEvent): Boolean = steamInput.dispatchKeyEvent(event)
 
     /**
-     * 处理 MotionEvent（摇杆移动/扳机按压）
+     * 处理系统 MotionEvent（摇杆移动/扳机按压）
      *
-     * 由 GamepadInputView 的 onGenericMotion 回调调用，转发到 SteamInput。
+     * 转发到 [SteamInput.dispatchGenericMotionEvent] 进行摇杆映射。
      *
      * @param event 系统运动事件
      * @return true=已处理
      */
-    fun onGenericMotionEvent(event: MotionEvent): Boolean {
-        return steamInput.dispatchGenericMotionEvent(event)
-    }
-
-    // ====================================================================
-    // 快捷键拦截
-    // ====================================================================
+    fun onGenericMotionEvent(event: MotionEvent): Boolean = steamInput.dispatchGenericMotionEvent(event)
 
     /**
-     * 快捷键拦截器
+     * 清除所有激活的操作层（回到公共层）
+     */
+    fun clearAllLayers() = steamInput.deactivateAllLayers()
+
+    /**
+     * 按名称激活操作层
      *
-     * 作为 SteamInput.onInterceptButton 回调，在按键映射后、动作分发前调用。
+     * @param name 操作层名称
+     */
+    fun activateLayer(name: String) = steamInput.activateLayer(name)
+
+    /**
+     * 按名称停用操作层
      *
-     * 拦截逻辑:
-     * 1. LB本身不拦截，仅记录其状态。LB按下时先释放所有当前按住的按钮（防止切换层时按键卡住）
-     * 2. LB按住期间:
-     *    - D-Pad 上/下/左/右 → 切换前4个操作层(Combat/Mount/Aim/Loot)
-     *    - A/B/X/Y/L3/R3 → 切换后6个操作层(Stealth/Fishing/PvP/Raid/Travel/Custom)
-     *    - GUIDE → 清除所有层
-     *    - 其他按钮 → 也拦截（防止LB组合时误触游戏功能）
-     * 3. LB未按住时所有按钮正常分发
+     * @param name 操作层名称
+     */
+    fun deactivateLayer(name: String) = steamInput.deactivateLayer(name)
+
+    /**
+     * 处理按键映射
+     *
+     * 根据 [mapping.action] 类型分发到对应的处理方法。
+     * 子命令在主键按下/松开时一起注入。
      *
      * @param button 手柄按钮
-     * @param pressed 是否按下
-     * @return true=已拦截（不继续分发），false=正常分发
+     * @param isPressed true=按下, false=释放
+     * @param mapping 按键映射
      */
-    private fun interceptButton(button: ControllerButton, pressed: Boolean): Boolean {
-        // 追踪LB状态
-        if (button == ControllerButton.LEFT_SHOULDER) {
-            if (pressed) {
-                // LB按下: 释放所有当前按住的按钮，防止切换层时按键卡住
-                steamInput.getHeldButtons().forEach { btn ->
-                    if (btn != ControllerButton.LEFT_SHOULDER) {
-                        steamInput.handleButtonEvent(btn, false)
-                    }
-                }
+    private fun handleMapping(button: ControllerButton, isPressed: Boolean, mapping: KeyMapping) {
+        when (val action = mapping.action) {
+            is MappedAction.KeyboardKey -> {
+                handleKeyboardKey(button, isPressed, action.keyCode, mapping.subCommands)
             }
-            lbHeld = pressed
-            return false  // LB本身不拦截，正常分发
-        }
-
-        // LB按住时: D-Pad/A/B/X/Y/L3/R3用于切换层, GUIDE清除所有层
-        if (lbHeld) {
-            if (pressed) {
-                when (button) {
-                    // 前4个操作层
-                    ControllerButton.DPAD_UP -> toggleLayer("Combat")
-                    ControllerButton.DPAD_DOWN -> toggleLayer("Mount")
-                    ControllerButton.DPAD_LEFT -> toggleLayer("Aim")
-                    ControllerButton.DPAD_RIGHT -> toggleLayer("Loot")
-                    // 后6个操作层
-                    ControllerButton.A -> toggleLayer("Stealth")
-                    ControllerButton.B -> toggleLayer("Fishing")
-                    ControllerButton.X -> toggleLayer("PvP")
-                    ControllerButton.Y -> toggleLayer("Raid")
-                    ControllerButton.LEFT_STICK_CLICK -> toggleLayer("Travel")
-                    ControllerButton.RIGHT_STICK_CLICK -> toggleLayer("Custom")
-                    // 清除所有层
-                    ControllerButton.GUIDE -> clearAllLayers()
-                    else -> return false  // 其他按钮正常分发
-                }
-                return true  // 已拦截
+            is MappedAction.MouseClick -> {
+                handleMouseClick(button, isPressed, action.button)
             }
-            return true  // LB按住时所有按钮释放事件也拦截
-        }
-
-        return false  // 正常分发
-    }
-
-    // ====================================================================
-    // 公共层回调设置
-    // ====================================================================
-
-    /**
-     * 设置公共层中所有动作的回调
-     *
-     * 将每个动作的 onPressed/onReleased/onValueChanged 回调设置为
-     * 对应的键盘/鼠标注入操作。
-     *
-     * 回调中的动作名称需与 [WoWActionSets.createCommonLayer] 中定义的一致。
-     */
-    private fun setupCommonLayerCallbacks() {
-        val c = steamInput.commonLayer
-
-        // ===== 基础按钮: A/B/X/Y/LB/RB/MENU/OPTIONS/GUIDE/L3/R3 =====
-        c.buttonActions["Jump"]?.onPressed = { injector.sendKeyPress(KeyEvent.KEYCODE_SPACE) }
-        c.buttonActions["Interact"]?.onPressed = { injector.sendMouseClick(MouseButton.RIGHT) }
-        c.buttonActions["Attack"]?.onPressed = { injector.sendKeyPress(KeyEvent.KEYCODE_T) }
-        c.buttonActions["Inventory"]?.onPressed = { injector.sendKeyPress(KeyEvent.KEYCODE_B) }
-        c.buttonActions["TargetEnemy"]?.onPressed = { injector.sendKeyPress(KeyEvent.KEYCODE_TAB) }
-        c.buttonActions["FaceTarget"]?.onPressed = { injector.sendKeyPress(KeyEvent.KEYCODE_F) }
-        c.buttonActions["Menu"]?.onPressed = { injector.sendKeyPress(KeyEvent.KEYCODE_ESCAPE) }
-        c.buttonActions["Chat"]?.onPressed = { injector.sendKeyPress(KeyEvent.KEYCODE_ENTER) }
-        c.buttonActions["AutoRun"]?.onPressed = { injector.sendKeyPress(KeyEvent.KEYCODE_NUM_LOCK) }
-        c.buttonActions["Reply"]?.onPressed = { injector.sendKeyPress(KeyEvent.KEYCODE_R) }
-        c.buttonActions["Map"]?.onPressed = { injector.sendKeyPress(KeyEvent.KEYCODE_M) }
-
-        // ===== 快捷栏: 数字键1-0, -, = =====
-        c.buttonActions["Slot1"]?.onPressed = { injector.sendKeyPress(KeyEvent.KEYCODE_1) }
-        c.buttonActions["Slot2"]?.onPressed = { injector.sendKeyPress(KeyEvent.KEYCODE_2) }
-        c.buttonActions["Slot3"]?.onPressed = { injector.sendKeyPress(KeyEvent.KEYCODE_3) }
-        c.buttonActions["Slot4"]?.onPressed = { injector.sendKeyPress(KeyEvent.KEYCODE_4) }
-        c.buttonActions["Slot5"]?.onPressed = { injector.sendKeyPress(KeyEvent.KEYCODE_5) }
-        c.buttonActions["Slot6"]?.onPressed = { injector.sendKeyPress(KeyEvent.KEYCODE_6) }
-        c.buttonActions["Slot7"]?.onPressed = { injector.sendKeyPress(KeyEvent.KEYCODE_7) }
-        c.buttonActions["Slot8"]?.onPressed = { injector.sendKeyPress(KeyEvent.KEYCODE_8) }
-        c.buttonActions["Slot9"]?.onPressed = { injector.sendKeyPress(KeyEvent.KEYCODE_9) }
-        c.buttonActions["Slot0"]?.onPressed = { injector.sendKeyPress(KeyEvent.KEYCODE_0) }
-        c.buttonActions["SlotDash"]?.onPressed = { injector.sendKeyPress(KeyEvent.KEYCODE_MINUS) }
-        c.buttonActions["SlotEqual"]?.onPressed = { injector.sendKeyPress(KeyEvent.KEYCODE_EQUALS) }
-
-        // ===== 拾取相关动作 =====
-        c.buttonActions["Loot"]?.onPressed = { injector.sendMouseClick(MouseButton.RIGHT) }
-        c.buttonActions["CloseLoot"]?.onPressed = { injector.sendKeyPress(KeyEvent.KEYCODE_ESCAPE) }
-        c.buttonActions["TakeAll"]?.onPressed = { injector.sendMouseClick(MouseButton.LEFT) }
-
-        // ===== 特殊动作（默认映射，用户可自行修改） =====
-        c.buttonActions["Stealth"]?.onPressed = { injector.sendKeyPress(KeyEvent.KEYCODE_F) }
-        c.buttonActions["Fish"]?.onPressed = { injector.sendKeyPress(KeyEvent.KEYCODE_F) }
-        c.buttonActions["MountUp"]?.onPressed = { injector.sendKeyPress(KeyEvent.KEYCODE_F) }
-        c.buttonActions["Mark1"]?.onPressed = { injector.sendKeyPress(KeyEvent.KEYCODE_1) }
-        c.buttonActions["Mark2"]?.onPressed = { injector.sendKeyPress(KeyEvent.KEYCODE_2) }
-        c.buttonActions["Mark3"]?.onPressed = { injector.sendKeyPress(KeyEvent.KEYCODE_3) }
-        c.buttonActions["Mark4"]?.onPressed = { injector.sendKeyPress(KeyEvent.KEYCODE_4) }
-
-        // ===== 摇杆: 左摇杆=移动(WASD), 右摇杆=视角(鼠标), 第三摇杆=光标 =====
-        c.stickActions["Move"]?.onValueChanged = { v -> handleMoveStick(v) }
-        c.stickActions["Look"]?.onValueChanged = { v -> handleLookStick(v) }
-        c.stickActions["Cursor"]?.onValueChanged = { v -> handleCursorStick(v) }
-
-        // ===== 扳机: LT=Shift修饰键, RT=鼠标左键(施法) =====
-        c.triggerActions["Modifier"]?.let { trigger ->
-            trigger.onPressed = { injector.sendKeyDown(KeyEvent.KEYCODE_SHIFT_LEFT) }
-            trigger.onReleased = { injector.sendKeyUp(KeyEvent.KEYCODE_SHIFT_LEFT) }
-        }
-        c.triggerActions["Cast"]?.let { trigger ->
-            trigger.onPressed = { injector.sendMouseDown(MouseButton.LEFT) }
-            trigger.onReleased = { injector.sendMouseUp(MouseButton.LEFT) }
-        }
-    }
-
-    // ====================================================================
-    // 操作层切换 API
-    // ====================================================================
-
-    /**
-     * 切换指定操作层的激活状态（开→关 / 关→开）
-     *
-     * 激活时震动反馈50ms（强度120），停用时震动30ms（强度80）。
-     * 切换后通知 [onLayerChanged] 回调更新UI。
-     *
-     * @param name 操作层名称（如 "Combat"）
-     */
-    fun toggleLayer(name: String) {
-        val layer = wowConfig?.layers?.get(name) ?: return
-        if (steamInput.isLayerActive(name)) {
-            steamInput.deactivateActionSetLayer(layer)
-            vibrate(30, 80)
-        } else {
-            steamInput.activateActionSetLayer(layer)
-            vibrate(50, 120)
-        }
-        onLayerChanged?.invoke(getActiveLayers())
-    }
-
-    /**
-     * 激活指定操作层（如已激活则不重复操作）
-     * @param name 操作层名称
-     */
-    fun activateLayer(name: String) {
-        val layer = wowConfig?.layers?.get(name) ?: return
-        if (!steamInput.isLayerActive(name)) {
-            android.util.Log.i("SteamLikeMapper", "Layer activated: $name")
-            steamInput.activateActionSetLayer(layer)
-            vibrate(50, 120)
-            onLayerChanged?.invoke(getActiveLayers())
+            is MappedAction.SwitchLayer -> {
+                // SwitchLayer 已在 SteamInput.handleButtonEvent 中处理
+            }
+            is MappedAction.MouseMove, is MappedAction.LookAround -> {
+                // 摇杆动作，在 handleStick 中处理
+            }
         }
     }
 
     /**
-     * 关闭指定操作层（如未激活则不操作）
-     * @param name 操作层名称
-     */
-    fun deactivateLayer(name: String) {
-        val layer = wowConfig?.layers?.get(name) ?: return
-        if (steamInput.isLayerActive(name)) {
-            android.util.Log.i("SteamLikeMapper", "Layer deactivated: $name")
-            steamInput.deactivateActionSetLayer(layer)
-            vibrate(30, 80)
-            onLayerChanged?.invoke(getActiveLayers())
-        }
-    }
-
-    /**
-     * 清除所有操作层（清空栈）
+     * 处理键盘按键映射（含子命令）
      *
-     * 清空后所有按键回退到公共层默认绑定。
-     * 震动反馈60ms（强度150）。
-     */
-    fun clearAllLayers() {
-        if (steamInput.getActiveLayers().isNotEmpty()) {
-            steamInput.deactivateAllLayers()
-            vibrate(60, 150)
-            onLayerChanged?.invoke(emptyList())
-        }
-    }
-
-    // ====================================================================
-    // 运行时设置层按键映射 API
-    // ====================================================================
-
-    /**
-     * 为指定操作层设置按钮映射（覆盖公共层绑定）
+     * 按下时:
+     * 1. 按下主键
+     * 2. 依次按下所有子命令键
      *
-     * 运行时动态修改层的绑定，无需重新创建层。
+     * 松开时:
+     * 1. 依次松开所有子命令键
+     * 2. 松开主键
      *
-     * @param layerName 操作层名称
      * @param button 手柄按钮
-     * @param actionName 要映射到的动作名称（需在公共层中已定义）
-     *
-     * 示例:
-     * ```
-     * // 将 Custom 层的 A 键映射到 Slot5
-     * mapper.setLayerButtonBinding("Custom", ControllerButton.A, "Slot5")
-     * ```
+     * @param isPressed true=按下, false=释放
+     * @param mainKeyCode 主键 Android KeyCode
+     * @param subCommands 子命令 KeyCode 列表
      */
-    fun setLayerButtonBinding(layerName: String, button: ControllerButton, actionName: String) {
-        steamInput.setLayerButtonBinding(layerName, button, actionName)
-    }
+    private fun handleKeyboardKey(
+        button: ControllerButton,
+        isPressed: Boolean,
+        mainKeyCode: Int,
+        subCommands: List<Int>
+    ) {
+        if (isPressed) {
+            // 防重复按下
+            if (pressedMainKeys.containsKey(button)) return
 
-    /**
-     * 清除指定操作层的某个按钮覆盖
-     *
-     * 清除后该按钮回退到公共层的默认绑定。
-     *
-     * @param layerName 操作层名称
-     * @param button 要清除覆盖的按钮
-     */
-    fun clearLayerButtonBinding(layerName: String, button: ControllerButton) {
-        steamInput.clearLayerButtonBinding(layerName, button)
-    }
+            // 1. 按下主键
+            injector.sendKeyDown(mainKeyCode)
+            pressedMainKeys[button] = mainKeyCode
 
-    /**
-     * 清除指定操作层的所有覆盖
-     *
-     * 完全恢复继承公共层，该层变为"空层"。
-     *
-     * @param layerName 操作层名称
-     */
-    fun clearLayerAllOverrides(layerName: String) {
-        steamInput.clearLayerAllOverrides(layerName)
-    }
-
-    // ====================================================================
-    // 状态查询 API
-    // ====================================================================
-
-    /**
-     * 获取当前激活的操作层显示名称列表（栈底到栈顶顺序）
-     * @return 显示名称列表
-     */
-    fun getActiveLayers(): List<String> {
-        return steamInput.getActiveLayers().map { it.displayName }
-    }
-
-    /**
-     * 检查指定操作层是否激活
-     * @param name 操作层名称
-     * @return true=已激活
-     */
-    fun isLayerActive(name: String): Boolean {
-        return steamInput.isLayerActive(name)
-    }
-
-    /**
-     * 获取所有操作层名称（名称→显示名）
-     * @return 配对列表
-     */
-    fun getAllLayers(): List<Pair<String, String>> {
-        return WoWActionSets.LAYER_NAMES
-    }
-
-    /**
-     * 获取当前按住的所有按钮集合（用于UI显示组合键状态）
-     * @return 按住的按钮集合
-     */
-    fun getHeldButtons(): Set<ControllerButton> {
-        return steamInput.getHeldButtons()
-    }
-
-    // ====================================================================
-    // 摇杆处理
-    // ====================================================================
-
-    /**
-     * 处理移动摇杆: 左摇杆 → WASD键
-     *
-     * 将摇杆的2D向量转换为4个方向键(W/A/S/D)的按下/释放。
-     * 阈值0.3: 摇杆偏移超过30%才触发对应方向键。
-     *
-     * 坐标系: Y轴上为负、下为正
-     * - Y < -0.3 → W（上）
-     * - Y > 0.3  → S（下）
-     * - X < -0.3 → A（左）
-     * - X > 0.3  → D（右）
-     *
-     * @param v 摇杆向量（经过死区和响应曲线处理）
-     */
-    private fun handleMoveStick(v: Vector2) {
-        updateWasdKey(KeyEvent.KEYCODE_W, v.y < -0.3f)
-        updateWasdKey(KeyEvent.KEYCODE_S, v.y > 0.3f)
-        updateWasdKey(KeyEvent.KEYCODE_A, v.x < -0.3f)
-        updateWasdKey(KeyEvent.KEYCODE_D, v.x > 0.3f)
-    }
-
-    /**
-     * 更新单个WASD键的按下/释放状态
-     *
-     * 使用状态集合 [wasdKeys] 跟踪当前按下的键，防止重复触发。
-     *
-     * @param keyCode 键盘KeyCode
-     * @param shouldPress 是否应该按下
-     */
-    private fun updateWasdKey(keyCode: Int, shouldPress: Boolean) {
-        if (shouldPress && keyCode !in wasdKeys) {
-            // 需要按下且当前未按下 → 按下
-            wasdKeys.add(keyCode)
-            injector.sendKeyDown(keyCode)
-        } else if (!shouldPress && keyCode in wasdKeys) {
-            // 需要释放且当前已按下 → 释放
-            wasdKeys.remove(keyCode)
-            injector.sendKeyUp(keyCode)
-        }
-    }
-
-    /**
-     * 释放所有WASD键（在停止或切换层时调用，防止按键卡住）
-     */
-    private fun releaseWasdKeys() {
-        wasdKeys.toList().forEach { injector.sendKeyUp(it) }
-        wasdKeys.clear()
-    }
-
-    /**
-     * 处理视角摇杆: 右摇杆 → 鼠标移动 + 右键按住
-     *
-     * WoW中视角控制需要按住鼠标右键拖动，因此:
-     * - 摇杆有输入时: 自动按住鼠标右键，并发送鼠标移动事件
-     * - 摇杆归零时: 释放鼠标右键
-     *
-     * @param v 摇杆向量（乘以 [lookSensitivity] 得到移动像素数）
-     */
-    private fun handleLookStick(v: Vector2) {
-        if (v.magnitude > 0.1f) {
-            // 有输入: 按住右键并移动鼠标
-            if (!rightMouseDown) {
-                injector.sendMouseDown(MouseButton.RIGHT)
-                rightMouseDown = true
+            // 2. 按下所有子命令键
+            val subs = mutableListOf<Int>()
+            subCommands.forEach { subKeyCode ->
+                injector.sendKeyDown(subKeyCode)
+                subs.add(subKeyCode)
             }
-            injector.sendMouseMove(v.x * lookSensitivity, v.y * lookSensitivity)
+            if (subs.isNotEmpty()) {
+                pressedSubKeys[button] = subs
+            }
+
+            Log.d(TAG, "KeyDown: ${KeyMapping.keyCodeToName(mainKeyCode)}" +
+                    if (subCommands.isNotEmpty()) "+${subCommands.map { KeyMapping.keyCodeToName(it) }}" else "")
         } else {
-            // 无输入: 释放右键
-            if (rightMouseDown) {
-                injector.sendMouseUp(MouseButton.RIGHT)
-                rightMouseDown = false
+            // 防重复松开
+            val main = pressedMainKeys.remove(button) ?: return
+
+            // 1. 松开所有子命令键（逆序）
+            pressedSubKeys.remove(button)?.reversed()?.forEach { subKeyCode ->
+                injector.sendKeyUp(subKeyCode)
             }
+
+            // 2. 松开主键
+            injector.sendKeyUp(main)
+
+            Log.d(TAG, "KeyUp: ${KeyMapping.keyCodeToName(main)}" +
+                    if (subCommands.isNotEmpty()) "+${subCommands.map { KeyMapping.keyCodeToName(it) }}" else "")
         }
     }
 
     /**
-     * 处理光标摇杆: 摇杆 → 鼠标移动（不按住任何键）
+     * 处理鼠标点击映射
      *
-     * 用于需要移动鼠标光标但不按住右键的场景（如菜单导航）。
-     *
-     * @param v 摇杆向量（乘以 [cursorSpeed] 得到移动像素数）
+     * @param button 手柄按钮
+     * @param isPressed true=按下, false=释放
+     * @param mouseButton 鼠标按钮
      */
-    private fun handleCursorStick(v: Vector2) {
-        if (v.magnitude > 0.1f) {
-            injector.sendMouseMove(v.x * cursorSpeed, v.y * cursorSpeed)
+    private fun handleMouseClick(button: ControllerButton, isPressed: Boolean, mouseButton: MouseButton) {
+        if (isPressed) {
+            if (pressedMouseButtons.containsKey(button)) return
+            injector.sendMouseDown(mouseButton)
+            pressedMouseButtons[button] = mouseButton
+            Log.d(TAG, "MouseDown: $mouseButton")
+        } else {
+            val mb = pressedMouseButtons.remove(button) ?: return
+            injector.sendMouseUp(mb)
+            Log.d(TAG, "MouseUp: $mb")
         }
     }
 
-    // ====================================================================
-    // 工具方法
-    // ====================================================================
-
     /**
-     * 清理所有输入状态
+     * 处理摇杆事件
      *
-     * 在停止映射器或切换层时调用，释放所有按下的键鼠，防止按键卡住。
-     */
-    private fun cleanupAllInputs() {
-        releaseWasdKeys()
-        if (rightMouseDown) {
-            injector.sendMouseUp(MouseButton.RIGHT)
-            rightMouseDown = false
-        }
-        injector.releaseAll()
-    }
-
-    /**
-     * 触发手柄震动反馈
+     * 根据摇杆类型和配置决定:
+     * - 右摇杆 → 视角控制（LookAround），发送鼠标相对移动
+     * - 左摇杆 → 鼠标移动（MouseMove），发送鼠标相对移动（如配置）
      *
-     * @param durationMs 震动时长（毫秒）
-     * @param amplitude 震动强度 (0-255)
+     * @param stick 摇杆类型
+     * @param x X轴值 (-1.0~1.0)
+     * @param y Y轴值 (-1.0~1.0)
      */
-    private fun vibrate(durationMs: Long = 50, amplitude: Int = 100) {
-        steamInput.getFirstControllerId()?.let { id ->
-            steamInput.vibrate(id, durationMs, amplitude)
+    private fun handleStick(stick: ControllerStick, x: Float, y: Float) {
+        val settings = steamInput.profile.globalSettings
+        when (stick) {
+            ControllerStick.RIGHT_STICK -> {
+                // 右摇杆 → 视角控制
+                val dx = x * settings.lookSensitivity * 15f
+                val dy = y * settings.lookSensitivity * 15f
+                if (dx != 0f || dy != 0f) {
+                    injector.sendMouseMove(dx, dy)
+                }
+            }
+            ControllerStick.LEFT_STICK -> {
+                // 左摇杆 → 暂不映射（可在设置中配置为 MouseMove）
+                // 如需启用，检查公共层是否有 MouseMove 映射
+            }
+            ControllerStick.DPAD_AS_STICK -> {
+                // D-Pad 作为摇杆 → 不处理
+            }
         }
     }
 }
