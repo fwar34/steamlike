@@ -726,6 +726,7 @@ class LayerEditActivity : AppCompatActivity() {
         val si = steamInputRef ?: return
         val profile = si.profile
         val oldLayer = currentLayer ?: return
+        val oldName = oldLayer.name
 
         // 创建新的操作层（copy 保持 buttonMappings 引用不变）
         val newLayer = oldLayer.copy(name = name, triggerButton = triggerButton)
@@ -739,6 +740,28 @@ class LayerEditActivity : AppCompatActivity() {
             // 操作层: 在列表中替换
             val newLayers = profile.layers.map { if (it === oldLayer) newLayer else it }
             newProfile = profile.copy(layers = newLayers)
+        }
+
+        // 层名变化时: 同步更新所有层中引用旧层名的 SwitchLayer 映射
+        // 否则重命名后 SwitchLayer(oldName) 会找不到目标层，导致层切换失效
+        if (oldName != name) {
+            newProfile.allLayers.forEach { layer ->
+                layer.buttonMappings.toMutableMap().let { newMap ->
+                    var changed = false
+                    layer.buttonMappings.forEach { (button, mapping) ->
+                        val action = mapping.action
+                        if (action is MappedAction.SwitchLayer && action.layerName == oldName) {
+                            newMap[button] = mapping.copy(action = MappedAction.SwitchLayer(name))
+                            changed = true
+                        }
+                    }
+                    if (changed) {
+                        layer.buttonMappings.clear()
+                        layer.buttonMappings.putAll(newMap)
+                    }
+                }
+            }
+            Log.i(TAG, "Updated SwitchLayer references: $oldName -> $name")
         }
 
         // 更新 SteamInput 运行时配置
