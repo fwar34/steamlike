@@ -89,11 +89,16 @@ class ControllerOverlayService : Service() {
     private var layerText: TextView? = null
     private var hintText: TextView? = null
     /**
+     * "暂停/恢复捕获"按钮引用，用于在 isCapturing 状态变化时更新文本
+     */
+    private var captureButton: Button? = null
+    /**
      * 收起状态下显示当前激活层名的 TextView 引用
      *
      * 用于操作层切换时动态更新悬浮窗文本（替代原静态 🎮 图标）。
      * - 无激活层时显示"公共层"
      * - 多个激活层时显示最上层（最后激活的）名称
+     * - 捕获暂停时追加"⏸"标记
      */
     private var collapsedTextView: TextView? = null
     private val layerButtons = mutableMapOf<String, Button>()
@@ -518,13 +523,30 @@ class ControllerOverlayService : Service() {
     // ===== 焦点输入窗口 =====
 
     /**
+     * 当前是否正在捕获手柄事件（GamepadInputView 存在并持有焦点）
+     *
+     * true: GamepadInputView 存在，可接收手柄事件，但会阻止系统返回手势
+     * false: GamepadInputView 已移除，系统返回手势恢复工作，但无法接收手柄事件
+     *
+     * 用户通过悬浮窗的"暂停捕获/恢复捕获"按钮切换。
+     */
+    @Volatile
+    private var isCapturing: Boolean = false
+
+    /**
      * 创建全屏透明焦点窗口捕获手柄事件
      *
-     * - FLAG_NOT_TOUCHABLE: 触摸穿透到Winlator
+     * - 1x1 像素: 不覆盖屏幕，避免遮挡其他应用 UI
+     * - FLAG_NOT_TOUCHABLE: 触摸穿透到下层应用
      * - 可获焦点: 接收手柄KeyEvent和MotionEvent
-     * - 全屏透明: 不遮挡画面
+     *
+     * 注意: 有焦点的 TYPE_APPLICATION_OVERLAY 窗口会让 Android 14+ 预测式返回手势
+     * 失效（系统认为有窗口可能要处理返回键）。因此需要提供"暂停捕获"按钮，
+     * 用户需要右滑返回时手动暂停。
      */
     private fun createGamepadInputWindow() {
+        if (isOverlayPaused) return
+        if (gamepadInputView != null) return  // 已存在，避免重复创建
         gamepadInputView = GamepadInputView(this).also { view ->
             // 转发手柄事件到 KeyboardMouseMapper → SteamInput
             view.onKeyEvent = { event ->
@@ -537,10 +559,70 @@ class ControllerOverlayService : Service() {
 
         val params = GamepadInputView.createLayoutParams()
         windowManager?.addView(gamepadInputView, params)
+        isCapturing = true
 
         // 请求焦点以接收手柄按键事件
         gamepadInputView?.post {
             gamepadInputView?.requestFocus()
+        }
+        Log.i(TAG, "GamepadInputView created (capturing enabled)")
+    }
+
+    /**
+     * 移除焦点输入窗口，释放焦点（暂停手柄捕获）
+     *
+     * 用户需要右滑返回其他应用时调用此方法。移除后系统返回手势恢复正常。
+     * 与 [pauseOverlay] 不同，本方法只移除 GamepadInputView，保留悬浮窗 UI
+     * 和 TCP 服务器运行，方便用户快速恢复。
+     */
+    private fun removeGamepadInputWindow() {
+        gamepadInputView?.let { view ->
+            try {
+                windowManager?.removeView(view)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to remove GamepadInputView", e)
+            }
+        }
+        gamepadInputView = null
+        isCapturing = false
+        Log.i(TAG, "GamepadInputView removed (capturing paused)")
+    }
+
+    /**
+     * 暂停手柄捕获（移除 GamepadInputView）
+     *
+     * 用户点击悬浮窗"暂停捕获"按钮时调用。
+     * 保留悬浮窗 UI 和 TCP 服务器，仅停止捕获手柄事件。
+     */
+    fun pauseCapturing() {
+        if (!isCapturing) return
+        removeGamepadInputWindow()
+        // 同步刷新展开视图的按钮文本（如果在展开状态）
+        updateCaptureButtonState()
+    }
+
+    /**
+     * 恢复手柄捕获（重新创建 GamepadInputView）
+     *
+     * 用户点击悬浮窗"恢复捕获"按钮时调用。
+     */
+    fun resumeCapturing() {
+        if (isCapturing) return
+        createGamepadInputWindow()
+        // 同步刷新展开视图的按钮文本
+        updateCaptureButtonState()
+    }
+
+    /**
+     * 刷新展开视图中"暂停/恢复捕获"按钮的文本
+     */
+    private fun updateCaptureButtonState() {
+        captureButton?.post {
+            captureButton?.text = if (isCapturing) "暂停捕获" else "恢复捕获"
+        }
+        // 收起视图也同步更新（在层名后追加"⏸"标记）
+        if (!isExpanded) {
+            updateCollapsedViewText(mapper?.getActiveLayers() ?: emptyList())
         }
     }
 
@@ -613,7 +695,9 @@ class ControllerOverlayService : Service() {
      * @return 显示文本
      */
     private fun buildCollapsedText(activeLayers: List<String>): String {
-        return if (activeLayers.isEmpty()) "公共层" else activeLayers.last()
+        val layerName = if (activeLayers.isEmpty()) "公共层" else activeLayers.last()
+        // 捕获暂停时追加 ⏸ 标记，提醒用户手柄映射未工作
+        return if (isCapturing) layerName else "$layerName ⏸"
     }
 
     /**
@@ -683,6 +767,11 @@ class ControllerOverlayService : Service() {
             setPadding(0, 8, 0, 4)
         }
         ctrlRow.addView(createOverlayButton("清除层") { mapper?.clearAllLayers() })
+        // 暂停/恢复捕获按钮：移除 GamepadInputView 以恢复系统返回手势
+        captureButton = createOverlayButton("暂停捕获") {
+            if (isCapturing) pauseCapturing() else resumeCapturing()
+        }
+        ctrlRow.addView(captureButton!!)
         ctrlRow.addView(createOverlayButton("收起") { showCollapsedView() })
         ctrlRow.addView(createOverlayButton("关闭") { stopSelf() })
         container.addView(ctrlRow)
@@ -706,6 +795,8 @@ class ControllerOverlayService : Service() {
             updateLayerText(mapper?.getActiveLayers() ?: emptyList())
             updateLayerButtonColors(mapper?.getActiveLayers() ?: emptyList())
         }
+        // 同步"暂停/恢复捕获"按钮文本
+        captureButton?.text = if (isCapturing) "暂停捕获" else "恢复捕获"
     }
 
     /**

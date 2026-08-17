@@ -64,6 +64,24 @@ class SteamInput(context: Context) {
     private val inputManager = appContext.getSystemService(Context.INPUT_SERVICE) as InputManager
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    // D-Pad HAT 轴状态跟踪，避免 MotionEvent 重复触发
+    // 记录当前 HAT 轴按下的方向（无 = emptySet）
+    private val hatState = mutableSetOf<ControllerButton>()
+    // 扳机轴（L2/R2）按下状态，避免重复触发
+    private var l2Pressed = false
+    private var r2Pressed = false
+    /**
+     * 按键触发的层切换记录
+     *
+     * key: 触发层切换的按键（如 DPAD_UP）
+     * value: 被激活的操作层
+     *
+     * 按下时如果是 SwitchLayer 映射，记录 button->layer；
+     * 松开时检查此映射，停用对应层。这样即使激活层覆盖了该按键的映射，
+     * 也能正确停用层（不会执行激活层中该按键的 keyup）。
+     */
+    private val buttonTriggeredLayers = mutableMapOf<ControllerButton, OperationLayer>()
+
     /**
      * 控制器配置（公共层 + 操作层 + 全局设置）
      *
@@ -254,6 +272,7 @@ class SteamInput(context: Context) {
      */
     fun deactivateAllLayers() {
         activeLayers.clear()
+        buttonTriggeredLayers.clear()
         activeLayerName = "Common"
         onLayerChanged?.invoke(activeLayerName)
     }
@@ -340,7 +359,8 @@ class SteamInput(context: Context) {
      */
     fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
         if (!event.isFromSource(InputDevice.SOURCE_JOYSTICK) &&
-            !event.isFromSource(InputDevice.SOURCE_GAMEPAD)
+            !event.isFromSource(InputDevice.SOURCE_GAMEPAD) &&
+            !event.isFromSource(InputDevice.SOURCE_DPAD)
         ) return false
 
         val deviceId = event.deviceId
@@ -363,7 +383,98 @@ class SteamInput(context: Context) {
             onStickMapped?.invoke(ControllerStick.RIGHT_STICK, rightStickDz.x, rightStickDz.y)
         }
 
+        // 处理 D-Pad 的 HAT 轴事件（很多手柄的 D-Pad 通过 MotionEvent 而非 KeyEvent 发送）
+        handleDpadHatAxis(event)
+
+        // 处理扳机轴 L2/R2（按到底触发 click 事件）
+        handleTriggerAxis(event, device)
+
         return true
+    }
+
+    /**
+     * 处理 D-Pad 的 HAT 轴（AXIS_HAT_X / AXIS_HAT_Y）
+     *
+     * ## Android 知识点: HAT 轴
+     * 很多手柄的 D-Pad 不发送 KeyEvent.KEYCODE_DPAD_*，而是通过 MotionEvent 的
+     * AXIS_HAT_X（-1=左, 0=中, 1=右）和 AXIS_HAT_Y（-1=上, 0=中, 1=下）发送。
+     *
+     * 本方法将 HAT 轴值转换为按下/释放事件，通过 [handleButtonEvent] 处理层切换和按键映射。
+     * 使用 [hatState] 跟踪当前激活方向，避免 MotionEvent 高频触发重复事件。
+     *
+     * @param event MotionEvent
+     */
+    private fun handleDpadHatAxis(event: MotionEvent) {
+        val hatX = event.getAxisValue(MotionEvent.AXIS_HAT_X)
+        val hatY = event.getAxisValue(MotionEvent.AXIS_HAT_Y)
+
+        // 计算当前激活的方向（|hatX| 或 |hatY| > 0.5 视为按下）
+        val upPressed = hatY < -0.5f
+        val downPressed = hatY > 0.5f
+        val leftPressed = hatX < -0.5f
+        val rightPressed = hatX > 0.5f
+
+        // 检测状态变化，避免重复触发
+        listOf(
+            ControllerButton.DPAD_UP to upPressed,
+            ControllerButton.DPAD_DOWN to downPressed,
+            ControllerButton.DPAD_LEFT to leftPressed,
+            ControllerButton.DPAD_RIGHT to rightPressed
+        ).forEach { (button, pressed) ->
+            if (pressed && !hatState.contains(button)) {
+                hatState.add(button)
+                handleButtonEvent(button, isPressed = true)
+            } else if (!pressed && hatState.contains(button)) {
+                hatState.remove(button)
+                handleButtonEvent(button, isPressed = false)
+            }
+        }
+    }
+
+    /**
+     * 处理扳机轴 L2/R2（AXIS_LTRIGGER / AXIS_RTRIGGER）
+     *
+     * ## Android 知识点: 模拟扳机
+     * L2/R2 是模拟扳机，行程中发送 MotionEvent.AXIS_LTRIGGER/AXIS_RTRIGGER（值 0.0~1.0）。
+     * 按到底（>= [TRIGGER_CLICK_THRESHOLD]）会触发 KEYCODE_BUTTON_L2/R2 KeyEvent，
+     * 但部分手柄（尤其是模拟器或非标准驱动）只发 MotionEvent 不发 KeyEvent。
+     *
+     * 本方法检测扳机轴值，超过阈值时触发 [ControllerButton.LEFT_TRIGGER_CLICK]/
+     * [ControllerButton.RIGHT_TRIGGER_CLICK] 按下事件，低于阈值触发释放。
+     * 使用 [l2Pressed]/[r2Pressed] 状态避免重复触发。
+     *
+     * @param event MotionEvent
+     * @param device InputDevice（用于检测其他可能轴）
+     */
+    private fun handleTriggerAxis(event: MotionEvent, device: InputDevice) {
+        // L2: 优先 AXIS_LTRIGGER，回退 AXIS_BRAKE
+        var l2Value = event.getAxisValue(MotionEvent.AXIS_LTRIGGER)
+        if (l2Value == 0f && device.getMotionRange(MotionEvent.AXIS_BRAKE) != null) {
+            l2Value = event.getAxisValue(MotionEvent.AXIS_BRAKE)
+        }
+        // R2: 优先 AXIS_RTRIGGER，回退 AXIS_GAS
+        var r2Value = event.getAxisValue(MotionEvent.AXIS_RTRIGGER)
+        if (r2Value == 0f && device.getMotionRange(MotionEvent.AXIS_GAS) != null) {
+            r2Value = event.getAxisValue(MotionEvent.AXIS_GAS)
+        }
+
+        // L2 按下/释放检测
+        if (l2Value >= TRIGGER_CLICK_THRESHOLD && !l2Pressed) {
+            l2Pressed = true
+            handleButtonEvent(ControllerButton.LEFT_TRIGGER_CLICK, isPressed = true)
+        } else if (l2Value < TRIGGER_CLICK_THRESHOLD && l2Pressed) {
+            l2Pressed = false
+            handleButtonEvent(ControllerButton.LEFT_TRIGGER_CLICK, isPressed = false)
+        }
+
+        // R2 按下/释放检测
+        if (r2Value >= TRIGGER_CLICK_THRESHOLD && !r2Pressed) {
+            r2Pressed = true
+            handleButtonEvent(ControllerButton.RIGHT_TRIGGER_CLICK, isPressed = true)
+        } else if (r2Value < TRIGGER_CLICK_THRESHOLD && r2Pressed) {
+            r2Pressed = false
+            handleButtonEvent(ControllerButton.RIGHT_TRIGGER_CLICK, isPressed = false)
+        }
     }
 
     /**
@@ -383,27 +494,33 @@ class SteamInput(context: Context) {
         // 更新 heldButtons
         if (isPressed) heldButtons.add(button) else heldButtons.remove(button)
 
-        // 检查是否是操作层触发键
-        val layerByTrigger = profile.findLayerByTrigger(button)
-        if (layerByTrigger != null) {
-            if (isPressed) {
-                activateLayer(layerByTrigger)
-            } else {
-                deactivateLayer(layerByTrigger)
+        // 松开时：优先检查该按键是否曾触发过层切换，是则停用对应层
+        // 这样即使激活层覆盖了该按键的映射，仍能正确停用层
+        // 例如：Common 的 Up->SwitchLayer(L1)，layer1 的 Up->KeyboardKey(C)
+        //   按下 Up：激活 layer1（layer1 的 Up 不会执行，因为按下时层刚激活）
+        //   松开 Up：buttonTriggeredLayers[Up]=layer1，停用 layer1（不执行 layer1 的 Up->C 的 keyup）
+        if (!isPressed) {
+            val triggeredLayer = buttonTriggeredLayers.remove(button)
+            if (triggeredLayer != null) {
+                deactivateLayer(triggeredLayer)
+                return
             }
-            return  // 触发键本身不执行映射动作
         }
 
-        // 查找有效映射
+        // 查找有效映射（先查激活层，回退到 Common 层）
         val mapping = getEffectiveMapping(button) ?: return
 
         // 处理 SwitchLayer 动作（通过按键映射切换层）
         when (val action = mapping.action) {
             is MappedAction.SwitchLayer -> {
-                if (isPressed) {
-                    profile.findLayer(action.layerName)?.let { activateLayer(it) }
-                } else {
-                    profile.findLayer(action.layerName)?.let { deactivateLayer(it) }
+                val targetLayer = profile.findLayer(action.layerName)
+                if (targetLayer != null) {
+                    if (isPressed) {
+                        // 激活目标层，并记录该按键触发了层切换（用于松开时停用）
+                        activateLayer(targetLayer)
+                        buttonTriggeredLayers[button] = targetLayer
+                    }
+                    // 松开的处理在函数开头已处理（buttonTriggeredLayers.remove）
                 }
             }
             else -> {
@@ -456,5 +573,12 @@ class SteamInput(context: Context) {
 
     companion object {
         private const val TAG = "SteamLikeInput"
+
+        /**
+         * 扳机键"按到底"判定阈值
+         *
+         * 模拟扳机轴值 0.0~1.0，达到此阈值视为按下（触发 click 事件）
+         */
+        private const val TRIGGER_CLICK_THRESHOLD = 0.5f
     }
 }

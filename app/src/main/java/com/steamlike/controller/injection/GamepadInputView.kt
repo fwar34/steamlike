@@ -79,17 +79,19 @@ class GamepadInputView(context: Context) : View(context) {
         /**
          * 创建用于添加到 WindowManager 的 LayoutParams
          *
-         * - 全屏覆盖（MATCH_PARENT）
+         * - **1x1 像素尺寸**: 不覆盖屏幕，避免影响系统返回手势（Android 14+ 预测式返回
+         *   基于窗口层次判定，全屏窗口即使 FLAG_NOT_TOUCHABLE 也会被系统认为遮挡边缘）
          * - 透明背景（PixelFormat.TRANSLUCENT）
          * - FLAG_NOT_TOUCHABLE: 触摸穿透到下层应用
-         * - 不含 FLAG_NOT_FOCUSABLE: 可获焦点接收手柄事件
+         * - 不含 FLAG_NOT_FOCUSABLE: 可获焦点接收手柄事件（手柄事件通过 InputManager
+         *   路由到焦点窗口，与 View 尺寸无关）
          * - FLAG_LAYOUT_IN_SCREEN: 覆盖整个屏幕含状态栏区域
          * - FLAG_LAYOUT_NO_LIMITS: 不受屏幕边界限制
          */
         fun createLayoutParams(): WindowManager.LayoutParams {
             return LayoutParams(
-                LayoutParams.MATCH_PARENT,
-                LayoutParams.MATCH_PARENT,
+                1,
+                1,
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                     LayoutParams.TYPE_APPLICATION_OVERLAY
                 else

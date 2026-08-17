@@ -461,8 +461,11 @@ class MainActivity : AppCompatActivity() {
                     ControllerProfile.createDefault()
                 }
             }
+        // 先计算所有已设置触发键的最大显示宽度，确保 → 箭头对齐
+        val triggerNames = profile.layers.mapNotNull { it.triggerButton?.let { b -> buttonDisplayName(b) } }
+        val maxDisplayWidth = if (triggerNames.isEmpty()) 0 else triggerNames.maxOf { displayWidth(it) }
         val lines = profile.layers.map { layer ->
-            val triggerName = layer.triggerButton?.let { buttonDisplayName(it) }
+            val triggerName = layer.triggerButton?.let { padToDisplayWidth(buttonDisplayName(it), maxDisplayWidth) }
             if (triggerName != null) {
                 "  按住 $triggerName → 激活 ${layer.name}"
             } else {
@@ -470,6 +473,27 @@ class MainActivity : AppCompatActivity() {
             }
         }
         return lines.joinToString("\n")
+    }
+
+    /**
+     * 计算字符串显示宽度（中文字符算 2，西文字符算 1）
+     *
+     * 用于按显示宽度对齐文本，避免等宽字体下中英文混合时不对齐。
+     */
+    private fun displayWidth(s: String): Int = s.sumOf { c ->
+        // CJK 统一汉字 + CJK 符号 + 全角字符算 2，否则算 1
+        if (c.code in 0x2E80..0x9FFF || c.code in 0xFF00..0xFFEF) 2 else 1
+    }
+
+    /**
+     * 按显示宽度填充字符串到目标宽度
+     *
+     * 在字符串末尾补充空格，使其显示宽度等于 [targetWidth]。
+     * 用于让后续的 → 箭头对齐。
+     */
+    private fun padToDisplayWidth(s: String, targetWidth: Int): String {
+        val pad = targetWidth - displayWidth(s)
+        return if (pad > 0) s + " ".repeat(pad) else s
     }
 
     /**

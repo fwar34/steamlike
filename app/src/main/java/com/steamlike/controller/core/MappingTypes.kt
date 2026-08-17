@@ -298,48 +298,62 @@ data class ControllerProfile(
         const val MAX_LAYERS = 10
 
         /**
-         * 创建默认配置（10 个操作层，D-Pad 和肩键触发）
+         * 创建默认配置（10 个操作层，Common 层配置触发按键映射）
          *
-         * 默认触发键分配:
-         * - Layer1: DPAD_UP
-         * - Layer2: DPAD_DOWN
-         * - Layer3: DPAD_LEFT
-         * - Layer4: DPAD_RIGHT
-         * - Layer5: LEFT_SHOULDER (LB)
-         * - Layer6: RIGHT_SHOULDER (RB)
-         * - Layer7: LEFT_STICK_CLICK (L3)
-         * - Layer8: RIGHT_STICK_CLICK (R3)
-         * - Layer9: LEFT_TRIGGER_CLICK (L2)
-         * - Layer10: RIGHT_TRIGGER_CLICK (R2)
+         * 层切换通过 Common 层的 KeyMapping(SwitchLayer) 实现：
+         * - 按住触发键 → 激活对应操作层（按键映射优先用激活层，回退到 Common）
+         * - 松开触发键 → 停用对应操作层，回到公共层
+         *
+         * 默认 Common 层层切换映射:
+         * - D-Pad ↑ → Layer1
+         * - D-Pad ↓ → Layer2
+         * - D-Pad ← → Layer3
+         * - D-Pad → → Layer4
+         * - LB → Layer5
+         * - RB → Layer6
+         * - L3 → Layer7
+         * - R3 → Layer8
+         * - L2 → Layer9
+         * - R2 → Layer10
+         *
+         * 操作层的 [OperationLayer.triggerButton] 仅用于显示，不再用于自动激活。
          */
         fun createDefault(): ControllerProfile {
-            val triggers = listOf(
-                ControllerButton.DPAD_UP, ControllerButton.DPAD_DOWN,
-                ControllerButton.DPAD_LEFT, ControllerButton.DPAD_RIGHT,
-                ControllerButton.LEFT_SHOULDER, ControllerButton.RIGHT_SHOULDER,
-                ControllerButton.LEFT_STICK_CLICK, ControllerButton.RIGHT_STICK_CLICK,
-                ControllerButton.LEFT_TRIGGER_CLICK, ControllerButton.RIGHT_TRIGGER_CLICK
+            // Common 层层切换按键映射（保留显示用的 triggerButton 与之一致）
+            val triggerButtons = listOf(
+                ControllerButton.DPAD_UP to "Layer1",
+                ControllerButton.DPAD_DOWN to "Layer2",
+                ControllerButton.DPAD_LEFT to "Layer3",
+                ControllerButton.DPAD_RIGHT to "Layer4",
+                ControllerButton.LEFT_SHOULDER to "Layer5",
+                ControllerButton.RIGHT_SHOULDER to "Layer6",
+                ControllerButton.LEFT_STICK_CLICK to "Layer7",
+                ControllerButton.RIGHT_STICK_CLICK to "Layer8",
+                ControllerButton.LEFT_TRIGGER_CLICK to "Layer9",
+                ControllerButton.RIGHT_TRIGGER_CLICK to "Layer10"
             )
 
             val common = OperationLayer(name = "Common")
-            // 公共层默认按键映射
+            // 公共层默认按键映射（除层切换外的按键）
             common.buttonMappings[ControllerButton.A] = KeyMapping(MappedAction.KeyboardKey(62))  // KEYCODE_SPACE
             common.buttonMappings[ControllerButton.B] = KeyMapping(MappedAction.MouseClick(MouseButton.RIGHT))
             common.buttonMappings[ControllerButton.X] = KeyMapping(MappedAction.MouseClick(MouseButton.LEFT))
             common.buttonMappings[ControllerButton.Y] = KeyMapping(MappedAction.KeyboardKey(37))  // KEYCODE_I
             common.buttonMappings[ControllerButton.MENU] = KeyMapping(MappedAction.KeyboardKey(111))  // KEYCODE_ESCAPE
             common.buttonMappings[ControllerButton.OPTIONS] = KeyMapping(MappedAction.KeyboardKey(41))  // KEYCODE_M
-            common.buttonMappings[ControllerButton.LEFT_STICK_CLICK] = KeyMapping(MappedAction.SwitchLayer("Layer9"))
             common.buttonMappings[ControllerButton.RIGHT_STICK_CLICK] = KeyMapping(MappedAction.LookAround)
-            common.buttonMappings[ControllerButton.LEFT_SHOULDER] = KeyMapping(MappedAction.SwitchLayer("Layer5"))
-            common.buttonMappings[ControllerButton.RIGHT_SHOULDER] = KeyMapping(MappedAction.SwitchLayer("Layer6"))
+            // 层切换按键映射（按住激活对应层，松开回公共层）
+            triggerButtons.forEach { (button, layerName) ->
+                common.buttonMappings[button] = KeyMapping(MappedAction.SwitchLayer(layerName))
+            }
             // 右摇杆默认视角控制
             // 摇杆映射不在 buttonMappings 中，而是通过 ControllerStick 单独处理
 
+            // 操作层：triggerButton 仅用于 UI 显示，实际切换由 Common 层的 SwitchLayer 映射完成
             val layers = (1..MAX_LAYERS).mapIndexed { index, i ->
                 OperationLayer(
                     name = "Layer$i",
-                    triggerButton = triggers[index]
+                    triggerButton = triggerButtons[index].first
                 )
             }
 
