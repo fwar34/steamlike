@@ -45,10 +45,15 @@ class ConfigManager(
     private val TAG = "ConfigManager"
 
     /** 内部存储配置文件名 */
-    private val configFileName = "steamlike_config.json"
+    private val configFileName = CONFIG_FILE_NAME
 
     /** 内部存储配置文件 */
     private val configFile: File get() = File(context.filesDir, configFileName)
+
+    companion object {
+        /** 内部存储配置文件名（AppConfigStore 共用） */
+        const val CONFIG_FILE_NAME = "steamlike_config.json"
+    }
 
     /**
      * 检查内部存储是否存在配置文件
@@ -92,10 +97,14 @@ class ConfigManager(
 
     /**
      * 保存配置到内部存储
+     *
+     * 自动带上当前运行时配置（[AppConfigStore.load] 的 settings 字段），
+     * 避免覆盖白名单/捕获开关等设置。
      */
     fun saveToInternal(profile: ControllerProfile) {
         try {
-            val json = ControllerConfig.toJson(profile, 2)
+            val appConfig = AppConfigStore.load(context)
+            val json = ControllerConfig.toJson(profile, 2, appConfig)
             configFile.writeText(json)
             Log.i(TAG, "Config saved to internal storage: ${configFile.name} (${configFile.length()} bytes)")
         } catch (e: Exception) {
@@ -106,12 +115,15 @@ class ConfigManager(
     /**
      * 导出配置到指定 URI（通过 SAF）
      *
+     * 导出内容包含按键映射 + 运行时配置（settings），可完整备份/迁移。
+     *
      * @param uri 用户通过 SAF 选择的文件 URI
      * @return true=成功
      */
     fun saveToUri(uri: Uri): Boolean {
         return try {
-            val json = ControllerConfig.toJson(steamInput.profile, 2)
+            val appConfig = AppConfigStore.load(context)
+            val json = ControllerConfig.toJson(steamInput.profile, 2, appConfig)
             context.contentResolver.openOutputStream(uri)?.use { stream ->
                 stream.write(json.toByteArray())
             }

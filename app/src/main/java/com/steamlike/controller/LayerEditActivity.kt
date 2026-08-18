@@ -505,20 +505,20 @@ class LayerEditActivity : AppCompatActivity() {
         tvButtonName.text = "编辑按键: ${buttonDisplayName(button)}"
 
         // ===== 设置动作类型 Spinner =====
-        val actionTypes = listOf("键盘按键", "鼠标点击", "鼠标长按", "切换操作层")
+        // 0=未设置(取消映射), 1=键盘按键, 2=鼠标点击, 3=鼠标长按, 4=切换操作层
+        val actionTypes = listOf("未设置", "键盘按键", "鼠标点击", "鼠标长按", "切换操作层")
         spinnerActionType.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, actionTypes).also {
             it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         }
 
         // 从已有映射确定初始动作类型
-        // 0=键盘按键, 1=鼠标点击, 2=鼠标长按, 3=切换操作层
         val initialActionType = when (existingMapping?.action) {
-            is MappedAction.KeyboardKey -> 0
-            is MappedAction.MouseClick -> 1
-            is MappedAction.MouseToggle -> 2
-            is MappedAction.SwitchLayer -> 3
-            is MappedAction.MouseMove, is MappedAction.LookAround -> 0  // 摇杆专用，默认显示键盘
-            null -> 0  // 新建映射，默认键盘
+            is MappedAction.KeyboardKey -> 1
+            is MappedAction.MouseClick -> 2
+            is MappedAction.MouseToggle -> 3
+            is MappedAction.SwitchLayer -> 4
+            is MappedAction.MouseMove, is MappedAction.LookAround -> 0  // 摇杆专用，显示未设置
+            null -> 0  // 未映射 → 未设置
         }
 
         // 先设置动作值 Spinner 的适配器（基于初始类型）
@@ -561,8 +561,9 @@ class LayerEditActivity : AppCompatActivity() {
         }
         updateAddSubCommandButton(btnAddSubCommand, subCommandSpinners.size)
 
-        // 子命令区域可见性（切换操作层类型时隐藏，因为子命令对切换层无效）
-        layoutSubCommands.visibility = if (initialActionType == 3) View.GONE else View.VISIBLE
+        // 子命令区域可见性（未设置/切换操作层时隐藏，因为子命令对二者无效）
+        layoutSubCommands.visibility =
+            if (initialActionType == 0 || initialActionType == 4) View.GONE else View.VISIBLE
 
         // ===== 动作类型切换监听器 =====
         // 用户切换动作类型时，更新动作值 Spinner 的选项
@@ -570,8 +571,9 @@ class LayerEditActivity : AppCompatActivity() {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 // 重新设置动作值 Spinner 的选项
                 setupActionValueSpinner(spinnerActionValue, tvActionLabel, position)
-                // 切换操作层时隐藏子命令区域
-                layoutSubCommands.visibility = if (position == 3) View.GONE else View.VISIBLE
+                // 未设置/切换操作层时隐藏子命令区域
+                layoutSubCommands.visibility =
+                    if (position == 0 || position == 4) View.GONE else View.VISIBLE
             }
 
             override fun onNothingSelected(parent: AdapterView<*>?) {}
@@ -589,27 +591,34 @@ class LayerEditActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setView(dialogView)
             .setPositiveButton("保存") { _, _ ->
-                // 构建动作（根据动作类型和选中的值）
-                val action = buildAction(
-                    spinnerActionType.selectedItemPosition,
-                    spinnerActionValue.selectedItemPosition
-                )
-                // 收集子命令（跳过"无"选项）
-                val subCommands = collectSubCommands(subCommandSpinners)
+                val actionType = spinnerActionType.selectedItemPosition
+                if (actionType == 0) {
+                    // 未设置：取消该按键的映射（回退到公共层/无动作）
+                    layer.buttonMappings.remove(button)
+                    Log.i(TAG, "Mapping removed: ${buttonDisplayName(button)}")
+                } else {
+                    // 构建动作（actionType-1 映射回 0=键盘/1=鼠标点击/2=鼠标长按/3=切换层）
+                    val action = buildAction(
+                        actionType - 1,
+                        spinnerActionValue.selectedItemPosition
+                    )
+                    // 收集子命令（跳过"无"选项）
+                    val subCommands = collectSubCommands(subCommandSpinners)
 
-                // 创建新的按键映射
-                val newMapping = KeyMapping(action, subCommands)
+                    // 创建新的按键映射
+                    val newMapping = KeyMapping(action, subCommands)
 
-                // 写入当前操作层的 buttonMappings（MutableMap，可直接修改）
-                layer.buttonMappings[button] = newMapping
+                    // 写入当前操作层的 buttonMappings（MutableMap，可直接修改）
+                    layer.buttonMappings[button] = newMapping
+
+                    Log.i(TAG, "Mapping saved: ${buttonDisplayName(button)} → ${newMapping.describe()}")
+                }
 
                 // 刷新列表显示
                 refreshMappingsList()
 
                 // 保存到运行时和内部存储
                 saveProfile(showToast = true)
-
-                Log.i(TAG, "Mapping saved: ${buttonDisplayName(button)} → ${newMapping.describe()}")
             }
             .setNegativeButton("取消", null)
             .show()
@@ -857,29 +866,35 @@ class LayerEditActivity : AppCompatActivity() {
     /**
      * 根据动作类型设置动作值 Spinner 的选项
      *
-     * - 键盘按键 (type=0): 显示键盘按键列表（字母/数字/功能键/修饰键/符号键等）
-     * - 鼠标点击 (type=1): 显示 左键/中键/右键
-     * - 切换操作层 (type=2): 显示所有操作层名称
+     * - 未设置 (type=0): 显示占位选项（保存时取消映射）
+     * - 键盘按键 (type=1): 显示键盘按键列表（字母/数字/功能键/修饰键/符号键等）
+     * - 鼠标点击 (type=2): 显示 左键/中键/右键
+     * - 鼠标长按 (type=3): 显示 左键/中键/右键
+     * - 切换操作层 (type=4): 显示所有操作层名称
      *
      * @param spinner 动作值 Spinner
      * @param label 动作值标签（根据类型更新文字）
-     * @param actionType 动作类型 (0=键盘, 1=鼠标点击, 2=鼠标长按, 3=切换层)
+     * @param actionType 动作类型 (0=未设置, 1=键盘, 2=鼠标点击, 3=鼠标长按, 4=切换层)
      */
     private fun setupActionValueSpinner(spinner: Spinner, label: TextView, actionType: Int) {
         val options: List<String> = when (actionType) {
-            0 -> {  // 键盘按键
+            0 -> {  // 未设置（取消映射）
+                label.text = "未设置（保存后取消该按键映射）"
+                listOf("（无）")
+            }
+            1 -> {  // 键盘按键
                 label.text = "选择按键:"
                 keyboardKeyOptions.map { it.first }
             }
-            1 -> {  // 鼠标点击
+            2 -> {  // 鼠标点击
                 label.text = "选择鼠标按键:"
                 mouseButtonOptions.map { it.first }
             }
-            2 -> {  // 鼠标长按
+            3 -> {  // 鼠标长按
                 label.text = "选择鼠标按键:"
                 mouseButtonOptions.map { it.first }
             }
-            3 -> {  // 切换操作层
+            4 -> {  // 切换操作层
                 label.text = "选择目标层:"
                 layerNames
             }

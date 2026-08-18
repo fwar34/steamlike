@@ -28,7 +28,10 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import android.content.pm.ServiceInfo
 import com.steamlike.controller.LayerEditActivity
+import com.steamlike.controller.config.AppConfig
+import com.steamlike.controller.config.AppConfigStore
 import com.steamlike.controller.config.ConfigManager
+import com.steamlike.controller.config.ControllerConfig
 import com.steamlike.controller.core.SteamInput
 import com.steamlike.controller.injection.BridgeInputInjector
 import com.steamlike.controller.injection.GamepadInputView
@@ -86,6 +89,8 @@ class ControllerOverlayService : Service() {
         const val EXTRA_SMART_PAUSE = "smart_pause"
         /** 捕获白名单包名 (String, 逗号分隔) */
         const val EXTRA_WHITELIST = "capture_whitelist"
+        /** 悬浮窗"游戏"按钮拉起应用包名 (String) */
+        const val EXTRA_LAUNCHER_PACKAGE = "launcher_package"
         /** 捕获开关 (Boolean) */
         const val EXTRA_CAPTURE_ENABLED = "capture_enabled"
         /** Intent extra: 配置文件 URI */
@@ -116,14 +121,6 @@ class ControllerOverlayService : Service() {
         const val ACTION_CAPTURE_STATUS = "CAPTURE_STATUS"
         /** Intent extra: 是否正在捕获 */
         const val EXTRA_CAPTURING = "capturing"
-
-        /**
-         * 默认捕获白名单（前台应用在此集合内时保持焦点窗口捕获手柄）
-         *
-         * 默认包含 Winlator 官方包名及其分支（如 com.winlator.hub，
-         * 部分设备上的 Winlator 商店版/改版），用户可在 MainActivity 中增删。
-         */
-        val DEFAULT_WHITELIST: Set<String> = setOf("com.winlator", "com.winlator.hub")
 
         /** 智能监控轮询间隔（毫秒） */
         private const val SMART_MONITOR_INTERVAL_MS = 1500L
@@ -206,7 +203,11 @@ class ControllerOverlayService : Service() {
 
     /** 捕获白名单包名集合（前台应用在此集合内时保持捕获） */
     @Volatile
-    private var captureWhitelist: Set<String> = DEFAULT_WHITELIST
+    private var captureWhitelist: Set<String> = AppConfig.DEFAULT_WHITELIST.toSet()
+
+    /** 悬浮窗"游戏"按钮拉起的目标应用包名（来自 AppConfig） */
+    @Volatile
+    private var launcherPackage: String = AppConfig.DEFAULT_LAUNCHER
 
     /** 智能监控线程运行标志 */
     @Volatile
@@ -244,9 +245,8 @@ class ControllerOverlayService : Service() {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
         )
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        // 读取捕获开关持久化状态（与 MainActivity/悬浮窗同步）
-        captureEnabled = getSharedPreferences("steamlike", MODE_PRIVATE)
-            .getBoolean("capture_enabled", true)
+        // 从配置文件加载全部运行时配置（服务器/智能暂停/白名单/捕获开关/拉起应用）
+        reloadAppConfig()
         createOverlay()
     }
 
@@ -256,7 +256,8 @@ class ControllerOverlayService : Service() {
         intent?.getIntExtra(EXTRA_PORT, serverPort)?.let { serverPort = it }
         // 读取智能暂停配置（每次startService可更新）
         intent?.getBooleanExtra(EXTRA_SMART_PAUSE, smartPauseEnabled)?.let { smartPauseEnabled = it }
-        intent?.getStringExtra(EXTRA_WHITELIST)?.let { captureWhitelist = parseWhitelist(it) }
+        intent?.getStringExtra(EXTRA_WHITELIST)?.let { captureWhitelist = AppConfig.parseWhitelist(it).toSet() }
+        intent?.getStringExtra(EXTRA_LAUNCHER_PACKAGE)?.let { launcherPackage = it }
         when (intent?.action) {
             ACTION_STOP -> {
                 stopSmartMonitor()
@@ -506,13 +507,24 @@ class ControllerOverlayService : Service() {
         }
         try {
             // 从 URI 读取、解析、应用到 SteamInput、保存到内部存储
-            val success = cm.loadFromUri(uri)
-            if (success) {
-                toast("配置已导入")
-            } else {
+            val json = contentResolver.openInputStream(uri)?.use { stream ->
+                stream.bufferedReader().readText()
+            } ?: run {
                 toast("导入失败: 无法读取配置文件")
                 return
             }
+            // 应用按键映射
+            val profile = ControllerConfig.fromJson(json)
+            si.loadProfile(profile)
+            // 应用运行时配置（settings: 白名单/智能暂停/捕获开关/拉起应用等）
+            val importedCfg = ControllerConfig.appConfigFromJsonString(json)
+            AppConfigStore.save(this, importedCfg)
+            reloadAppConfig()
+            restartSmartMonitor()
+            updateCaptureButtonState()
+            // 持久化（含导入的 settings）
+            cm.saveToInternal(profile)
+            toast("配置已导入")
 
             // 更新悬浮窗的层显示（导入可能修改了层定义）
             updateLayerText(mapper?.getActiveLayers() ?: emptyList())
@@ -771,7 +783,7 @@ class ControllerOverlayService : Service() {
      * 设置捕获总开关（悬浮窗按钮 / MainActivity 开关共用入口）
      *
      * 与 app 内部开关状态双向同步：
-     * - 持久化到 SharedPreferences（MainActivity 下次启动读取）
+     * - 持久化到配置文件（AppConfigStore，MainActivity 下次启动读取）
      * - 广播 [ACTION_CAPTURE_STATUS]（MainActivity 实时刷新开关）
      *
      * @param enabled true=恢复捕获, false=暂停捕获
@@ -779,8 +791,9 @@ class ControllerOverlayService : Service() {
     private fun setCaptureEnabled(enabled: Boolean) {
         if (captureEnabled == enabled) return
         captureEnabled = enabled
-        getSharedPreferences("steamlike", MODE_PRIVATE).edit()
-            .putBoolean("capture_enabled", enabled).apply()
+        // 持久化到配置文件（保留其他运行时配置不变）
+        val cfg = AppConfigStore.load(this).copy(captureEnabled = enabled)
+        AppConfigStore.save(this, cfg)
         Log.i(TAG, "Capture switch: $enabled")
         if (enabled) {
             // 智能监控运行时由它决定是否恢复（依据前台应用）；未运行
@@ -808,23 +821,31 @@ class ControllerOverlayService : Service() {
     }
 
     /**
-     * 拉起手机桌面（Home）
+     * 拉起配置的应用（悬浮窗"游戏"按钮）
      *
-     * 悬浮窗"主页"按钮：一键切出游戏回到手机主屏幕。
+     * 通过 [launcherPackage]（AppConfig 配置，默认 com.winlator）拉起目标应用，
+     * 例如从桌面快速回到 Winlator 游戏。
      * 拥有 SYSTEM_ALERT_WINDOW 权限的应用从后台启动 Activity 属于豁免场景，
      * 不受 Android 10+ 后台启动限制。
      */
-    private fun openHomeScreen() {
+    private fun launchGameApp() {
+        val pkg = launcherPackage
+        if (pkg.isBlank()) {
+            toast("未配置拉起应用包名，请在 App 内设置")
+            return
+        }
         try {
-            val home = Intent(Intent.ACTION_MAIN).apply {
-                addCategory(Intent.CATEGORY_HOME)
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            val intent = packageManager.getLaunchIntentForPackage(pkg)
+            if (intent != null) {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivity(intent)
+                Log.i(TAG, "Launch app: $pkg")
+            } else {
+                toast("未找到应用 $pkg，请在 App 内检查拉起应用包名")
             }
-            startActivity(home)
-            Log.i(TAG, "Open home screen")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to open home screen", e)
-            toast("打开主页失败: ${e.message}")
+            Log.e(TAG, "Failed to launch app $pkg", e)
+            toast("拉起 $pkg 失败: ${e.message}")
         }
     }
 
@@ -963,15 +984,22 @@ class ControllerOverlayService : Service() {
     }
 
     /**
-     * 解析白名单字符串（逗号分隔的包名）为集合
+     * 从配置文件重新加载全部运行时配置
+     *
+     * 在 onCreate 和配置导入后调用，读取 steamlike_config.json 的 settings：
+     * 服务器地址/端口、智能暂停开关、捕获白名单、捕获开关、拉起应用包名。
+     * 注意：serverHost/serverPort 仅在首次 startMapper 时生效，运行中修改需重启服务。
      */
-    private fun parseWhitelist(raw: String): Set<String> {
-        val trimmed = raw.trim()
-        if (trimmed.isEmpty()) return DEFAULT_WHITELIST
-        return trimmed.split(',', '，')
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .toSet()
+    private fun reloadAppConfig() {
+        val cfg = AppConfigStore.load(this)
+        serverHost = cfg.serverHost
+        serverPort = cfg.serverPort
+        smartPauseEnabled = cfg.smartPauseEnabled
+        captureWhitelist = cfg.captureWhitelist.toSet()
+        captureEnabled = cfg.captureEnabled
+        launcherPackage = cfg.launcherPackage
+        Log.i(TAG, "AppConfig loaded: host=$serverHost port=$serverPort " +
+            "smartPause=$smartPauseEnabled whitelist=$captureWhitelist capture=$captureEnabled launcher=$launcherPackage")
     }
 
     // ===== 悬浮窗 UI =====
@@ -1125,8 +1153,8 @@ class ControllerOverlayService : Service() {
             setCaptureEnabled(!captureEnabled)
         }
         ctrlRow.addView(captureButton!!)
-        // 主页按钮：拉起手机桌面（切出游戏/查看其他应用）
-        ctrlRow.addView(createOverlayButton("主页") { openHomeScreen() })
+        // 游戏按钮：拉起配置的应用（AppConfig.launcherPackage）
+        ctrlRow.addView(createOverlayButton("游戏") { launchGameApp() })
         ctrlRow.addView(createOverlayButton("收起") { showCollapsedView() })
         ctrlRow.addView(createOverlayButton("关闭") { stopSelf() })
         container.addView(ctrlRow)

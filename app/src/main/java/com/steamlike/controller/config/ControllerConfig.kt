@@ -51,16 +51,17 @@ import org.json.JSONObject
  */
 object ControllerConfig {
 
-    private const val CONFIG_VERSION = 2
+    const val CONFIG_VERSION = 2
 
     /**
      * 将 [ControllerProfile] 序列化为 JSON 字符串
      *
      * @param profile 控制器配置
      * @param indent 缩进空格数（0=紧凑模式）
+     * @param appConfig 运行时配置（非 null 时写入顶层 `settings` 字段，随配置一起导出）
      * @return JSON 字符串
      */
-    fun toJson(profile: ControllerProfile, indent: Int = 2): String {
+    fun toJson(profile: ControllerProfile, indent: Int = 2, appConfig: AppConfig? = null): String {
         val json = JSONObject()
         json.put("version", CONFIG_VERSION)
         json.put("globalSettings", globalSettingsToJson(profile.globalSettings))
@@ -70,7 +71,55 @@ object ControllerConfig {
             layersArray.put(layerToJson(layer))
         }
         json.put("layers", layersArray)
+        if (appConfig != null) {
+            json.put("settings", appConfigToJson(appConfig))
+        }
         return json.toString(indent)
+    }
+
+    // ===== AppConfig（运行时配置）序列化 =====
+
+    /**
+     * 将 [AppConfig] 序列化为 JSON 对象（写入配置文件顶层 `settings` 字段）
+     */
+    fun appConfigToJson(cfg: AppConfig): JSONObject {
+        val json = JSONObject()
+        json.put("serverHost", cfg.serverHost)
+        json.put("serverPort", cfg.serverPort)
+        json.put("smartPauseEnabled", cfg.smartPauseEnabled)
+        val whitelist = JSONArray()
+        cfg.captureWhitelist.forEach { whitelist.put(it) }
+        json.put("captureWhitelist", whitelist)
+        json.put("captureEnabled", cfg.captureEnabled)
+        json.put("launcherPackage", cfg.launcherPackage)
+        return json
+    }
+
+    /**
+     * 从 JSON 对象解析 [AppConfig]（缺失字段使用默认值）
+     */
+    fun parseAppConfig(json: JSONObject?): AppConfig {
+        if (json == null) return AppConfig()
+        return AppConfig(
+            serverHost = json.optString("serverHost", AppConfig.DEFAULT_HOST),
+            serverPort = json.optInt("serverPort", AppConfig.DEFAULT_PORT),
+            smartPauseEnabled = json.optBoolean("smartPauseEnabled", true),
+            captureWhitelist = json.optJSONArray("captureWhitelist")?.let { arr ->
+                (0 until arr.length()).map { arr.getString(it) }
+                    .filter { it.isNotBlank() }
+                    .distinct()
+            } ?: AppConfig.DEFAULT_WHITELIST,
+            captureEnabled = json.optBoolean("captureEnabled", true),
+            launcherPackage = json.optString("launcherPackage", AppConfig.DEFAULT_LAUNCHER)
+        )
+    }
+
+    /**
+     * 从完整配置文件 JSON 字符串解析 AppConfig（顶层 `settings` 字段）
+     */
+    fun appConfigFromJsonString(jsonString: String): AppConfig {
+        val json = JSONObject(jsonString)
+        return parseAppConfig(json.optJSONObject("settings"))
     }
 
     /**

@@ -26,6 +26,8 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.appcompat.app.AppCompatActivity
+import com.steamlike.controller.config.AppConfig
+import com.steamlike.controller.config.AppConfigStore
 import com.steamlike.controller.config.ConfigManager
 import com.steamlike.controller.config.ControllerConfig
 import com.steamlike.controller.core.ControllerButton
@@ -55,6 +57,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var captureSwitch: Switch
     /** 捕获状态显示文本 */
     private lateinit var captureStatusText: TextView
+    /** 悬浮窗"游戏"按钮拉起应用包名输入框 */
+    private lateinit var launcherEditText: EditText
     /** 抑制捕获开关监听标志（程序化同步状态时避免循环触发） */
     private var suppressCaptureListener = false
     /** TCP监听地址输入框 */
@@ -147,6 +151,9 @@ class MainActivity : AppCompatActivity() {
         }
         container.addView(overlayButton)
 
+        // 加载当前运行时配置（随配置文件持久化）
+        val appCfg = AppConfigStore.load(this)
+
         // ===== 智能暂停（Smart Pause）=====
         // 可焦点悬浮窗在 Android 13+ 会吃掉系统右滑返回手势。
         // 智能暂停: 检测前台应用，仅当"捕获白名单"内的应用(如 Winlator)在前台时
@@ -160,9 +167,10 @@ class MainActivity : AppCompatActivity() {
 
         container.addView(TextView(this).apply {
             text = ("焦点窗口会拦截 Android 13+ 的右滑返回手势。\n"
-                + "开启后自动检测前台应用：Winlator 在前台时保持手柄捕获，\n"
+                + "开启后自动检测前台应用：白名单应用（如 Winlator）在前台时保持手柄捕获，\n"
                 + "切到其他应用自动暂停捕获，右滑返回恢复正常。\n"
-                + "需要授权\"使用情况访问\"（如未授权则退化为手动暂停按钮）。")
+                + "需要授权\"使用情况访问\"（如未授权则退化为手动暂停按钮）。\n"
+                + "以上设置随配置文件一并保存/导出。")
             textSize = 11f
             setLineSpacing(0f, 1.3f)
             setTextColor(0xFFAAAAAA.toInt())
@@ -172,11 +180,8 @@ class MainActivity : AppCompatActivity() {
         // 智能暂停开关
         smartPauseSwitch = Switch(this).apply {
             text = "启用智能暂停"
-            isChecked = getSharedPreferences("smart_pause", MODE_PRIVATE)
-                .getBoolean("enabled", true)
+            isChecked = appCfg.smartPauseEnabled
             setOnCheckedChangeListener { _: CompoundButton, checked: Boolean ->
-                getSharedPreferences("smart_pause", MODE_PRIVATE).edit()
-                    .putBoolean("enabled", checked).apply()
                 updateUsageStatsStatus()
                 toastLog(if (checked) "智能暂停已开启（切出游戏自动暂停捕获）" else "智能暂停已关闭（手动模式）")
             }
@@ -186,8 +191,7 @@ class MainActivity : AppCompatActivity() {
         // 捕获开关（与悬浮窗暂停/恢复按钮双向同步）
         captureSwitch = Switch(this).apply {
             text = "手柄捕获"
-            isChecked = getSharedPreferences("steamlike", MODE_PRIVATE)
-                .getBoolean("capture_enabled", true)
+            isChecked = appCfg.captureEnabled
             setOnCheckedChangeListener { _: CompoundButton, checked: Boolean ->
                 if (suppressCaptureListener) return@setOnCheckedChangeListener
                 setCaptureSwitch(checked)
@@ -203,16 +207,38 @@ class MainActivity : AppCompatActivity() {
         }
         container.addView(captureStatusText)
 
-        // 白名单输入框
+        // 白名单输入框（支持多个包名，逗号/空格/换行分隔）
         container.addView(TextView(this).apply {
-            text = "捕获白名单（前台在此列表内时保持手柄捕获，逗号分隔包名）"
+            text = "捕获白名单（支持多个包名，逗号或换行分隔）"
             textSize = 12f
             setTextColor(0xFFCCCCCC.toInt())
             setPadding(0, 8, 0, 4)
         })
         whitelistEditText = EditText(this).apply {
-            setText(getSharedPreferences("smart_pause", MODE_PRIVATE)
-                .getString("whitelist", ControllerOverlayService.DEFAULT_WHITELIST.joinToString(",")))
+            setText(appCfg.captureWhitelist.joinToString(","))
+            hint = "如: com.winlator, com.winlator.hub"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            minLines = 2
+            isFocusable = true
+            isFocusableInTouchMode = true
+            setOnClickListener {
+                requestFocus()
+                val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                imm.showSoftInput(this, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+            }
+        }
+        container.addView(whitelistEditText)
+
+        // 拉起应用包名（悬浮窗"游戏"按钮使用）
+        container.addView(TextView(this).apply {
+            text = "悬浮窗\"游戏\"按钮拉起的应用包名"
+            textSize = 12f
+            setTextColor(0xFFCCCCCC.toInt())
+            setPadding(0, 8, 0, 4)
+        })
+        launcherEditText = EditText(this).apply {
+            setText(appCfg.launcherPackage)
             hint = "如: com.winlator"
             inputType = android.text.InputType.TYPE_CLASS_TEXT
             isFocusable = true
@@ -223,7 +249,7 @@ class MainActivity : AppCompatActivity() {
                 imm.showSoftInput(this, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
             }
         }
-        container.addView(whitelistEditText)
+        container.addView(launcherEditText)
 
         // 使用情况访问授权入口
         usageStatsButton = Button(this).apply {
@@ -257,7 +283,7 @@ class MainActivity : AppCompatActivity() {
             inputType = android.text.InputType.TYPE_CLASS_TEXT
             isFocusable = true
             isFocusableInTouchMode = true
-            setText(getSharedPreferences("server_config", MODE_PRIVATE).getString("host", "0.0.0.0"))
+            setText(appCfg.serverHost)
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 2f)
             setOnClickListener {
                 requestFocus()
@@ -270,7 +296,7 @@ class MainActivity : AppCompatActivity() {
             inputType = android.text.InputType.TYPE_CLASS_NUMBER
             isFocusable = true
             isFocusableInTouchMode = true
-            setText(getSharedPreferences("server_config", MODE_PRIVATE).getString("port", "27015"))
+            setText(appCfg.serverPort.toString())
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             setOnClickListener {
                 requestFocus()
@@ -289,17 +315,14 @@ class MainActivity : AppCompatActivity() {
                 val host = hostEditText.text.toString().trim()
                 val portStr = portEditText.text.toString().trim()
                 val port = portStr.toIntOrNull() ?: 27015
-                // 保存到SharedPreferences
-                getSharedPreferences("server_config", MODE_PRIVATE).edit()
-                    .putString("host", host)
-                    .putString("port", portStr)
-                    .apply()
-                saveSmartPausePrefs()
+                // 保存全部运行时配置到配置文件（随配置一并导入/导出）
+                saveRuntimeConfig()
                 val intent = Intent(this@MainActivity, ControllerOverlayService::class.java).apply {
                     putExtra(ControllerOverlayService.EXTRA_HOST, host)
                     putExtra(ControllerOverlayService.EXTRA_PORT, port)
                     putExtra(ControllerOverlayService.EXTRA_SMART_PAUSE, smartPauseSwitch.isChecked)
                     putExtra(ControllerOverlayService.EXTRA_WHITELIST, whitelistEditText.text.toString().trim())
+                    putExtra(ControllerOverlayService.EXTRA_LAUNCHER_PACKAGE, launcherEditText.text.toString().trim())
                 }
                 ContextCompat.startForegroundService(this@MainActivity, intent)
                 statusText.append("\n\n✅ 服务已启动！监听 ${host.ifBlank { "0.0.0.0" }}:$port")
@@ -616,16 +639,15 @@ class MainActivity : AppCompatActivity() {
             return
         }
         // 启动前台服务（如果已启动则不会重复启动，onStartCommand 会再次调用）
-        // 读取用户配置的host和port
-        saveSmartPausePrefs()
-        val prefs = getSharedPreferences("server_config", MODE_PRIVATE)
-        val host = prefs.getString("host", "0.0.0.0") ?: "0.0.0.0"
-        val port = prefs.getString("port", "27015")?.toIntOrNull() ?: 27015
+        // 保存全部运行时配置到配置文件，并通过 EXTRA 传给服务
+        saveRuntimeConfig()
+        val cfg = AppConfigStore.load(this)
         val intent = Intent(this, ControllerOverlayService::class.java).apply {
-            putExtra(ControllerOverlayService.EXTRA_HOST, host)
-            putExtra(ControllerOverlayService.EXTRA_PORT, port)
+            putExtra(ControllerOverlayService.EXTRA_HOST, cfg.serverHost)
+            putExtra(ControllerOverlayService.EXTRA_PORT, cfg.serverPort)
             putExtra(ControllerOverlayService.EXTRA_SMART_PAUSE, smartPauseSwitch.isChecked)
             putExtra(ControllerOverlayService.EXTRA_WHITELIST, whitelistEditText.text.toString().trim())
+            putExtra(ControllerOverlayService.EXTRA_LAUNCHER_PACKAGE, launcherEditText.text.toString().trim())
         }
         ContextCompat.startForegroundService(this, intent)
     }
@@ -691,13 +713,21 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * 保存智能暂停配置到 SharedPreferences
+     * 保存全部运行时配置到配置文件（随配置一并导入/导出）
+     *
+     * 包含：服务器地址/端口、智能暂停开关、捕获白名单（多个）、
+     * 捕获开关、悬浮窗"游戏"按钮拉起应用包名。
      */
-    private fun saveSmartPausePrefs() {
-        getSharedPreferences("smart_pause", MODE_PRIVATE).edit()
-            .putBoolean("enabled", smartPauseSwitch.isChecked)
-            .putString("whitelist", whitelistEditText.text.toString().trim())
-            .apply()
+    private fun saveRuntimeConfig() {
+        val cfg = AppConfig(
+            serverHost = hostEditText.text.toString().trim().ifBlank { AppConfig.DEFAULT_HOST },
+            serverPort = portEditText.text.toString().trim().toIntOrNull() ?: AppConfig.DEFAULT_PORT,
+            smartPauseEnabled = smartPauseSwitch.isChecked,
+            captureWhitelist = AppConfig.parseWhitelist(whitelistEditText.text.toString()),
+            captureEnabled = captureSwitch.isChecked,
+            launcherPackage = launcherEditText.text.toString().trim().ifBlank { AppConfig.DEFAULT_LAUNCHER }
+        )
+        AppConfigStore.save(this, cfg)
     }
 
     /**
@@ -706,8 +736,7 @@ class MainActivity : AppCompatActivity() {
      * @param enabled true=恢复捕获, false=暂停捕获
      */
     private fun setCaptureSwitch(enabled: Boolean) {
-        getSharedPreferences("steamlike", MODE_PRIVATE).edit()
-            .putBoolean("capture_enabled", enabled).apply()
+        saveRuntimeConfig()
         if (isServiceRunning()) {
             val intent = Intent(this, ControllerOverlayService::class.java).apply {
                 action = ControllerOverlayService.ACTION_SET_CAPTURE
@@ -734,12 +763,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * 从 SharedPreferences 同步捕获开关状态（onResume 时调用）
+     * 从配置文件同步捕获开关状态（onResume 时调用）
      */
     private fun syncCaptureSwitchFromPrefs() {
         if (!::captureSwitch.isInitialized) return
-        val enabled = getSharedPreferences("steamlike", MODE_PRIVATE)
-            .getBoolean("capture_enabled", true)
+        val enabled = AppConfigStore.load(this).captureEnabled
         suppressCaptureListener = true
         captureSwitch.isChecked = enabled
         suppressCaptureListener = false
