@@ -92,8 +92,8 @@ class KeyboardMouseMapper(
      * 第一次按下 → 发送 MouseDown，加入集合
      * 第二次按下 → 发送 MouseUp，移出集合
      *
-     * 注意：操作层切换时会将所有 toggle 状态释放（见 [releaseToggledMouseButtons]），
-     * 避免切层后鼠标按键一直保持按下导致"卡住"。
+     * toggle 是用户主动锁存机制，不随操作层切换自动释放
+     * （松开手柄键也不改变状态，见 [handleMouseToggle]）。
      */
     private val toggledMouseButtons = mutableMapOf<ControllerButton, MouseButton>()
 
@@ -158,8 +158,6 @@ class KeyboardMouseMapper(
         }
         steamInput.onLayerChanged = { layerName ->
             Log.i(TAG, "Active layer: $layerName")
-            // 层切换时释放所有 toggle 状态的鼠标按键，防止鼠标按键跨层卡住
-            releaseToggledMouseButtons()
             // 通知外部监听器，传递当前所有激活层名称列表
             onLayerChanged?.invoke(getActiveLayers())
         }
@@ -245,20 +243,31 @@ class KeyboardMouseMapper(
      * 根据 [mapping.action] 类型分发到对应的处理方法。
      * 子命令在主键按下/松开时一起注入。
      *
+     * **松开事件按"已注入状态"释放**，不按当前层映射分发：
+     * 按住 B(鼠标右键) 时切换操作层，激活层可能覆盖 B 的映射（如 B→技能键）。
+     * 若按当前映射分发释放会走进 KeyboardKey 分支，而 B 按下时记录在
+     * [pressedMouseButtons] 而非 [pressedMainKeys]，导致右键 MouseUp 永远发不出去、
+     * 游戏内右键卡死。因此松开统一走 [releaseButtonInjection]。
+     *
      * @param button 手柄按钮
      * @param isPressed true=按下, false=释放
      * @param mapping 按键映射
      */
     private fun handleMapping(button: ControllerButton, isPressed: Boolean, mapping: KeyMapping) {
+        if (!isPressed) {
+            // 松开：按按下时记录的状态精确释放（与当前层映射无关）
+            releaseButtonInjection(button)
+            return
+        }
         when (val action = mapping.action) {
             is MappedAction.KeyboardKey -> {
-                handleKeyboardKey(button, isPressed, action.keyCode, mapping.subCommands)
+                handleKeyboardKey(button, true, action.keyCode, mapping.subCommands)
             }
             is MappedAction.MouseClick -> {
-                handleMouseClick(button, isPressed, action.button)
+                handleMouseClick(button, true, action.button)
             }
             is MappedAction.MouseToggle -> {
-                handleMouseToggle(button, isPressed, action.button)
+                handleMouseToggle(button, true, action.button)
             }
             is MappedAction.SwitchLayer -> {
                 // SwitchLayer 已在 SteamInput.handleButtonEvent 中处理
@@ -266,6 +275,41 @@ class KeyboardMouseMapper(
             is MappedAction.MouseMove, is MappedAction.LookAround -> {
                 // 摇杆动作，在 handleStick 中处理
             }
+        }
+    }
+
+    /**
+     * 释放指定手柄按钮已注入的全部键鼠状态
+     *
+     * 根据按下时记录的状态精确释放（与当前层映射无关）：
+     * - 子命令键（逆序松开）
+     * - 主键
+     * - 鼠标按钮（MouseClick 按下态）
+     *
+     * 不处理 [MappedAction.MouseToggle]：toggle 是用户主动锁存机制
+     * （按一下按住、再按一下释放），松开手柄键不应改变其状态。
+     *
+     * @param button 手柄按钮
+     */
+    private fun releaseButtonInjection(button: ControllerButton) {
+        var released = false
+        // 1. 松开子命令键（逆序）
+        pressedSubKeys.remove(button)?.reversed()?.forEach { subKeyCode ->
+            injector.sendKeyUp(subKeyCode)
+            released = true
+        }
+        // 2. 松开主键
+        pressedMainKeys.remove(button)?.let { mainKeyCode ->
+            injector.sendKeyUp(mainKeyCode)
+            released = true
+        }
+        // 3. 松开鼠标按钮（MouseClick 按下态）
+        pressedMouseButtons.remove(button)?.let { mouseButton ->
+            injector.sendMouseUp(mouseButton)
+            released = true
+        }
+        if (released) {
+            Log.d(TAG, "Released button $button injections")
         }
     }
 
@@ -372,21 +416,6 @@ class KeyboardMouseMapper(
             toggledMouseButtons[button] = mouseButton
             Log.d(TAG, "Toggle MouseDown: $mouseButton")
         }
-    }
-
-    /**
-     * 释放所有处于 toggle 状态的鼠标按键
-     *
-     * 在操作层切换时调用，防止鼠标按键在层切换后保持按下。
-     * 仅释放 toggle 状态，不影响普通按下（pressedMouseButtons）的按键。
-     */
-    private fun releaseToggledMouseButtons() {
-        if (toggledMouseButtons.isEmpty()) return
-        toggledMouseButtons.forEach { (_, mouseButton) ->
-            injector.sendMouseUp(mouseButton)
-        }
-        Log.d(TAG, "Released ${toggledMouseButtons.size} toggled mouse buttons on layer change")
-        toggledMouseButtons.clear()
     }
 
     /**
