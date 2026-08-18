@@ -376,13 +376,12 @@ class SteamInput(context: Context) {
         val leftStickDz = leftStick.withDeadzone(deadzone)
         val rightStickDz = rightStick.withDeadzone(deadzone)
 
-        // 通知摇杆事件
-        if (leftStickDz.magnitude > 0f || leftStick.magnitude == 0f) {
-            onStickMapped?.invoke(ControllerStick.LEFT_STICK, leftStickDz.x, leftStickDz.y)
-        }
-        if (rightStickDz.magnitude > 0f || rightStick.magnitude == 0f) {
-            onStickMapped?.invoke(ControllerStick.RIGHT_STICK, rightStickDz.x, rightStickDz.y)
-        }
+        // 通知摇杆事件（始终回调）
+        // 原实现仅在"死区外或有居中事件"时回调：摇杆从死区外回中经过死区时
+        // 事件被跳过，映射器的 EMA 平滑值会冻结在最后位置，产生拖尾抖动。
+        // 始终回调 (0,0) 让平滑值立即收敛到零。
+        onStickMapped?.invoke(ControllerStick.LEFT_STICK, leftStickDz.x, leftStickDz.y)
+        onStickMapped?.invoke(ControllerStick.RIGHT_STICK, rightStickDz.x, rightStickDz.y)
 
         // 处理 D-Pad 的 HAT 轴事件（很多手柄的 D-Pad 通过 MotionEvent 而非 KeyEvent 发送）
         handleDpadHatAxis(event)

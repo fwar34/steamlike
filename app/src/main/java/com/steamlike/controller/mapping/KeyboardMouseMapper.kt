@@ -99,11 +99,18 @@ class KeyboardMouseMapper(
     /**
      * 右摇杆平滑滤波后的 X/Y 值
      *
-     * 指数移动平均（EMA）: smoothed = smoothed * α + raw * (1 - α)
-     * α 越大越平滑，但延迟增加。
+     * 指数移动平均（EMA），使用**时间常数**而非每事件固定系数：
+     * smoothed = smoothed * (1-α) + raw * α，α = 1 - exp(-dt/τ)
+     * τ 由 [com.steamlike.controller.core.GlobalSettings.lookSmoothing] 映射（0~45ms）。
+     * 与事件频率无关：无论系统以 60Hz 还是 500Hz 派发 MotionEvent，平滑延迟一致。
      */
     private var smoothedLookX = 0f
     private var smoothedLookY = 0f
+
+    /**
+     * 上一次右摇杆事件的时间戳（System.nanoTime），用于按时间间隔缩放鼠标位移
+     */
+    private var lastLookNanos = 0L
 
     /**
      * 操作层变化回调
@@ -148,6 +155,7 @@ class KeyboardMouseMapper(
         toggledMouseButtons.clear()
         smoothedLookX = 0f
         smoothedLookY = 0f
+        lastLookNanos = 0L
         Log.i(TAG, "KeyboardMouseMapper stopped")
     }
 
@@ -368,7 +376,7 @@ class KeyboardMouseMapper(
         val settings = steamInput.profile.globalSettings
         when (stick) {
             ControllerStick.RIGHT_STICK -> {
-                // 右摇杆 → 视角控制（加速曲线 + 平滑滤波）
+                // 右摇杆 → 视角控制（加速曲线 + 时间尺度化 EMA 平滑）
                 // 死区已在 SteamInput.dispatchGenericMotionEvent 通过
                 // Vector2.withDeadzone(GlobalSettings.deadzone) 统一应用，
                 // 此处不再重复处理，仅做幅值钳制（mag>1 缩回单位圆）。
@@ -389,13 +397,19 @@ class KeyboardMouseMapper(
                     rx *= scale
                     ry *= scale
                 }
-                // 2. 平滑滤波（EMA）：减少抖动，让移动更顺滑
-                val alpha = settings.lookSmoothing.coerceIn(0f, 0.95f)
-                smoothedLookX = smoothedLookX * alpha + rx * (1f - alpha)
-                smoothedLookY = smoothedLookY * alpha + ry * (1f - alpha)
-                // 3. 发送鼠标移动（基础速度 8px/帧 * 灵敏度）
-                val dx = smoothedLookX * settings.lookSensitivity * 8f
-                val dy = smoothedLookY * settings.lookSensitivity * 8f
+                // 时间尺度化 EMA 平滑：α 由时间常数 τ 计算，与事件频率无关，
+                // 避免高频设备平滑过度堆积延迟、低频设备平滑不足
+                val now = System.nanoTime()
+                val dt = ((now - lastLookNanos) / 1e9f).coerceIn(0.001f, 0.05f)
+                lastLookNanos = now
+                val tau = settings.lookSmoothing.coerceIn(0f, 0.95f) * LOOK_SMOOTH_TAU_MAX
+                val alpha = if (tau <= 0f) 1f else 1f - kotlin.math.exp(-dt / tau)
+                smoothedLookX = smoothedLookX * (1f - alpha) + rx * alpha
+                smoothedLookY = smoothedLookY * (1f - alpha) + ry * alpha
+                // 发送鼠标移动：满推速度 LOOK_SPEED_PX_PER_SEC × 灵敏度 × dt，
+                // 位移与事件频率无关；亚像素部分由注入器余量累积补发
+                val dx = smoothedLookX * settings.lookSensitivity * LOOK_SPEED_PX_PER_SEC * dt
+                val dy = smoothedLookY * settings.lookSensitivity * LOOK_SPEED_PX_PER_SEC * dt
                 if (dx != 0f || dy != 0f) {
                     injector.sendMouseMove(dx, dy)
                 }
@@ -425,5 +439,23 @@ class KeyboardMouseMapper(
                 // D-Pad 作为摇杆 → 不处理
             }
         }
+    }
+
+    companion object {
+        /**
+         * 右摇杆满推时的鼠标移动速度（像素/秒）
+         *
+         * 旧实现为固定"8px/帧"，实际速度随事件频率波动（60Hz=480px/s，500Hz=4000px/s），
+         * 是视角忽快忽慢、一卡一卡的主因之一。改为按时间间隔（dt）缩放后，
+         * 无论事件频率如何，满推速度恒为 480px/s × 灵敏度。
+         */
+        private const val LOOK_SPEED_PX_PER_SEC = 480f
+
+        /**
+         * 视角 EMA 平滑时间常数上限（秒）
+         *
+         * lookSmoothing=0.95 时 τ=45ms，lookSmoothing=0.5（默认）时 τ≈24ms。
+         */
+        private const val LOOK_SMOOTH_TAU_MAX = 0.048f
     }
 }

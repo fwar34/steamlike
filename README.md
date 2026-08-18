@@ -440,7 +440,7 @@ tasks.named("preBuild") {
 | 摇杆 | 默认动作 | 处理方式 |
 |------|---------|---------|
 | 左摇杆 | WASD 8方向 | 阈值 0.5 判定方向，W/A/S/D 按下/释放（固定映射，不随操作层变化） |
-| 右摇杆 | LookAround | 死区+加速曲线+EMA平滑后发送鼠标相对移动（×lookSensitivity×8像素/帧） |
+| 右摇杆 | LookAround | 死区+加速曲线+时间尺度化EMA平滑后发送鼠标相对移动（满推 480px/秒×灵敏度，按事件间隔缩放，亚像素余量累积） |
 
 ### 摇杆参数（GlobalSettings）
 
@@ -1772,7 +1772,7 @@ data class GlobalSettings(
 | 参数 | 默认值 | 范围 | 说明 |
 |------|--------|------|------|
 | `deadzone` | 0.15 | 0.0~1.0 | 摇杆死区，magnitude 小于此值归零。0=完全灵敏，0.2=中心20%区域忽略 |
-| `lookSensitivity` | 0.5 | >0 | 右摇杆视角灵敏度。>1.0 更快，<1.0 更慢，实际移动=平滑后摇杆值×灵敏度×8 |
+| `lookSensitivity` | 0.5 | >0 | 右摇杆视角灵敏度。>1.0 更快，<1.0 更慢，实际移动=平滑后摇杆值×灵敏度×480px/秒×dt |
 | `cursorSpeed` | 1.0 | >0 | 光标移动速度。>1.0 更快，<1.0 更慢 |
 | `lookSmoothing` | 0.5 | 0.0~0.95 | 视角 EMA 平滑系数。0=关闭（最跟手但有抖动），越大越顺滑但延迟增加 |
 | `lookAcceleration` | 1.5 | 0.5~3.0 | 视角加速曲线指数。1.0=线性，>1 轻推更慢、重推更快 |
@@ -2372,8 +2372,8 @@ Vector2.withDeadzone(deadzone):   // SteamInput.dispatchGenericMotionEvent 统�
 触发 onStickMapped 回调
       ↓
 KeyboardMouseMapper.handleStick():
-  右摇杆 → 幅值钳制(mag>1缩回) → 加速曲线 pow(mag, accel) → EMA 平滑
-         → dx = 平滑值 * lookSensitivity * 8f
+  右摇杆 → 幅值钳制(mag>1缩回) → 加速曲线 pow(mag, accel) → 时间尺度化 EMA 平滑
+         → dx = 平滑值 * lookSensitivity * 480px/秒 * dt   ← dt=事件间隔，速度与事件频率无关
   → injector.sendMouseMove(dx, dy)   ← 小数余量累积，亚像素不丢失
 ```
 
@@ -2555,6 +2555,19 @@ KeyboardMouseMapper.handleMapping(X, isPressed=true, mapping)
 - 切换操作层时 `KeyboardMouseMapper` 会自动释放所有按键
 - Windows客户端断开时会自动释放所有按键
 - 如果仍有问题，关闭Windows客户端再重新打开
+
+### Q: 右摇杆/按右键转镜头一卡一卡？
+
+**A**: 新版已针对镜头卡顿做了三项优化：
+1. **TCP_NODELAY**：手柄事件是大量 8 字节小包，默认 Nagle 算法会让小包等待 ACK 造成 ~40ms 周期延迟，已禁用
+2. **按时间间隔缩放位移**：不再使用固定"每帧 8px"（事件频率波动会导致速度忽快忽慢），改为满推 480px/秒 × 灵敏度 × 事件间隔
+3. **时间常数平滑 + 始终回调**：EMA 平滑与事件频率解耦，摇杆回中时平滑值立即收敛，消除拖尾抖动
+
+如果仍感觉卡顿，依次排查：
+- **Winlator/Wine 鼠标设置**：关闭指针加速/平滑（游戏内镜头由相对鼠标移动驱动，系统级加速会造成非线性抖动）
+- **降低"平滑系数"**（0.3 更跟手）或**调高"加速曲线指数"**（轻推更稳）
+- 确认手机性能模式/省电模式没有限制主线程（手柄事件在主线程处理）
+- 蓝牙手柄尽量靠近设备，避免采样率波动
 
 ### Q: 如何修改按键映射？
 

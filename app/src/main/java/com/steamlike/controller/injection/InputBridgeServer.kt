@@ -240,6 +240,14 @@ class InputBridgeServer(
         while (isRunning.get()) {
             try {
                 val socket = serverSocket?.accept() ?: break
+                // 禁用 Nagle 算法：手柄事件是大量 8 字节小包，
+                // 默认 Nagle 会让小包等待 ACK 造成 ~40ms 周期延迟，表现为游戏内一卡一卡
+                try {
+                    socket.setTcpNoDelay(true)
+                } catch (e: IOException) {
+                    // TCP_NODELAY 设置失败不致命，仅影响延迟表现
+                    Log.w(TAG, "Failed to set TCP_NODELAY", e)
+                }
                 val client = ClientConnection(socket)
                 clients.add(client)
                 val addr = socket.remoteSocketAddress.toString()
