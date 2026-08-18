@@ -25,8 +25,9 @@ import java.util.concurrent.CopyOnWriteArraySet
  * - 所有操作层查询不到的按键回退到此层
  *
  * ### 操作层 (Layer1-Layer10)
- * - 最多 10 个，每个有独立的 [OperationLayer.triggerButton]
- * - 按住触发键激活该层，松开回公共层
+ * - 最多 10 个，每个有独立的 [OperationLayer.triggerButton]（仅用于 UI 显示/说明）
+ * - 实际层切换由 **公共层的 [MappedAction.SwitchLayer] 映射** 驱动：
+ *   按下触发键（如 D-Pad ↑）→ 激活对应层；松开 → 回到公共层
  * - 激活时按键查询优先使用本层映射
  *
  * ### 按键查询顺序
@@ -482,9 +483,9 @@ class SteamInput(context: Context) {
      *
      * 核心逻辑:
      * 1. 更新 heldButtons 集合
-     * 2. 检查是否是操作层触发键（按下激活层，松开停用层）
-     * 3. 查找按钮的有效映射
-     * 4. 如果映射是 SwitchLayer，执行层切换
+     * 2. 松开时：若该按键此前触发过 SwitchLayer 层切换，则停用对应层并返回
+     * 3. 查找按钮的有效映射（激活层 → 公共层回退）
+     * 4. 如果映射是 SwitchLayer，按下时激活目标层并记录（松开时停用）
      * 5. 否则触发 onButtonMapped 回调
      *
      * @param button 统一按钮编码

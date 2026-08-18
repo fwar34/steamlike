@@ -82,7 +82,8 @@ class OperationLayerTest {
         assertEquals(ControllerButton.LEFT_SHOULDER, profile.layers[4].triggerButton)
         assertEquals(ControllerButton.RIGHT_SHOULDER, profile.layers[5].triggerButton)
         assertEquals(ControllerButton.LEFT_STICK_CLICK, profile.layers[6].triggerButton)
-        assertEquals(ControllerButton.RIGHT_STICK_CLICK, profile.layers[7].triggerButton)
+        // Layer8 触发键为 Touchpad（R3 保留为 LookAround 视角控制，不作为层切换键）
+        assertEquals(ControllerButton.TOUCHPAD_CLICK, profile.layers[7].triggerButton)
         assertEquals(ControllerButton.LEFT_TRIGGER_CLICK, profile.layers[8].triggerButton)
         assertEquals(ControllerButton.RIGHT_TRIGGER_CLICK, profile.layers[9].triggerButton)
     }
@@ -123,15 +124,15 @@ class OperationLayerTest {
     // ===== 全局设置测试 =====
 
     @Test
-    fun `默认全局设置死区为0`() {
+    fun `默认全局设置死区为015`() {
         val settings = GlobalSettings()
-        assertEquals(0.0f, settings.deadzone, 0.001f)
+        assertEquals(0.15f, settings.deadzone, 0.001f)
     }
 
     @Test
-    fun `默认全局设置灵敏度为1`() {
+    fun `默认全局设置灵敏度为05`() {
         val settings = GlobalSettings()
-        assertEquals(1.0f, settings.lookSensitivity, 0.001f)
+        assertEquals(0.5f, settings.lookSensitivity, 0.001f)
         assertEquals(1.0f, settings.cursorSpeed, 0.001f)
     }
 
@@ -147,8 +148,8 @@ class OperationLayerTest {
         layer1.buttonMappings[ControllerButton.A] =
             KeyMapping(MappedAction.KeyboardKey(KC_B))
 
-        // 模拟查询: 激活Layer1时查A
-        val mapping = layer1.getMapping(ControllerButton.A) ?: common.getMapping(ControllerButton.A)
+        // 模拟查询: 激活Layer1时查A（本测试中 Layer1 必有映射，结果非空）
+        val mapping = (layer1.getMapping(ControllerButton.A) ?: common.getMapping(ControllerButton.A))!!
         assertEquals(KC_B, (mapping.action as MappedAction.KeyboardKey).keyCode)
     }
 
@@ -161,8 +162,8 @@ class OperationLayerTest {
         val layer1 = OperationLayer("Layer1", ControllerButton.DPAD_UP)
         // Layer1 没有A的映射
 
-        // 模拟查询: 激活Layer1时查A，Layer1没有则回退Common
-        val mapping = layer1.getMapping(ControllerButton.A) ?: common.getMapping(ControllerButton.A)
+        // 模拟查询: 激活Layer1时查A，Layer1没有则回退Common（公共层必有映射，结果非空）
+        val mapping = (layer1.getMapping(ControllerButton.A) ?: common.getMapping(ControllerButton.A))!!
         assertEquals(KC_A, (mapping.action as MappedAction.KeyboardKey).keyCode)
     }
 

@@ -86,10 +86,15 @@ class KeyboardMouseMapper(
     /**
      * MouseToggle 当前处于"按下"状态的手柄按钮集合
      *
+     * key = 手柄按钮, value = 已按下的鼠标按钮
+     *
      * 第一次按下 → 发送 MouseDown，加入集合
      * 第二次按下 → 发送 MouseUp，移出集合
+     *
+     * 注意：操作层切换时会将所有 toggle 状态释放（见 [releaseToggledMouseButtons]），
+     * 避免切层后鼠标按键一直保持按下导致"卡住"。
      */
-    private val toggledMouseButtons = mutableSetOf<ControllerButton>()
+    private val toggledMouseButtons = mutableMapOf<ControllerButton, MouseButton>()
 
     /**
      * 右摇杆平滑滤波后的 X/Y 值
@@ -122,6 +127,8 @@ class KeyboardMouseMapper(
         }
         steamInput.onLayerChanged = { layerName ->
             Log.i(TAG, "Active layer: $layerName")
+            // 层切换时释放所有 toggle 状态的鼠标按键，防止鼠标按键跨层卡住
+            releaseToggledMouseButtons()
             // 通知外部监听器，传递当前所有激活层名称列表
             onLayerChanged?.invoke(getActiveLayers())
         }
@@ -318,7 +325,7 @@ class KeyboardMouseMapper(
      */
     private fun handleMouseToggle(button: ControllerButton, isPressed: Boolean, mouseButton: MouseButton) {
         if (!isPressed) return  // toggle模式：松开手柄键不触发任何操作
-        if (toggledMouseButtons.contains(button)) {
+        if (toggledMouseButtons.containsKey(button)) {
             // 第二次按下 → 释放
             injector.sendMouseUp(mouseButton)
             toggledMouseButtons.remove(button)
@@ -326,9 +333,24 @@ class KeyboardMouseMapper(
         } else {
             // 第一次按下 → 按下
             injector.sendMouseDown(mouseButton)
-            toggledMouseButtons.add(button)
+            toggledMouseButtons[button] = mouseButton
             Log.d(TAG, "Toggle MouseDown: $mouseButton")
         }
+    }
+
+    /**
+     * 释放所有处于 toggle 状态的鼠标按键
+     *
+     * 在操作层切换时调用，防止鼠标按键在层切换后保持按下。
+     * 仅释放 toggle 状态，不影响普通按下（pressedMouseButtons）的按键。
+     */
+    private fun releaseToggledMouseButtons() {
+        if (toggledMouseButtons.isEmpty()) return
+        toggledMouseButtons.forEach { (_, mouseButton) ->
+            injector.sendMouseUp(mouseButton)
+        }
+        Log.d(TAG, "Released ${toggledMouseButtons.size} toggled mouse buttons on layer change")
+        toggledMouseButtons.clear()
     }
 
     /**
@@ -346,20 +368,19 @@ class KeyboardMouseMapper(
         val settings = steamInput.profile.globalSettings
         when (stick) {
             ControllerStick.RIGHT_STICK -> {
-                // 右摇杆 → 视角控制（死区 + 加速曲线 + 平滑滤波）
-                // 1. 死区处理：消除中心漂移
+                // 右摇杆 → 视角控制（加速曲线 + 平滑滤波）
+                // 死区已在 SteamInput.dispatchGenericMotionEvent 通过
+                // Vector2.withDeadzone(GlobalSettings.deadzone) 统一应用，
+                // 此处不再重复处理，仅做幅值钳制（mag>1 缩回单位圆）。
                 var rx = x
                 var ry = y
                 val mag = Math.sqrt((rx * rx + ry * ry).toDouble()).toFloat()
-                if (mag < settings.deadzone) {
-                    rx = 0f
-                    ry = 0f
-                } else if (mag > 1f) {
+                if (mag > 1f) {
                     val scale = 1f / mag
                     rx *= scale
                     ry *= scale
                 }
-                // 2. 加速曲线：pow(mag, accel) 使轻推更慢、重推更快
+                // 加速曲线：pow(mag, accel) 使轻推更慢、重推更快
                 val accel = settings.lookAcceleration.coerceIn(0.5f, 3.0f)
                 if (rx != 0f || ry != 0f) {
                     val normMag = Math.sqrt((rx * rx + ry * ry).toDouble()).toFloat()
@@ -368,11 +389,11 @@ class KeyboardMouseMapper(
                     rx *= scale
                     ry *= scale
                 }
-                // 3. 平滑滤波（EMA）：减少抖动，让移动更顺滑
+                // 2. 平滑滤波（EMA）：减少抖动，让移动更顺滑
                 val alpha = settings.lookSmoothing.coerceIn(0f, 0.95f)
                 smoothedLookX = smoothedLookX * alpha + rx * (1f - alpha)
                 smoothedLookY = smoothedLookY * alpha + ry * (1f - alpha)
-                // 4. 发送鼠标移动（基础速度 8px/帧 * 灵敏度）
+                // 3. 发送鼠标移动（基础速度 8px/帧 * 灵敏度）
                 val dx = smoothedLookX * settings.lookSensitivity * 8f
                 val dy = smoothedLookY * settings.lookSensitivity * 8f
                 if (dx != 0f || dy != 0f) {

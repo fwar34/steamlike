@@ -170,8 +170,8 @@ class ControllerConfigTest {
         val json = """{"version":2,"commonLayer":{"name":"Common","buttonMappings":{}},"layers":[]}"""
         val parsed = ControllerConfig.fromJson(json)
 
-        assertEquals(0.0f, parsed.globalSettings.deadzone, 0.001f)
-        assertEquals(1.0f, parsed.globalSettings.lookSensitivity, 0.001f)
+        assertEquals(0.15f, parsed.globalSettings.deadzone, 0.001f)
+        assertEquals(0.5f, parsed.globalSettings.lookSensitivity, 0.001f)
         assertEquals(1.0f, parsed.globalSettings.cursorSpeed, 0.001f)
     }
 

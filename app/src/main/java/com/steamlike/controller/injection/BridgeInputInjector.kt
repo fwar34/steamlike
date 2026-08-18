@@ -40,9 +40,22 @@ class BridgeInputInjector(
     /** 当前按下的鼠标按钮集合 */
     private val pressedButtons = mutableSetOf<MouseButton>()
 
+    /**
+     * 鼠标相对移动的小数余量（X/Y）
+     *
+     * 协议层将鼠标位移编码为 int16，小数部分会被截断。
+     * 低灵敏度/轻推摇杆时单帧位移常小于 1px，直接截断会导致
+     * 微小的视角移动被丢弃（慢速转向一顿一顿、轻推几乎不动）。
+     *
+     * 这里把每帧的小数余量累积起来，累计超过 1px 时补发一次，
+     * 从而在不改协议的前提下保留亚像素精度。
+     */
+    private var mouseRemainderX = 0f
+    private var mouseRemainderY = 0f
+
     override fun isAvailable(): Boolean {
-        // 服务器可用即认为注入器可用（客户端可能尚未连接，但事件会被缓存）
-        return true
+        // 服务器已启动即可认为注入器可用（客户端是否连接由连接状态另行展示）
+        return server.isRunning()
     }
 
     /**
@@ -93,8 +106,24 @@ class BridgeInputInjector(
         server.sendMouseButton(btnId, isDown = false)
     }
 
+    /**
+     * 发送鼠标相对移动（带小数余量累积）
+     *
+     * 将 dx/dy 与未发送的余量合并后取整发送，余量保留到下一次调用。
+     * 例如连续收到 0.4/0.4/0.4：实际发送 0/0/1，累计位移 1px 而不是全部丢弃。
+     *
+     * @param dx X轴相对位移（像素，右为正）
+     * @param dy Y轴相对位移（像素，下为正）
+     */
     override fun sendMouseMove(dx: Float, dy: Float) {
-        server.sendMouseMove(dx, dy)
+        mouseRemainderX += dx
+        mouseRemainderY += dy
+        val ix = mouseRemainderX.toInt()
+        val iy = mouseRemainderY.toInt()
+        if (ix == 0 && iy == 0) return  // 累计不足 1px，本帧不发送
+        mouseRemainderX -= ix
+        mouseRemainderY -= iy
+        server.sendMouseMove(ix.toFloat(), iy.toFloat())
     }
 
     /**
@@ -105,6 +134,8 @@ class BridgeInputInjector(
         // 本地状态清理
         pressedKeys.clear()
         pressedButtons.clear()
+        mouseRemainderX = 0f
+        mouseRemainderY = 0f
         // 通知Windows客户端释放所有
         server.sendReleaseAll()
     }
@@ -219,6 +250,7 @@ class BridgeInputInjector(
             KeyEvent.KEYCODE_COMMA -> 0xBC         // VK_OEM_COMMA ","
             KeyEvent.KEYCODE_PERIOD -> 0xBE        // VK_OEM_PERIOD "."
             KeyEvent.KEYCODE_SLASH -> 0xBF         // VK_OEM_2 "/"
+            KeyEvent.KEYCODE_GRAVE -> 0xC0         // VK_OEM_3 "`"
 
             // ===== 小键盘 =====
             KeyEvent.KEYCODE_NUM_LOCK -> 0x90     // VK_NUMLOCK

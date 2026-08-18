@@ -9,6 +9,7 @@ import java.net.Socket
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * InputBridge TCP服务器
@@ -223,6 +224,9 @@ class InputBridgeServer(
     /** 获取已连接客户端数量 */
     fun clientCount(): Int = clients.size
 
+    /** 服务器是否正在运行（accept/dispatch 循环是否存活） */
+    fun isRunning(): Boolean = isRunning.get()
+
     // ===== 内部实现 =====
 
     private fun enqueue(packet: ByteArray) {
@@ -312,7 +316,8 @@ class InputBridgeServer(
      * 客户端连接封装
      */
     private class ClientConnection(val socket: Socket) {
-        val id: Int = hashCode()
+        /** 自增连接ID（仅用于线程命名/日志区分，替代不可靠的 hashCode） */
+        val id: Int = NEXT_ID.getAndIncrement()
         private val outputStream: OutputStream? = try { socket.getOutputStream() } catch (e: IOException) { null }
         @Volatile var closed: Boolean = false
 
@@ -325,6 +330,10 @@ class InputBridgeServer(
         fun close() {
             closed = true
             try { socket.close() } catch (e: IOException) {}
+        }
+
+        companion object {
+            private val NEXT_ID = AtomicInteger(0)
         }
     }
 }

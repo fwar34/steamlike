@@ -242,12 +242,13 @@ data class KeyMapping(
  *
  * ## 层类型
  * - **公共层** (commonLayer): 名称为 "Common"，始终激活，[triggerButton] 为 null
- * - **操作层 1-10**: 各有 [triggerButton] 触发按键，按住激活、松开回公共层
+ * - **操作层 1-10**: [triggerButton] 仅用于 UI 显示/使用说明，不参与运行时激活
  *
  * ## 触发按键机制
- * 每个操作层可设置一个 [ControllerButton] 作为触发按键。
- * 当该按键被按下时，激活对应操作层；松开时，回到公共层。
- * 例如: Layer1 的 triggerButton = DPAD_UP，按住 D-Pad 上 → 激活 Layer1，松开 → 回 Common
+ * 层切换由 **公共层的 [MappedAction.SwitchLayer] 映射** 驱动，而不是 triggerButton 字段：
+ * 在公共层把某个手柄按键绑定为 `SwitchLayer("Layer1")`，按下该键激活 Layer1、松开回到公共层。
+ * 例如: 公共层 `DPAD_UP → SwitchLayer("Layer1")`，按住 D-Pad 上 → 激活 Layer1，松开 → 回 Common。
+ * 层的 [triggerButton] 字段仅保留展示用途（设置界面/使用说明读取）。
  *
  * @param name 层名称（如 "Common"、"Layer1"、"战斗"）
  * @param triggerButton 触发按键（公共层为 null）

@@ -48,7 +48,7 @@
 **核心创新**:
 - **桥接架构**: Android端(TCP服务器) ←→ Windows端(SendInput注入)，参考InputBridge设计
 - **ControllerProfile 配置模型**: 由 `公共层 + 10个操作层 + 全局设置` 组成的完整配置，所有按键映射以 `KeyMapping` 表示
-- **操作层触发机制**: 每个操作层有独立的 `triggerButton`，按住触发键激活该层，松开回到公共层
+- **操作层触发机制**: 公共层通过 `SwitchLayer` 映射绑定触发键（如 D-Pad ↑→Layer1），按住触发键激活对应层、松开回到公共层
 - **子命令组合键(Sub-Command)**: 每个 `KeyMapping` 可附加最多 3 个子命令，实现 `Alt+3`、`Ctrl+Shift+3` 等组合键
 - **无 Root/无 Shizuku**: 通过悬浮窗焦点窗口直接接收系统 `KeyEvent` / `MotionEvent`，无需任何特权框架
 
@@ -64,7 +64,7 @@
 
 - **桥接注入架构**: Android TCP服务器 + Windows SendInput客户端，参考InputBridge
 - **ControllerProfile 配置**: 公共层 + 10个操作层 + GlobalSettings 统一管理
-- **操作层触发机制**: 每个操作层有 triggerButton，按住激活松开回公共层
+- **操作层触发机制**: 公共层 SwitchLayer 映射驱动，按住触发键激活对应层、松开回公共层
 - **子命令组合键**: 每个 KeyMapping 可附加最多 3 个子命令，实现 Alt+3、Ctrl+Shift+3 等组合键
 - **配置文件导入/导出**: version=2 JSON 格式，支持导出当前配置、导入自定义配置、自动持久化
 - **设置界面**: LayerEditActivity 提供可视化编辑操作层、按键映射、子命令
@@ -102,8 +102,8 @@
 │                      │               ↓                  │       │
 │                      │  SteamInput (ControllerProfile)  │       │
 │                      │   ├─ 激活层查找 → 公共层回退      │       │
-│                      │   ├─ triggerButton 层触发         │       │
-│                      │   └─ SwitchLayer 动作             │       │
+│                      │   ├─ SwitchLayer 层切换           │       │
+│                      │   └─ 子命令组合键注入             │       │
 │                      │  KeyboardMouseMapper (子命令注入) │       │
 │                      │  BridgeInputInjector (VK映射)     │       │
 │                      │               ↓                  │       │
@@ -135,7 +135,7 @@ KeyboardMouseMapper.onKeyEvent(event)          ← 转发
      ↓ SteamInput.dispatchKeyEvent()
 SteamInput.handleButtonEvent(X, true)
      ├─ 更新 heldButtons 集合
-     ├─ 检查 X 是否为某层 triggerButton → 是则激活层，return
+     ├─ 检查 X 的映射是否为 SwitchLayer → 是则激活目标层，return
      └─ getEffectiveMapping(X):
          ① 遍历激活操作层 buttonMappings[X] → 找到?
          ② 未找到 → 回退公共层 commonLayer.buttonMappings[X]
@@ -194,21 +194,20 @@ WoW游戏接收 Alt+3 组合键!
 ```
 用户按下按钮 A
      ↓
-① 检查 A 是否为某操作层的 triggerButton
-     ↓ 是 → 激活该层（按住），return（不执行映射动作）
-     ↓ 否 ↓
-② 遍历当前激活的操作层（activeLayers），查找 buttonMappings[A]
-     ↓ 找到? → 使用该层的 KeyMapping
-     ↓ 未找到 ↓
-③ 回退到公共层 commonLayer.buttonMappings[A]
-     ↓ 找到? → 使用公共层的 KeyMapping
+① 查找 A 的有效映射（getEffectiveMapping）:
+     先遍历激活的操作层 buttonMappings[A] → 找到?
+     未找到 → 回退公共层 commonLayer.buttonMappings[A]
+     ↓ 找到? → 使用该 KeyMapping
      ↓ 未找到 → 不执行任何动作
-
-④ 检查 KeyMapping.action 类型:
+     ↓
+② 检查 KeyMapping.action 类型:
+     ├─ SwitchLayer → 按下激活目标层并记录，松开停用该层（不注入键鼠）
      ├─ KeyboardKey → onButtonMapped 回调（含子命令注入）
      ├─ MouseClick  → onButtonMapped 回调
-     ├─ SwitchLayer → 激活/停用目标层（不注入键鼠）
      └─ MouseMove/LookAround → 摇杆专用，在 onStickMapped 中处理
+
+注: 层切换完全由公共层的 SwitchLayer 映射驱动（如 D-Pad ↑ → Layer1），
+     OperationLayer.triggerButton 字段仅用于 UI 显示/使用说明，不参与运行时激活。
 ```
 
 ---
@@ -301,7 +300,7 @@ gcc -O2 -o inputbridge_client.exe inputbridge_client.c -lws2_32 -luser32
       ↓
 客户端显示"[CONNECT] Connected" → 启动 WoW 游戏
       ↓
-按住 triggerButton（如 D-Pad 上）激活对应操作层
+按住 D-Pad 上/下/左/右 等触发键激活对应操作层（松开回公共层）
       ↓
 （若手柄无响应）点击屏幕使焦点窗口重新获取焦点
 ```
@@ -427,27 +426,31 @@ tasks.named("preBuild") {
 | Y | KeyboardKey(I) | I (背包) |
 | MENU | KeyboardKey(Esc) | Esc (菜单) |
 | OPTIONS | KeyboardKey(M) | M (地图) |
-| LEFT_STICK_CLICK (L3) | SwitchLayer("Layer9") | 切换到 Layer9 (旅行) |
+| LEFT_STICK_CLICK (L3) | SwitchLayer("Layer7") | 切换到 Layer7 (对战) |
 | RIGHT_STICK_CLICK (R3) | LookAround | 右摇杆视角控制 |
 | LEFT_SHOULDER (LB) | SwitchLayer("Layer5") | 切换到 Layer5 (潜行) |
 | RIGHT_SHOULDER (RB) | SwitchLayer("Layer6") | 切换到 Layer6 (钓鱼) |
+| LEFT_TRIGGER_CLICK (L2) | SwitchLayer("Layer9") | 切换到 Layer9 (旅行) |
+| RIGHT_TRIGGER_CLICK (R2) | SwitchLayer("Layer10") | 切换到 Layer10 (自定义) |
 
-> **说明**: D-Pad 上/下/左/右、L2/R2 等按键默认作为操作层的 `triggerButton`（见 [10个操作层](#10个操作层)），不直接映射到键鼠动作。
+> **说明**: D-Pad 上/下/左/右、LB/RB/L3/Touchpad/L2/R2 等按键默认在公共层绑定为 `SwitchLayer` 动作（见 [10个操作层](#10个操作层)），按下时切换操作层，不直接映射到键鼠动作。
 
 ### 摇杆处理
 
 | 摇杆 | 默认动作 | 处理方式 |
 |------|---------|---------|
-| 左摇杆 | (未映射) | 可在设置中配置为 MouseMove |
-| 右摇杆 | LookAround | 发送鼠标相对移动（×lookSensitivity×15像素/帧） |
+| 左摇杆 | WASD 8方向 | 阈值 0.5 判定方向，W/A/S/D 按下/释放（固定映射，不随操作层变化） |
+| 右摇杆 | LookAround | 死区+加速曲线+EMA平滑后发送鼠标相对移动（×lookSensitivity×8像素/帧） |
 
 ### 摇杆参数（GlobalSettings）
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| deadzone | 0.0 | 死区，magnitude 小于此值归零（0=完全灵敏） |
-| lookSensitivity | 1.0 | 右摇杆视角灵敏度（>1.0 更快，<1.0 更慢） |
+| deadzone | 0.15 | 死区，magnitude 小于此值归零（0=完全灵敏） |
+| lookSensitivity | 0.5 | 右摇杆视角灵敏度（>1.0 更快，<1.0 更慢） |
 | cursorSpeed | 1.0 | 光标移动速度（>1.0 更快，<1.0 更慢） |
+| lookSmoothing | 0.5 | 视角 EMA 平滑系数（0=关闭，越大越顺滑但延迟增加） |
+| lookAcceleration | 1.5 | 视角加速曲线指数（1.0=线性，>1 轻推更慢、重推更快） |
 
 > **注意**: 新架构中摇杆参数统一在 `GlobalSettings` 中配置，不再区分操作层。所有层共享同一组摇杆参数。
 
@@ -521,9 +524,9 @@ mapping.describe()  // 返回 "Alt+3"
 
 ## 10个操作层
 
-`ControllerProfile.createDefault()` 创建 10 个操作层，每个层有独立的 `triggerButton`。层名在配置文件中为 `Layer1`-`Layer10`，悬浮窗按钮显示对应中文名（见 [WoWActionSets.kt](app/src/main/java/com/steamlike/controller/mapping/WoWActionSets.kt) 的 `LAYER_NAMES`）。
+`ControllerProfile.createDefault()` 创建 10 个操作层，层切换由公共层的 `SwitchLayer` 映射驱动，层的 `triggerButton` 仅用于 UI 显示。层名在配置文件中为 `Layer1`-`Layer10`，悬浮窗按钮显示对应中文名（见 [WoWActionSets.kt](app/src/main/java/com/steamlike/controller/mapping/WoWActionSets.kt) 的 `LAYER_NAMES`）。
 
-| # | 内部名 | 显示名 | triggerButton | 默认映射 |
+| # | 内部名 | 显示名 | 触发键（显示） | 默认映射 |
 |---|--------|--------|---------------|---------|
 | 1 | Layer1 | 战斗 | DPAD_UP | (空，继承公共层) |
 | 2 | Layer2 | 骑乘 | DPAD_DOWN | (空，继承公共层) |
@@ -532,11 +535,11 @@ mapping.describe()  // 返回 "Alt+3"
 | 5 | Layer5 | 潜行 | LEFT_SHOULDER (LB) | (空，继承公共层) |
 | 6 | Layer6 | 钓鱼 | RIGHT_SHOULDER (RB) | (空，继承公共层) |
 | 7 | Layer7 | 对战 | LEFT_STICK_CLICK (L3) | (空，继承公共层) |
-| 8 | Layer8 | 团本 | RIGHT_STICK_CLICK (R3) | (空，继承公共层) |
+| 8 | Layer8 | 团本 | TOUCHPAD_CLICK | (空，继承公共层) |
 | 9 | Layer9 | 旅行 | LEFT_TRIGGER_CLICK (L2) | (空，继承公共层) |
 | 10 | Layer10 | 自定义 | RIGHT_TRIGGER_CLICK (R2) | (空，继承公共层) |
 
-> **说明**: 默认配置中操作层的 `buttonMappings` 为空，按键查询会回退到公共层。用户可通过 [设置界面](#设置界面) 或运行时 API 为操作层添加覆盖映射。公共层中 LB/RB/L3 通过 `SwitchLayer` 动作切换到对应层（Layer5/Layer6/Layer9），与 triggerButton 机制互补。
+> **说明**: 默认配置中操作层的 `buttonMappings` 为空，按键查询会回退到公共层。用户可通过 [设置界面](#设置界面) 或运行时 API 为操作层添加覆盖映射。所有 10 个层的切换均由公共层的 `SwitchLayer` 映射驱动（D-Pad 上/下/左/右 → Layer1-4，LB/RB → Layer5/6，L3 → Layer7，Touchpad → Layer8，L2/R2 → Layer9/10），与上表"触发键（显示）"字段一致；R3 保留为 LookAround 视角控制，不作为层切换键。
 
 ### 层查询示例
 
@@ -559,54 +562,45 @@ Layer1: A → KeyboardKey(5)   (用户配置的覆盖)
 
 ## 操作层触发机制
 
-### 触发按键机制
+### 触发按键机制（SwitchLayer 驱动）
 
-每个操作层（Layer1-Layer10）可设置一个 `ControllerButton` 作为 `triggerButton`。当该按键被按下时激活对应操作层，松开时停用该层回到公共层。
+层切换由**公共层的 `MappedAction.SwitchLayer` 映射**驱动，而不是 `triggerButton` 字段：在公共层把某个手柄按键绑定为 `SwitchLayer("LayerN")`，按下该键激活 LayerN、松开回到公共层。
 
 ```
-Layer1.triggerButton = DPAD_UP
+公共层: DPAD_UP → KeyMapping(SwitchLayer("Layer1"))
 
 按下 D-Pad 上:
   SteamInput.handleButtonEvent(DPAD_UP, isPressed=true)
-     ↓ profile.findLayerByTrigger(DPAD_UP) → Layer1
-     ↓ activateLayer(Layer1)
+     ↓ getEffectiveMapping(DPAD_UP) → KeyMapping(SwitchLayer("Layer1"))
+     ↓ action 是 SwitchLayer → activateLayer(Layer1) + 记录 buttonTriggeredLayers[DPAD_UP]=Layer1
      ↓ activeLayers = [Layer1], activeLayerName = "Layer1"
-     ↓ return（triggerButton 不执行映射动作）
+     ↓ return（SwitchLayer 不注入键鼠）
 
 松开 D-Pad 上:
   SteamInput.handleButtonEvent(DPAD_UP, isPressed=false)
-     ↓ profile.findLayerByTrigger(DPAD_UP) → Layer1
-     ↓ deactivateLayer(Layer1)
+     ↓ buttonTriggeredLayers[DPAD_UP] = Layer1 → deactivateLayer(Layer1)
      ↓ activeLayers = [], activeLayerName = "Common"
 ```
 
+> **说明**: `OperationLayer.triggerButton` 字段仅用于 UI 显示/使用说明（设置界面与悬浮窗读取），不参与运行时层切换逻辑。默认配置中公共层的层切换映射：
+> - D-Pad 上/下/左/右 → Layer1/Layer2/Layer3/Layer4
+> - LB / RB → Layer5 / Layer6
+> - L3 / Touchpad → Layer7 / Layer8
+> - L2 / R2 → Layer9 / Layer10
+>
+> R3 保留为 LookAround 视角控制，不作为层切换键。
+
 ### SwitchLayer 动作
 
-除了 `triggerButton` 自动触发，还可以通过 `MappedAction.SwitchLayer` 动作主动切换层。公共层默认配置中：
-
-- LB → `SwitchLayer("Layer5")`：按住 LB 激活 Layer5（潜行）
-- RB → `SwitchLayer("Layer6")`：按住 RB 激活 Layer6（钓鱼）
-- L3 → `SwitchLayer("Layer9")`：按住 L3 激活 Layer9（旅行）
-
-```
-按下 LB:
-  SteamInput.handleButtonEvent(LEFT_SHOULDER, isPressed=true)
-     ↓ 检查 triggerButton: LB 是 Layer5 的 triggerButton? 是!
-     ↓ activateLayer(Layer5) → return
-
-按下 LB 时（若 LB 不是任何层的 triggerButton，而是 SwitchLayer 动作）:
-  SteamInput.handleButtonEvent(LEFT_SHOULDER, isPressed=true)
-     ↓ getEffectiveMapping(LB) → KeyMapping(SwitchLayer("Layer5"))
-     ↓ action 是 SwitchLayer → activateLayer(Layer5)
-```
+`MappedAction.SwitchLayer(layerName)` 是层切换的通用动作，公共层与任意操作层都可以使用。按下时激活目标层，松开时停用。`buttonTriggeredLayers` 记录"哪个按键激活了哪层"，确保即使激活层覆盖了该按键的映射，松开时也能正确停用对应层。
 
 ### 公共层（始终激活）
 
-公共层 `commonLayer` 的 `triggerButton` 为 `null`，始终激活。按键查询时，激活层找不到的按键会回退到公共层。公共层不可停用，也不可通过 triggerButton 触发。
+公共层 `commonLayer` 的 `triggerButton` 为 `null`，始终激活。按键查询时，激活层找不到的按键会回退到公共层。公共层不可停用。
 
 ### 多层激活
 
-虽然默认使用场景下只有一个层激活（按住一个 triggerButton），但 `activeLayers` 是 `CopyOnWriteArrayList`，支持多个层同时激活。查询时按激活顺序遍历，第一个找到的映射生效。
+默认使用场景下通常只有一个层激活（按住一个触发键），但 `activeLayers` 是 `CopyOnWriteArrayList`，支持多个层同时激活。查询时按激活顺序遍历，第一个找到的映射生效。
 
 ---
 
@@ -623,19 +617,11 @@ Layer1.triggerButton = DPAD_UP
 | LB | Layer5 | 潜行 |
 | RB | Layer6 | 钓鱼 |
 | L3 (左摇杆按下) | Layer7 | 对战 |
-| R3 (右摇杆按下) | Layer8 | 团本 |
+| Touchpad (触控板) | Layer8 | 团本 |
 | L2 (左扳机) | Layer9 | 旅行 |
 | R2 (右扳机) | Layer10 | 自定义 |
 
-### SwitchLayer 动作快捷键
-
-公共层中通过 `SwitchLayer` 动作切换层（与 triggerButton 机制互补，可由用户在设置界面修改）：
-
-| 按键 | 动作 | 目标层 |
-|------|------|--------|
-| LB | SwitchLayer("Layer5") | 潜行 |
-| RB | SwitchLayer("Layer6") | 钓鱼 |
-| L3 | SwitchLayer("Layer9") | 旅行 |
+> **说明**: 以上层切换由**公共层的 `SwitchLayer` 映射**实现：`getEffectiveMapping` 查找到 `SwitchLayer` 动作时按下激活、松开停用。`OperationLayer.triggerButton` 字段与之一致，仅用于 UI 显示/使用说明。用户可在"操作层设置"中修改这些绑定。R3（右摇杆按下）保留为 LookAround 视角控制，不参与层切换。
 
 ### 悬浮窗按钮
 
@@ -1736,7 +1722,7 @@ data class KeyMapping(
 
 ### OperationLayer
 
-操作层，包含按键映射表。公共层始终激活，操作层按 triggerButton 触发激活。
+操作层，包含按键映射表。公共层始终激活；操作层由公共层的 `SwitchLayer` 映射驱动激活（`triggerButton` 仅用于 UI 显示）。
 
 ```kotlin
 data class OperationLayer(
@@ -1753,7 +1739,7 @@ data class OperationLayer(
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `name` | `String` | 层名（公共层="Common"，操作层="Layer1"-"Layer10"） |
-| `triggerButton` | `ControllerButton?` | 触发按键（公共层为 null） |
+| `triggerButton` | `ControllerButton?` | 触发按键（仅用于 UI 显示/说明，公共层为 null） |
 | `buttonMappings` | `MutableMap<ControllerButton, KeyMapping>` | 按键映射表 |
 
 #### 层类型
@@ -1761,11 +1747,11 @@ data class OperationLayer(
 | 类型 | name | triggerButton | 激活方式 |
 |------|------|---------------|---------|
 | 公共层 | "Common" | null | 始终激活 |
-| 操作层 1-10 | "Layer1"-"Layer10" | 各有触发键 | 按住 triggerButton 激活，松开停用 |
+| 操作层 1-10 | "Layer1"-"Layer10" | 显示用触发键 | 公共层 SwitchLayer 映射驱动：按下激活，松开停用 |
 
 #### 触发按键机制
 
-每个操作层可设置一个 `ControllerButton` 作为 `triggerButton`。当该按键被按下时，`SteamInput.handleButtonEvent` 通过 `profile.findLayerByTrigger(button)` 查找对应层并激活；松开时停用。triggerButton 本身不执行映射动作。
+层切换由**公共层的 `MappedAction.SwitchLayer` 映射**驱动：按下绑定为 `SwitchLayer("LayerN")` 的按键时激活 LayerN，松开时停用（`buttonTriggeredLayers` 记录触发关系，确保激活层覆盖该按键映射时也能正确停用）。`OperationLayer.triggerButton` 字段仅用于 UI 显示/使用说明，不参与运行时激活；`findLayerByTrigger` 仅用于查询展示。
 
 ### GlobalSettings
 
@@ -1773,9 +1759,11 @@ data class OperationLayer(
 
 ```kotlin
 data class GlobalSettings(
-    val deadzone: Float = 0.0f,        // 死区（0.0~1.0），默认0=完全灵敏
-    val lookSensitivity: Float = 1.0f, // 右摇杆视角灵敏度
-    val cursorSpeed: Float = 1.0f      // 光标移动速度
+    val deadzone: Float = 0.15f,         // 死区（0.0~1.0），默认0.15
+    val lookSensitivity: Float = 0.5f,   // 右摇杆视角灵敏度
+    val cursorSpeed: Float = 1.0f,       // 光标移动速度
+    val lookSmoothing: Float = 0.5f,     // 视角 EMA 平滑系数
+    val lookAcceleration: Float = 1.5f   // 视角加速曲线指数
 )
 ```
 
@@ -1783,9 +1771,11 @@ data class GlobalSettings(
 
 | 参数 | 默认值 | 范围 | 说明 |
 |------|--------|------|------|
-| `deadzone` | 0.0 | 0.0~1.0 | 摇杆死区，magnitude 小于此值归零。0=完全灵敏，0.2=中心20%区域忽略 |
-| `lookSensitivity` | 1.0 | >0 | 右摇杆视角灵敏度。>1.0 更快，<1.0 更慢，实际移动=摇杆值×灵敏度×15 |
+| `deadzone` | 0.15 | 0.0~1.0 | 摇杆死区，magnitude 小于此值归零。0=完全灵敏，0.2=中心20%区域忽略 |
+| `lookSensitivity` | 0.5 | >0 | 右摇杆视角灵敏度。>1.0 更快，<1.0 更慢，实际移动=平滑后摇杆值×灵敏度×8 |
 | `cursorSpeed` | 1.0 | >0 | 光标移动速度。>1.0 更快，<1.0 更慢 |
+| `lookSmoothing` | 0.5 | 0.0~0.95 | 视角 EMA 平滑系数。0=关闭（最跟手但有抖动），越大越顺滑但延迟增加 |
+| `lookAcceleration` | 1.5 | 0.5~3.0 | 视角加速曲线指数。1.0=线性，>1 轻推更慢、重推更快 |
 
 > **注意**: 新架构中摇杆参数统一在 `GlobalSettings` 中配置，不再像旧架构那样按操作层覆盖。所有层共享同一组参数。
 
@@ -2375,24 +2365,27 @@ Android 系统会将手柄的 `KeyEvent` / `MotionEvent` 分发给**当前持有
 ```
 原始输入 (MotionEvent AXIS_X/AXIS_Y, -1.0~1.0)
       ↓
-Vector2.withDeadzone(deadzone):
+Vector2.withDeadzone(deadzone):   // SteamInput.dispatchGenericMotionEvent 统一应用
   magnitude < deadzone → 归零 (Vector2.ZERO)
-  magnitude >= deadzone → 保持原值（新架构不再应用响应曲线）
+  magnitude >= deadzone → 缩放 (mag - deadzone) / (1 - deadzone)
       ↓
 触发 onStickMapped 回调
       ↓
 KeyboardMouseMapper.handleStick():
-  右摇杆 → dx = x * lookSensitivity * 15f
-  → injector.sendMouseMove(dx, dy)
+  右摇杆 → 幅值钳制(mag>1缩回) → 加速曲线 pow(mag, accel) → EMA 平滑
+         → dx = 平滑值 * lookSensitivity * 8f
+  → injector.sendMouseMove(dx, dy)   ← 小数余量累积，亚像素不丢失
 ```
 
 ### 4. 操作层激活/停用
 
 ```
-按下 D-Pad 上 (Layer1 的 triggerButton):
+公共层: DPAD_UP → KeyMapping(SwitchLayer("Layer1"))
+
+按下 D-Pad 上:
   SteamInput.handleButtonEvent(DPAD_UP, isPressed=true)
-     ↓ profile.findLayerByTrigger(DPAD_UP) → Layer1
-     ↓ activateLayer(Layer1)
+     ↓ getEffectiveMapping(DPAD_UP) → KeyMapping(SwitchLayer("Layer1"))
+     ↓ action 是 SwitchLayer → activateLayer(Layer1) + buttonTriggeredLayers[DPAD_UP]=Layer1
      ↓ activeLayers = [Layer1], activeLayerName = "Layer1"
      ↓ onLayerChanged 回调 → 更新悬浮窗 UI
 
@@ -2404,8 +2397,7 @@ KeyboardMouseMapper.handleStick():
 
 松开 D-Pad 上:
   SteamInput.handleButtonEvent(DPAD_UP, isPressed=false)
-     ↓ profile.findLayerByTrigger(DPAD_UP) → Layer1
-     ↓ deactivateLayer(Layer1)
+     ↓ buttonTriggeredLayers[DPAD_UP] = Layer1 → deactivateLayer(Layer1)
      ↓ activeLayers = [], activeLayerName = "Common"
      ↓ onLayerChanged 回调 → 更新悬浮窗 UI
 ```
@@ -2438,18 +2430,16 @@ KeyboardMouseMapper.handleMapping(X, isPressed=true, mapping)
 ```
 按下 LB (公共层 LB → SwitchLayer("Layer5")):
   SteamInput.handleButtonEvent(LEFT_SHOULDER, isPressed=true)
-     ↓ 检查 triggerButton: LB 是否为某层 triggerButton?
-     ↓   若是 → activateLayer(该层), return
-     ↓   若否 ↓
      ↓ getEffectiveMapping(LB) → KeyMapping(SwitchLayer("Layer5"))
      ↓ action 是 SwitchLayer
      ↓ profile.findLayer("Layer5") → Layer5
-     ↓ activateLayer(Layer5)
+     ↓ activateLayer(Layer5) + buttonTriggeredLayers[LB]=Layer5
+     ↓ return（不注入键鼠）
 
 松开 LB:
-     ↓ getEffectiveMapping(LB) → KeyMapping(SwitchLayer("Layer5"))
-     ↓ action 是 SwitchLayer
-     ↓ deactivateLayer(Layer5)
+  SteamInput.handleButtonEvent(LEFT_SHOULDER, isPressed=false)
+     ↓ buttonTriggeredLayers[LB] = Layer5 → deactivateLayer(Layer5)
+     ↓ activeLayers = [], activeLayerName = "Common"
 ```
 
 ---
@@ -2681,7 +2671,7 @@ layer.buttonMappings[ControllerButton.X] = KeyMapping(
 - `layerText` 显示当前激活的操作层
 - 可在 `KeyboardMouseMapper` 的回调中添加日志
 - 可在 `GamepadInputView.dispatchKeyEvent()` 中添加日志查看原始 KeyEvent
-- `SteamInput.heldButtons` 可观察当前按住的按钮（用于调试 triggerButton）
+- `SteamInput.heldButtons` 可观察当前按住的按钮（用于调试层切换按键）
 - `SteamInput.activeLayerName` 可观察当前激活层
 - 导入配置后查看 Logcat 标签 `ConfigManager` 了解解析情况
 - 内部配置文件路径: `adb shell run-as com.steamlike.controller cat files/steamlike_config.json`
