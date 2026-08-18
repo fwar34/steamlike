@@ -78,10 +78,16 @@ class ControllerOverlayService : Service() {
         const val ACTION_RESUME_OVERLAY = "RESUME_OVERLAY"
         /** 更新右摇杆优化设置（GlobalSettings） */
         const val ACTION_UPDATE_SETTINGS = "UPDATE_SETTINGS"
+        /** 设置捕获开关（MainActivity 调用，extra: EXTRA_CAPTURE_ENABLED） */
+        const val ACTION_SET_CAPTURE = "SET_CAPTURE"
+        /** 刷新悬浮窗层名（配置导入/重置后调用） */
+        const val ACTION_REFRESH_LAYERS = "REFRESH_LAYERS"
         /** 智能暂停开关 (Boolean) */
         const val EXTRA_SMART_PAUSE = "smart_pause"
         /** 捕获白名单包名 (String, 逗号分隔) */
         const val EXTRA_WHITELIST = "capture_whitelist"
+        /** 捕获开关 (Boolean) */
+        const val EXTRA_CAPTURE_ENABLED = "capture_enabled"
         /** Intent extra: 配置文件 URI */
         const val EXTRA_CONFIG_URI = "config_uri"
         /** Intent extra: TCP监听地址，空表示监听所有接口 */
@@ -106,18 +112,27 @@ class ControllerOverlayService : Service() {
         /** Intent extra: 是否已连接 */
         const val EXTRA_CONNECTED = "connected"
 
+        /** 广播: 捕获状态变化（悬浮窗/MainActivity 双向同步） */
+        const val ACTION_CAPTURE_STATUS = "CAPTURE_STATUS"
+        /** Intent extra: 是否正在捕获 */
+        const val EXTRA_CAPTURING = "capturing"
+
         /**
          * 默认捕获白名单（前台应用在此集合内时保持焦点窗口捕获手柄）
          *
-         * 默认包含 Winlator 官方包名，用户可在 MainActivity 的"智能暂停"设置中增删。
+         * 默认包含 Winlator 官方包名及其分支（如 com.winlator.hub，
+         * 部分设备上的 Winlator 商店版/改版），用户可在 MainActivity 中增删。
          */
-        val DEFAULT_WHITELIST: Set<String> = setOf("com.winlator")
+        val DEFAULT_WHITELIST: Set<String> = setOf("com.winlator", "com.winlator.hub")
 
         /** 智能监控轮询间隔（毫秒） */
         private const val SMART_MONITOR_INTERVAL_MS = 1500L
 
         /** 前台应用查询时间窗（毫秒） */
         private const val SMART_FOREGROUND_WINDOW_MS = 60_000L
+
+        /** 默认层名匹配（未重命名的层显示预设中文名） */
+        private val DEFAULT_LAYER_NAME_REGEX = Regex("Layer\\d+")
     }
 
     private var windowManager: WindowManager? = null
@@ -180,6 +195,15 @@ class ControllerOverlayService : Service() {
     @Volatile
     private var smartPauseEnabled: Boolean = true
 
+    /**
+     * 捕获总开关（用户手动暂停/恢复，与 MainActivity 开关双向同步）
+     *
+     * true=允许捕获（智能暂停模式下由前台应用决定窗口是否显示）
+     * false=手动暂停（移除焦点窗口，智能监控不再自动恢复）
+     */
+    @Volatile
+    private var captureEnabled: Boolean = true
+
     /** 捕获白名单包名集合（前台应用在此集合内时保持捕获） */
     @Volatile
     private var captureWhitelist: Set<String> = DEFAULT_WHITELIST
@@ -220,6 +244,9 @@ class ControllerOverlayService : Service() {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
         )
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        // 读取捕获开关持久化状态（与 MainActivity/悬浮窗同步）
+        captureEnabled = getSharedPreferences("steamlike", MODE_PRIVATE)
+            .getBoolean("capture_enabled", true)
         createOverlay()
     }
 
@@ -257,6 +284,15 @@ class ControllerOverlayService : Service() {
             }
             ACTION_UPDATE_SETTINGS -> {
                 handleUpdateSettings(intent)
+            }
+            ACTION_SET_CAPTURE -> {
+                // MainActivity 捕获开关变化 → 应用到服务并广播同步
+                intent.getBooleanExtra(EXTRA_CAPTURE_ENABLED, captureEnabled)?.let {
+                    setCaptureEnabled(it)
+                }
+            }
+            ACTION_REFRESH_LAYERS -> {
+                refreshLayerNames()
             }
         }
         // 首次启动时初始化映射器
@@ -481,6 +517,7 @@ class ControllerOverlayService : Service() {
             // 更新悬浮窗的层显示（导入可能修改了层定义）
             updateLayerText(mapper?.getActiveLayers() ?: emptyList())
             updateLayerButtonColors(mapper?.getActiveLayers() ?: emptyList())
+            refreshLayerNames()
         } catch (e: Exception) {
             toast("导入失败: ${e.message}")
         }
@@ -519,6 +556,8 @@ class ControllerOverlayService : Service() {
         // 清除 LayerEditActivity 的 SteamInput 引用（startMapper 会重新设置）
         LayerEditActivity.steamInputRef = null
         startMapper()
+        // 刷新悬浮窗层名（重置后恢复默认名）
+        refreshLayerNames()
     }
 
     /**
@@ -729,11 +768,72 @@ class ControllerOverlayService : Service() {
     }
 
     /**
+     * 设置捕获总开关（悬浮窗按钮 / MainActivity 开关共用入口）
+     *
+     * 与 app 内部开关状态双向同步：
+     * - 持久化到 SharedPreferences（MainActivity 下次启动读取）
+     * - 广播 [ACTION_CAPTURE_STATUS]（MainActivity 实时刷新开关）
+     *
+     * @param enabled true=恢复捕获, false=暂停捕获
+     */
+    private fun setCaptureEnabled(enabled: Boolean) {
+        if (captureEnabled == enabled) return
+        captureEnabled = enabled
+        getSharedPreferences("steamlike", MODE_PRIVATE).edit()
+            .putBoolean("capture_enabled", enabled).apply()
+        Log.i(TAG, "Capture switch: $enabled")
+        if (enabled) {
+            // 智能监控运行时由它决定是否恢复（依据前台应用）；未运行
+            // （智能暂停关闭/未授权手动模式）时直接恢复捕获
+            if (!smartMonitorRunning) {
+                mainHandler.post { resumeCapturing() }
+            }
+        } else {
+            // 手动暂停：移除焦点窗口（下层应用恢复右滑返回）
+            mainHandler.post { pauseCapturing() }
+        }
+        broadcastCaptureStatus(enabled)
+        updateCaptureButtonState()
+    }
+
+    /**
+     * 广播捕获状态给 MainActivity（用于同步 app 内开关）
+     */
+    private fun broadcastCaptureStatus(capturing: Boolean) {
+        val intent = Intent(ACTION_CAPTURE_STATUS).apply {
+            setPackage(packageName)
+            putExtra(EXTRA_CAPTURING, capturing)
+        }
+        sendBroadcast(intent)
+    }
+
+    /**
+     * 拉起手机桌面（Home）
+     *
+     * 悬浮窗"主页"按钮：一键切出游戏回到手机主屏幕。
+     * 拥有 SYSTEM_ALERT_WINDOW 权限的应用从后台启动 Activity 属于豁免场景，
+     * 不受 Android 10+ 后台启动限制。
+     */
+    private fun openHomeScreen() {
+        try {
+            val home = Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_HOME)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            startActivity(home)
+            Log.i(TAG, "Open home screen")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to open home screen", e)
+            toast("打开主页失败: ${e.message}")
+        }
+    }
+
+    /**
      * 刷新展开视图中"暂停/恢复捕获"按钮的文本
      */
     private fun updateCaptureButtonState() {
         captureButton?.post {
-            captureButton?.text = if (isCapturing) "暂停捕获" else "恢复捕获"
+            captureButton?.text = if (captureEnabled) "暂停捕获" else "恢复捕获"
         }
         // 收起视图也同步更新（在层名后追加"⏸"标记）
         if (!isExpanded) {
@@ -767,15 +867,19 @@ class ControllerOverlayService : Service() {
         smartMonitorThread = Thread({
             while (smartMonitorRunning) {
                 try {
-                    val fg = getForegroundPackage()
-                    if (fg != null) {
-                        val needCapture = captureWhitelist.contains(fg) || fg == packageName
-                        if (needCapture && !isCapturing) {
-                            Log.i(TAG, "Smart pause: foreground=$fg, resuming capture")
-                            mainHandler.post { resumeCapturing() }
-                        } else if (!needCapture && isCapturing) {
-                            Log.i(TAG, "Smart pause: foreground=$fg, pausing capture")
-                            mainHandler.post { pauseCapturing() }
+                    // 手动暂停（captureEnabled=false）时监控不动作，
+                    // 避免自动恢复覆盖用户的暂停意图
+                    if (captureEnabled) {
+                        val fg = getForegroundPackage()
+                        if (fg != null) {
+                            val needCapture = captureWhitelist.contains(fg) || fg == packageName
+                            if (needCapture && !isCapturing) {
+                                Log.i(TAG, "Smart pause: foreground=$fg, resuming capture")
+                                mainHandler.post { resumeCapturing() }
+                            } else if (!needCapture && isCapturing) {
+                                Log.i(TAG, "Smart pause: foreground=$fg, pausing capture")
+                                mainHandler.post { pauseCapturing() }
+                            }
                         }
                     }
                 } catch (e: Exception) {
@@ -811,11 +915,8 @@ class ControllerOverlayService : Service() {
     private fun restartSmartMonitor() {
         stopSmartMonitor()
         startSmartMonitor()
-        // 同步悬浮窗"暂停/恢复捕获"按钮的可见性（智能模式隐藏手动按钮）
-        mainHandler.post {
-            captureButton?.visibility = if (smartPauseEnabled) View.GONE else View.VISIBLE
-            updateCaptureButtonState()
-        }
+        // 同步悬浮窗"暂停/恢复捕获"按钮状态
+        updateCaptureButtonState()
     }
 
     /**
@@ -942,7 +1043,13 @@ class ControllerOverlayService : Service() {
      * @return 显示文本
      */
     private fun buildCollapsedText(activeLayers: List<String>): String {
-        val layerName = if (activeLayers.isEmpty()) "公共层" else activeLayers.last()
+        // 优先显示中文/自定义显示名，未匹配到则用内部名
+        val displayMap = getLayerDisplayNames().toMap()
+        val layerName = if (activeLayers.isEmpty()) {
+            "公共层"
+        } else {
+            displayMap[activeLayers.last()] ?: activeLayers.last()
+        }
         // 捕获暂停时追加 ⏸ 标记，提醒用户手柄映射未工作
         return if (isCapturing) layerName else "$layerName ⏸"
     }
@@ -995,9 +1102,8 @@ class ControllerOverlayService : Service() {
         }
         container.addView(layerText)
 
-        // 10个操作层按钮 (2列 x 5行)
-        val layers = WoWActionSets.LAYER_NAMES
-        layers.chunked(2).forEach { rowLayers ->
+        // 操作层按钮 (2列 x 5行)，层名与 app 内部配置动态同步
+        getLayerDisplayNames().chunked(2).forEach { rowLayers ->
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, 6, 0, 0)
@@ -1014,13 +1120,13 @@ class ControllerOverlayService : Service() {
             setPadding(0, 8, 0, 4)
         }
         ctrlRow.addView(createOverlayButton("清除层") { mapper?.clearAllLayers() })
-        // 暂停/恢复捕获按钮：移除 GamepadInputView 以恢复系统返回手势
-        // 智能暂停模式下由前台应用检测自动管理，隐藏手动按钮
+        // 暂停/恢复捕获按钮（始终显示，与 app 内开关状态双向同步）
         captureButton = createOverlayButton("暂停捕获") {
-            if (isCapturing) pauseCapturing() else resumeCapturing()
+            setCaptureEnabled(!captureEnabled)
         }
-        captureButton?.visibility = if (smartPauseEnabled) View.GONE else View.VISIBLE
         ctrlRow.addView(captureButton!!)
+        // 主页按钮：拉起手机桌面（切出游戏/查看其他应用）
+        ctrlRow.addView(createOverlayButton("主页") { openHomeScreen() })
         ctrlRow.addView(createOverlayButton("收起") { showCollapsedView() })
         ctrlRow.addView(createOverlayButton("关闭") { stopSelf() })
         container.addView(ctrlRow)
@@ -1159,17 +1265,52 @@ class ControllerOverlayService : Service() {
     }
 
     private fun updateLayerButtonColors(activeLayers: List<String>) {
-        val activeDisplayNames = activeLayers.toSet()
+        // 按钮 key 与 activeLayers 都是内部层名，直接比对
+        val activeSet = activeLayers.toSet()
         layerButtons.forEach { (name, btn) ->
             btn.post {
-                val display = WoWActionSets.LAYER_NAMES.firstOrNull { it.first == name }?.second ?: name
-                if (display in activeDisplayNames) {
+                if (name in activeSet) {
                     btn.setBackgroundColor(0xFF4CAF50.toInt())  // 绿色=激活
                     btn.setTextColor(0xFFFFFFFF.toInt())
                 } else {
                     btn.setBackgroundColor(0x44000000.toInt())  // 半透明=未激活
                     btn.setTextColor(0xFFFFFFFF.toInt())
                 }
+            }
+        }
+    }
+
+    /**
+     * 获取悬浮窗层按钮的 (内部名, 显示名) 列表，与 app 内部配置动态同步
+     *
+     * - 未重命名的层（name 形如 "LayerN"）→ 显示预设中文名（战斗/骑乘/...）
+     * - 用户在设置界面重命名后 → 显示自定义层名
+     */
+    private fun getLayerDisplayNames(): List<Pair<String, String>> {
+        val profile = steamInput?.profile ?: return WoWActionSets.LAYER_NAMES
+        return profile.layers.map { layer ->
+            val display = if (DEFAULT_LAYER_NAME_REGEX.matches(layer.name)) {
+                WoWActionSets.LAYER_NAMES.firstOrNull { it.first == layer.name }?.second ?: layer.name
+            } else {
+                layer.name
+            }
+            layer.name to display
+        }
+    }
+
+    /**
+     * 刷新悬浮窗层按钮名称（配置导入/重置后调用）
+     *
+     * 正常编辑流程（LayerEditActivity 编辑时悬浮窗已移除、退出后重建）会自动同步新层名；
+     * 此方法用于服务运行中配置被导入/重置时的即时刷新。
+     */
+    private fun refreshLayerNames() {
+        mainHandler.post {
+            if (isOverlayPaused) return@post  // 设置界面期间不重建
+            if (isExpanded) {
+                showExpandedView()
+            } else {
+                updateCollapsedViewText(mapper?.getActiveLayers() ?: emptyList())
             }
         }
     }

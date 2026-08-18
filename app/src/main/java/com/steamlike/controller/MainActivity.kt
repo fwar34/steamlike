@@ -1,5 +1,6 @@
 package com.steamlike.controller
 
+import android.app.ActivityManager
 import android.app.AppOpsManager
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -50,6 +51,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var usageStatsButton: Button
     /** 使用情况访问授权状态文本 */
     private lateinit var usageStatsStatusText: TextView
+    /** 手柄捕获开关（与悬浮窗暂停/恢复双向同步） */
+    private lateinit var captureSwitch: Switch
+    /** 捕获状态显示文本 */
+    private lateinit var captureStatusText: TextView
+    /** 抑制捕获开关监听标志（程序化同步状态时避免循环触发） */
+    private var suppressCaptureListener = false
     /** TCP监听地址输入框 */
     private lateinit var hostEditText: EditText
     /** TCP监听端口输入框 */
@@ -175,6 +182,26 @@ class MainActivity : AppCompatActivity() {
             }
         }
         container.addView(smartPauseSwitch)
+
+        // 捕获开关（与悬浮窗暂停/恢复按钮双向同步）
+        captureSwitch = Switch(this).apply {
+            text = "手柄捕获"
+            isChecked = getSharedPreferences("steamlike", MODE_PRIVATE)
+                .getBoolean("capture_enabled", true)
+            setOnCheckedChangeListener { _: CompoundButton, checked: Boolean ->
+                if (suppressCaptureListener) return@setOnCheckedChangeListener
+                setCaptureSwitch(checked)
+            }
+        }
+        container.addView(captureSwitch)
+
+        // 捕获状态显示（实时接收服务广播同步）
+        captureStatusText = TextView(this).apply {
+            textSize = 11f
+            setPadding(0, 4, 0, 12)
+            setTextColor(0xFFAAAAAA.toInt())
+        }
+        container.addView(captureStatusText)
 
         // 白名单输入框
         container.addView(TextView(this).apply {
@@ -674,6 +701,52 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
+     * 捕获开关变化 → 持久化 + 通知服务（悬浮窗同步）
+     *
+     * @param enabled true=恢复捕获, false=暂停捕获
+     */
+    private fun setCaptureSwitch(enabled: Boolean) {
+        getSharedPreferences("steamlike", MODE_PRIVATE).edit()
+            .putBoolean("capture_enabled", enabled).apply()
+        if (isServiceRunning()) {
+            val intent = Intent(this, ControllerOverlayService::class.java).apply {
+                action = ControllerOverlayService.ACTION_SET_CAPTURE
+                putExtra(ControllerOverlayService.EXTRA_CAPTURE_ENABLED, enabled)
+            }
+            ContextCompat.startForegroundService(this, intent)
+        } else {
+            toastLog("服务未运行，开关状态已保存（启动手柄映射后生效）")
+        }
+        logD("Capture switch set to $enabled")
+    }
+
+    /**
+     * 检查 ControllerOverlayService 是否在运行
+     */
+    private fun isServiceRunning(): Boolean {
+        val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        @Suppress("DEPRECATION")
+        val services = am.getRunningServices(100)
+        return services.any {
+            it.service.className == ControllerOverlayService::class.java.name &&
+                it.service.packageName == packageName
+        }
+    }
+
+    /**
+     * 从 SharedPreferences 同步捕获开关状态（onResume 时调用）
+     */
+    private fun syncCaptureSwitchFromPrefs() {
+        if (!::captureSwitch.isInitialized) return
+        val enabled = getSharedPreferences("steamlike", MODE_PRIVATE)
+            .getBoolean("capture_enabled", true)
+        suppressCaptureListener = true
+        captureSwitch.isChecked = enabled
+        suppressCaptureListener = false
+        captureStatusText.text = if (enabled) "捕获状态: ✅ 运行中" else "捕获状态: ⏸ 已暂停（可点悬浮窗恢复）"
+    }
+
+    /**
      * 检查"使用情况访问"权限是否已授权
      */
     private fun hasUsageStatsPermission(): Boolean {
@@ -1074,20 +1147,41 @@ class MainActivity : AppCompatActivity() {
      */
     private val clientStatusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == ControllerOverlayService.ACTION_CLIENT_STATUS) {
-                val statusText = intent.getStringExtra(ControllerOverlayService.EXTRA_STATUS_TEXT)
-                    ?: "unknown"
-                val connected = intent.getBooleanExtra(ControllerOverlayService.EXTRA_CONNECTED, false)
-                val displayText = if (connected) {
-                    "Client: connected\n$statusText"
-                } else {
-                    "Client: disconnected\n$statusText"
+            when (intent?.action) {
+                ControllerOverlayService.ACTION_CLIENT_STATUS -> {
+                    val statusText = intent.getStringExtra(ControllerOverlayService.EXTRA_STATUS_TEXT)
+                        ?: "unknown"
+                    val connected = intent.getBooleanExtra(ControllerOverlayService.EXTRA_CONNECTED, false)
+                    val displayText = if (connected) {
+                        "Client: connected\n$statusText"
+                    } else {
+                        "Client: disconnected\n$statusText"
+                    }
+                    connectionStatusText.text = displayText
+                    connectionStatusText.setTextColor(
+                        if (connected) 0xFF4CAF50.toInt() else 0xFFAAAAAA.toInt()
+                    )
+                    Log.i(TAG, "Connection status: connected=$connected, msg=$statusText")
                 }
-                connectionStatusText.text = displayText
-                connectionStatusText.setTextColor(
-                    if (connected) 0xFF4CAF50.toInt() else 0xFFAAAAAA.toInt()
-                )
-                Log.i(TAG, "Connection status: connected=$connected, msg=$statusText")
+                ControllerOverlayService.ACTION_CAPTURE_STATUS -> {
+                    // 悬浮窗暂停/恢复 → 同步 app 内捕获开关
+                    val capturing = intent.getBooleanExtra(
+                        ControllerOverlayService.EXTRA_CAPTURING, true
+                    )
+                    if (::captureSwitch.isInitialized) {
+                        suppressCaptureListener = true
+                        captureSwitch.isChecked = capturing
+                        suppressCaptureListener = false
+                    }
+                    if (::captureStatusText.isInitialized) {
+                        captureStatusText.text = if (capturing) {
+                            "捕获状态: ✅ 运行中"
+                        } else {
+                            "捕获状态: ⏸ 已暂停（点悬浮窗'恢复捕获'或此开关恢复）"
+                        }
+                    }
+                    Log.i(TAG, "Capture status: capturing=$capturing")
+                }
             }
         }
     }
@@ -1107,10 +1201,12 @@ class MainActivity : AppCompatActivity() {
         // Android 14+ (API 34+) 要求指定 RECEIVER_EXPORTED 或 RECEIVER_NOT_EXPORTED
         // 此广播仅用于应用内部通信，使用 NOT_EXPORTED
         val filter = IntentFilter(ControllerOverlayService.ACTION_CLIENT_STATUS)
+        filter.addAction(ControllerOverlayService.ACTION_CAPTURE_STATUS)
         ContextCompat.registerReceiver(
             this, clientStatusReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED
         )
         logD("onResume: registered client status receiver")
+        syncCaptureSwitchFromPrefs()
         updateUI()
         updateConfigStatus()
         updateUsageStatsStatus()
