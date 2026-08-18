@@ -1,14 +1,19 @@
 package com.steamlike.controller.service
 
+import android.app.AppOpsManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.app.usage.UsageEvents
+import android.app.usage.UsageStatsManager
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
+import android.os.Process
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.Gravity
@@ -73,6 +78,10 @@ class ControllerOverlayService : Service() {
         const val ACTION_RESUME_OVERLAY = "RESUME_OVERLAY"
         /** 更新右摇杆优化设置（GlobalSettings） */
         const val ACTION_UPDATE_SETTINGS = "UPDATE_SETTINGS"
+        /** 智能暂停开关 (Boolean) */
+        const val EXTRA_SMART_PAUSE = "smart_pause"
+        /** 捕获白名单包名 (String, 逗号分隔) */
+        const val EXTRA_WHITELIST = "capture_whitelist"
         /** Intent extra: 配置文件 URI */
         const val EXTRA_CONFIG_URI = "config_uri"
         /** Intent extra: TCP监听地址，空表示监听所有接口 */
@@ -96,6 +105,19 @@ class ControllerOverlayService : Service() {
         const val EXTRA_STATUS_TEXT = "status_text"
         /** Intent extra: 是否已连接 */
         const val EXTRA_CONNECTED = "connected"
+
+        /**
+         * 默认捕获白名单（前台应用在此集合内时保持焦点窗口捕获手柄）
+         *
+         * 默认包含 Winlator 官方包名，用户可在 MainActivity 的"智能暂停"设置中增删。
+         */
+        val DEFAULT_WHITELIST: Set<String> = setOf("com.winlator")
+
+        /** 智能监控轮询间隔（毫秒） */
+        private const val SMART_MONITOR_INTERVAL_MS = 1500L
+
+        /** 前台应用查询时间窗（毫秒） */
+        private const val SMART_FOREGROUND_WINDOW_MS = 60_000L
     }
 
     private var windowManager: WindowManager? = null
@@ -144,6 +166,30 @@ class ControllerOverlayService : Service() {
     /** TCP监听端口，由Intent extra EXTRA_PORT设置 */
     private var serverPort: Int = InputBridgeServer.DEFAULT_PORT
 
+    // ====================================================================
+    // 智能暂停（Smart Pause）
+    // ====================================================================
+    // 可焦点悬浮窗在 Android 13+ 会吃掉系统预测式返回手势（右滑返回失效），
+    // 这是系统级行为，应用内无法让返回穿透焦点窗口。
+    // 解决方案：监听前台应用（UsageStats），仅当"捕获白名单"内的应用
+    // （如 Winlator）或本应用在前台时保持焦点窗口，其余时间自动移除，
+    // 让下层应用恢复右滑返回。未授权"使用情况访问"时退化为手动模式。
+    // ====================================================================
+
+    /** 智能暂停开关（默认开启，由 MainActivity 设置） */
+    @Volatile
+    private var smartPauseEnabled: Boolean = true
+
+    /** 捕获白名单包名集合（前台应用在此集合内时保持捕获） */
+    @Volatile
+    private var captureWhitelist: Set<String> = DEFAULT_WHITELIST
+
+    /** 智能监控线程运行标志 */
+    @Volatile
+    private var smartMonitorRunning = false
+
+    private var smartMonitorThread: Thread? = null
+
     /**
      * 悬浮窗是否被暂停（在 LayerEditActivity 等设置界面打开时移除窗口）
      *
@@ -181,8 +227,12 @@ class ControllerOverlayService : Service() {
         // 读取TCP监听地址和端口（每次startService都可更新，但仅在首次startMapper时生效）
         intent?.getStringExtra(EXTRA_HOST)?.let { serverHost = it }
         intent?.getIntExtra(EXTRA_PORT, serverPort)?.let { serverPort = it }
+        // 读取智能暂停配置（每次startService可更新）
+        intent?.getBooleanExtra(EXTRA_SMART_PAUSE, smartPauseEnabled)?.let { smartPauseEnabled = it }
+        intent?.getStringExtra(EXTRA_WHITELIST)?.let { captureWhitelist = parseWhitelist(it) }
         when (intent?.action) {
             ACTION_STOP -> {
+                stopSmartMonitor()
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -212,6 +262,9 @@ class ControllerOverlayService : Service() {
         // 首次启动时初始化映射器
         if (steamInput == null) {
             startMapper()
+        } else {
+            // 映射器已就绪：智能暂停配置可能已更新，重启监控以生效
+            restartSmartMonitor()
         }
         return START_STICKY
     }
@@ -281,6 +334,9 @@ class ControllerOverlayService : Service() {
 
                     // 创建焦点输入窗口（addView 必须在主线程执行）
                     mainHandler.post { createGamepadInputWindow() }
+
+                    // 启动智能暂停监控（检测前台应用自动移除/恢复焦点窗口）
+                    startSmartMonitor()
 
                     val waitMsg = "Waiting for Windows client... (${serverHost ?: "0.0.0.0"}:${serverPort})"
                     updateStatus(waitMsg)
@@ -685,6 +741,138 @@ class ControllerOverlayService : Service() {
         }
     }
 
+    // ====================================================================
+    // 智能暂停监控（Smart Pause Monitor）
+    // ====================================================================
+
+    /**
+     * 启动智能暂停监控线程
+     *
+     * 每 [SMART_MONITOR_INTERVAL_MS] 轮询一次前台应用：
+     * - 前台应用在捕获白名单内（或为本应用）→ 需要捕获 → 恢复焦点窗口
+     * - 否则 → 暂停捕获（移除焦点窗口，下层应用恢复右滑返回）
+     *
+     * 未授权"使用情况访问"时无法查询前台应用，自动退化为手动模式
+     * （监控线程停止，保留悬浮窗手动按钮）。
+     */
+    private fun startSmartMonitor() {
+        if (smartMonitorRunning) return
+        if (!smartPauseEnabled) return
+        if (!hasUsageStatsPermission()) {
+            Log.w(TAG, "Smart pause disabled: no usage stats permission")
+            updateStatus("智能暂停不可用（未授权使用情况访问），已用手动模式")
+            return
+        }
+        smartMonitorRunning = true
+        smartMonitorThread = Thread({
+            while (smartMonitorRunning) {
+                try {
+                    val fg = getForegroundPackage()
+                    if (fg != null) {
+                        val needCapture = captureWhitelist.contains(fg) || fg == packageName
+                        if (needCapture && !isCapturing) {
+                            Log.i(TAG, "Smart pause: foreground=$fg, resuming capture")
+                            mainHandler.post { resumeCapturing() }
+                        } else if (!needCapture && isCapturing) {
+                            Log.i(TAG, "Smart pause: foreground=$fg, pausing capture")
+                            mainHandler.post { pauseCapturing() }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Smart monitor error, falling back to manual", e)
+                    break
+                }
+                try {
+                    Thread.sleep(SMART_MONITOR_INTERVAL_MS)
+                } catch (e: InterruptedException) {
+                    break
+                }
+            }
+            smartMonitorRunning = false
+            Log.i(TAG, "Smart monitor stopped")
+        }, "SteamLike-SmartMonitor").apply { isDaemon = true }
+        smartMonitorThread?.start()
+        Log.i(TAG, "Smart monitor started, whitelist=$captureWhitelist")
+    }
+
+    /**
+     * 停止智能暂停监控线程
+     */
+    private fun stopSmartMonitor() {
+        smartMonitorRunning = false
+        smartMonitorThread?.interrupt()
+        smartMonitorThread?.join(500)
+        smartMonitorThread = null
+    }
+
+    /**
+     * 重启智能暂停监控（配置更新后调用，幂等）
+     */
+    private fun restartSmartMonitor() {
+        stopSmartMonitor()
+        startSmartMonitor()
+        // 同步悬浮窗"暂停/恢复捕获"按钮的可见性（智能模式隐藏手动按钮）
+        mainHandler.post {
+            captureButton?.visibility = if (smartPauseEnabled) View.GONE else View.VISIBLE
+            updateCaptureButtonState()
+        }
+    }
+
+    /**
+     * 查询当前前台应用包名（UsageStats）
+     *
+     * 通过最近 60 秒的 UsageEvents 取最后一条 ACTIVITY_RESUMED/MOVE_TO_FOREGROUND 事件。
+     *
+     * @return 前台包名；无法确定时返回 null
+     * @throws SecurityException 未授权"使用情况访问"时抛出
+     */
+    private fun getForegroundPackage(): String? {
+        val usm = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+        val end = System.currentTimeMillis()
+        val events = usm.queryEvents(end - SMART_FOREGROUND_WINDOW_MS, end)
+        val event = UsageEvents.Event()
+        var foreground: String? = null
+        while (events.hasNextEvent()) {
+            events.getNextEvent(event)
+            if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED ||
+                event.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND
+            ) {
+                foreground = event.packageName
+            }
+        }
+        return foreground
+    }
+
+    /**
+     * 检查"使用情况访问"权限是否已授权
+     */
+    private fun hasUsageStatsPermission(): Boolean {
+        val appOps = getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+        val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            appOps.unsafeCheckOpNoThrow(
+                AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), packageName
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            appOps.checkOpNoThrow(
+                AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), packageName
+            )
+        }
+        return mode == AppOpsManager.MODE_ALLOWED
+    }
+
+    /**
+     * 解析白名单字符串（逗号分隔的包名）为集合
+     */
+    private fun parseWhitelist(raw: String): Set<String> {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return DEFAULT_WHITELIST
+        return trimmed.split(',', '，')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .toSet()
+    }
+
     // ===== 悬浮窗 UI =====
 
     /**
@@ -827,9 +1015,11 @@ class ControllerOverlayService : Service() {
         }
         ctrlRow.addView(createOverlayButton("清除层") { mapper?.clearAllLayers() })
         // 暂停/恢复捕获按钮：移除 GamepadInputView 以恢复系统返回手势
+        // 智能暂停模式下由前台应用检测自动管理，隐藏手动按钮
         captureButton = createOverlayButton("暂停捕获") {
             if (isCapturing) pauseCapturing() else resumeCapturing()
         }
+        captureButton?.visibility = if (smartPauseEnabled) View.GONE else View.VISIBLE
         ctrlRow.addView(captureButton!!)
         ctrlRow.addView(createOverlayButton("收起") { showCollapsedView() })
         ctrlRow.addView(createOverlayButton("关闭") { stopSelf() })
@@ -1010,6 +1200,8 @@ class ControllerOverlayService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        // 停止智能暂停监控
+        stopSmartMonitor()
         // 移除焦点输入窗口
         gamepadInputView?.let { windowManager?.removeView(it) }
         gamepadInputView = null

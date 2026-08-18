@@ -1,5 +1,6 @@
 package com.steamlike.controller
 
+import android.app.AppOpsManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -9,13 +10,16 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.os.Process
 import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Log
 import android.widget.Button
+import android.widget.CompoundButton
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -38,6 +42,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var configStatusText: TextView
     private lateinit var connectionStatusText: TextView
     private lateinit var usageTextView: TextView
+    /** 智能暂停开关 */
+    private lateinit var smartPauseSwitch: Switch
+    /** 捕获白名单输入框 */
+    private lateinit var whitelistEditText: EditText
+    /** 使用情况访问授权入口按钮 */
+    private lateinit var usageStatsButton: Button
+    /** 使用情况访问授权状态文本 */
+    private lateinit var usageStatsStatusText: TextView
     /** TCP监听地址输入框 */
     private lateinit var hostEditText: EditText
     /** TCP监听端口输入框 */
@@ -128,6 +140,80 @@ class MainActivity : AppCompatActivity() {
         }
         container.addView(overlayButton)
 
+        // ===== 智能暂停（Smart Pause）=====
+        // 可焦点悬浮窗在 Android 13+ 会吃掉系统右滑返回手势。
+        // 智能暂停: 检测前台应用，仅当"捕获白名单"内的应用(如 Winlator)在前台时
+        // 保持焦点窗口捕获手柄，其他应用自动移除焦点窗口 → 右滑返回恢复正常。
+        // 需要"使用情况访问"权限（设置 → 安全 → 使用情况访问）。
+        container.addView(TextView(this).apply {
+            text = "\n智能暂停（修复右滑返回失效）"
+            textSize = 16f
+            setPadding(0, 24, 0, 8)
+        })
+
+        container.addView(TextView(this).apply {
+            text = ("焦点窗口会拦截 Android 13+ 的右滑返回手势。\n"
+                + "开启后自动检测前台应用：Winlator 在前台时保持手柄捕获，\n"
+                + "切到其他应用自动暂停捕获，右滑返回恢复正常。\n"
+                + "需要授权\"使用情况访问\"（如未授权则退化为手动暂停按钮）。")
+            textSize = 11f
+            setLineSpacing(0f, 1.3f)
+            setTextColor(0xFFAAAAAA.toInt())
+            setPadding(0, 0, 0, 12)
+        })
+
+        // 智能暂停开关
+        smartPauseSwitch = Switch(this).apply {
+            text = "启用智能暂停"
+            isChecked = getSharedPreferences("smart_pause", MODE_PRIVATE)
+                .getBoolean("enabled", true)
+            setOnCheckedChangeListener { _: CompoundButton, checked: Boolean ->
+                getSharedPreferences("smart_pause", MODE_PRIVATE).edit()
+                    .putBoolean("enabled", checked).apply()
+                updateUsageStatsStatus()
+                toastLog(if (checked) "智能暂停已开启（切出游戏自动暂停捕获）" else "智能暂停已关闭（手动模式）")
+            }
+        }
+        container.addView(smartPauseSwitch)
+
+        // 白名单输入框
+        container.addView(TextView(this).apply {
+            text = "捕获白名单（前台在此列表内时保持手柄捕获，逗号分隔包名）"
+            textSize = 12f
+            setTextColor(0xFFCCCCCC.toInt())
+            setPadding(0, 8, 0, 4)
+        })
+        whitelistEditText = EditText(this).apply {
+            setText(getSharedPreferences("smart_pause", MODE_PRIVATE)
+                .getString("whitelist", ControllerOverlayService.DEFAULT_WHITELIST.joinToString(",")))
+            hint = "如: com.winlator"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT
+            isFocusable = true
+            isFocusableInTouchMode = true
+            setOnClickListener {
+                requestFocus()
+                val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                imm.showSoftInput(this, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+            }
+        }
+        container.addView(whitelistEditText)
+
+        // 使用情况访问授权入口
+        usageStatsButton = Button(this).apply {
+            text = "授权使用情况访问"
+            setOnClickListener {
+                startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+            }
+        }
+        container.addView(usageStatsButton)
+
+        usageStatsStatusText = TextView(this).apply {
+            textSize = 11f
+            setPadding(0, 4, 0, 0)
+            setTextColor(0xFFAAAAAA.toInt())
+        }
+        container.addView(usageStatsStatusText)
+
         // ===== TCP服务器配置 =====
         container.addView(TextView(this).apply {
             text = "\nTCP服务器配置"
@@ -181,9 +267,12 @@ class MainActivity : AppCompatActivity() {
                     .putString("host", host)
                     .putString("port", portStr)
                     .apply()
+                saveSmartPausePrefs()
                 val intent = Intent(this@MainActivity, ControllerOverlayService::class.java).apply {
                     putExtra(ControllerOverlayService.EXTRA_HOST, host)
                     putExtra(ControllerOverlayService.EXTRA_PORT, port)
+                    putExtra(ControllerOverlayService.EXTRA_SMART_PAUSE, smartPauseSwitch.isChecked)
+                    putExtra(ControllerOverlayService.EXTRA_WHITELIST, whitelistEditText.text.toString().trim())
                 }
                 ContextCompat.startForegroundService(this@MainActivity, intent)
                 statusText.append("\n\n✅ 服务已启动！监听 ${host.ifBlank { "0.0.0.0" }}:$port")
@@ -501,12 +590,15 @@ class MainActivity : AppCompatActivity() {
         }
         // 启动前台服务（如果已启动则不会重复启动，onStartCommand 会再次调用）
         // 读取用户配置的host和port
+        saveSmartPausePrefs()
         val prefs = getSharedPreferences("server_config", MODE_PRIVATE)
         val host = prefs.getString("host", "0.0.0.0") ?: "0.0.0.0"
         val port = prefs.getString("port", "27015")?.toIntOrNull() ?: 27015
         val intent = Intent(this, ControllerOverlayService::class.java).apply {
             putExtra(ControllerOverlayService.EXTRA_HOST, host)
             putExtra(ControllerOverlayService.EXTRA_PORT, port)
+            putExtra(ControllerOverlayService.EXTRA_SMART_PAUSE, smartPauseSwitch.isChecked)
+            putExtra(ControllerOverlayService.EXTRA_WHITELIST, whitelistEditText.text.toString().trim())
         }
         ContextCompat.startForegroundService(this, intent)
     }
@@ -568,6 +660,51 @@ class MainActivity : AppCompatActivity() {
             "配置文件: 已加载\n路径: ${configFile.name}\n大小: ${configFile.length()} 字节"
         } else {
             "配置文件: 未加载（使用默认 WoW 预设）"
+        }
+    }
+
+    /**
+     * 保存智能暂停配置到 SharedPreferences
+     */
+    private fun saveSmartPausePrefs() {
+        getSharedPreferences("smart_pause", MODE_PRIVATE).edit()
+            .putBoolean("enabled", smartPauseSwitch.isChecked)
+            .putString("whitelist", whitelistEditText.text.toString().trim())
+            .apply()
+    }
+
+    /**
+     * 检查"使用情况访问"权限是否已授权
+     */
+    private fun hasUsageStatsPermission(): Boolean {
+        val appOps = getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+        val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            appOps.unsafeCheckOpNoThrow(
+                AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), packageName
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            appOps.checkOpNoThrow(
+                AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), packageName
+            )
+        }
+        return mode == AppOpsManager.MODE_ALLOWED
+    }
+
+    /**
+     * 刷新"使用情况访问"授权状态显示
+     */
+    private fun updateUsageStatsStatus() {
+        if (!::usageStatsStatusText.isInitialized) return
+        val granted = hasUsageStatsPermission()
+        usageStatsStatusText.text = if (granted) {
+            "使用情况访问: ✅ 已授权（智能暂停可用）"
+        } else {
+            if (smartPauseSwitch.isChecked) {
+                "使用情况访问: ❌ 未授权 — 点击上方按钮前往系统设置开启，否则智能暂停不生效（手动模式）"
+            } else {
+                "使用情况访问: ❌ 未授权（智能暂停已关闭，不影响手动模式）"
+            }
         }
     }
 
@@ -976,6 +1113,7 @@ class MainActivity : AppCompatActivity() {
         logD("onResume: registered client status receiver")
         updateUI()
         updateConfigStatus()
+        updateUsageStatsStatus()
         updateUsageText()
 
         // Debug: 自动跳转测试页面
