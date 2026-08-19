@@ -705,66 +705,59 @@ class MainActivity : AppCompatActivity() {
     /**
      * 更新使用说明文本
      *
-     * 操作层切换说明根据当前 profile 的 triggerButton 动态生成，
-     * 不再硬编码 LB+D-Pad 等组合。公共层和操作层的内部按键映射
-     * 不在使用说明中列出，用户可通过"操作层设置"按钮查看具体映射。
+     * 操作层切换说明根据当前 profile 的 triggerButton 动态生成。
+     * 使用逐行拼接（而非 trimIndent），避免内嵌多行变量破坏缩进对齐。
      */
     private fun updateUsageText() {
         // 动态生成操作层切换说明
         val layerSwitchLines = buildLayerSwitchLines()
 
-        usageTextView.text = """
-            使用说明:
-
-            第一步: Android端准备
-            1. 授予悬浮窗权限
-            2. 点击"启动手柄映射"
-            3. 切换到Winlator运行游戏
-
-            第二步: Windows端准备
-            1. 点击"导出 Windows 客户端到 Download/AControler"按钮
-               (exe 和 control.bat 已内置在 APK 中)
-            2. 从 Download/AControler 目录取出文件:
-               - inputbridge_client.exe
-               - control.bat
-            3. 将这两个文件复制到Winlator的C盘
-            4. 在Winlator中运行: control.bat start
-               (或直接运行: inputbridge_client.exe)
-            5. 保持窗口打开, 切到WoW游戏
-
-            架构: Android(焦点窗口捕获手柄 + TCP服务器:27015)
-                  ←→ Windows(SendInput注入)
-
-            操作层切换（按住触发键激活，松开回公共层）:
-            $layerSwitchLines
-
-            配置管理:
-              操作层设置 → 打开设置界面，可视化编辑每个操作层的按键映射
-              导出配置 → 将当前按键映射保存为 JSON 文件
-              导入配置 → 从 JSON 文件加载按键映射
-              重置配置 → 恢复默认 WoW 预设
-              配置文件格式见 config/ControllerConfig.kt
-
-            操作层设置界面:
-              - 顶部下拉框切换操作层（公共层 + Layer1-Layer10）
-              - 点击按键映射列表项编辑单个按键
-                可选: 键盘按键/鼠标点击/切换操作层
-                每个映射可添加最多3个子命令形成组合键（如 Alt+3）
-              - "名称"按钮修改操作层名称
-              - "触发"按钮设置该层触发按键（公共层禁用）
-              - 按住触发按键激活层，松开回到公共层
-              - 进入设置界面时悬浮窗自动隐藏（避免遮挡手势）
-                退出后自动恢复
-
-            悬浮窗操作:
-              - 默认收起显示当前激活层名（无激活层时显示"公共层"）
-              - 操作层切换时收起悬浮窗文本同步刷新
-              - 可拖动到任意位置，点击展开面板
-              - 点击"收起"回到收起状态
-              - 层按钮按住激活对应层，松开回公共层
-              - 点击"清除层"清除所有激活层
-              - 点击"关闭"停止服务
-        """.trimIndent()
+        usageTextView.text = buildString {
+            append("使用说明:\n\n")
+            append("第一步: Android端准备\n")
+            append("1. 授予悬浮窗权限\n")
+            append("2. 点击\"启动手柄映射\"\n")
+            append("3. 切换到Winlator运行游戏\n\n")
+            append("第二步: Windows端准备\n")
+            append("1. 点击\"导出 Windows 客户端到 Download/AControler\"按钮\n")
+            append("   (exe 和 control.bat 已内置在 APK 中)\n")
+            append("2. 从 Download/AControler 目录取出文件:\n")
+            append("   - inputbridge_client.exe\n")
+            append("   - control.bat\n")
+            append("3. 将这两个文件复制到Winlator的C盘\n")
+            append("4. 在Winlator中运行: control.bat start\n")
+            append("   (或直接运行: inputbridge_client.exe)\n")
+            append("5. 保持窗口打开, 切到WoW游戏\n\n")
+            append("架构: Android(焦点窗口捕获手柄 + TCP服务器:27015)\n")
+            append("      ←→ Windows(SendInput注入)\n\n")
+            append("操作层切换（按住触发键激活，松开回公共层）:\n")
+            append(layerSwitchLines)
+            append("\n\n")
+            append("配置管理:\n")
+            append("  操作层设置 → 打开设置界面，可视化编辑每个操作层的按键映射\n")
+            append("  导出配置 → 将当前按键映射保存为 JSON 文件\n")
+            append("  导入配置 → 从 JSON 文件加载按键映射\n")
+            append("  重置配置 → 恢复默认 WoW 预设\n")
+            append("  配置文件格式见 config/ControllerConfig.kt\n\n")
+            append("操作层设置界面:\n")
+            append("  - 顶部下拉框切换操作层（公共层 + Layer1-Layer10）\n")
+            append("  - 点击按键映射列表项编辑单个按键\n")
+            append("    可选: 键盘按键/鼠标点击/切换操作层\n")
+            append("    每个映射可添加最多3个子命令形成组合键（如 Alt+3）\n")
+            append("  - \"名称\"按钮修改操作层名称\n")
+            append("  - \"触发\"按钮设置该层触发按键（公共层禁用）\n")
+            append("  - 按住触发按键激活层，松开回到公共层\n")
+            append("  - 进入设置界面时悬浮窗自动隐藏（避免遮挡手势）\n")
+            append("    退出后自动恢复\n\n")
+            append("悬浮窗操作:\n")
+            append("  - 默认收起显示当前激活层名（无激活层时显示\"公共层\"）\n")
+            append("  - 操作层切换时收起悬浮窗文本同步刷新\n")
+            append("  - 可拖动到任意位置，点击展开面板\n")
+            append("  - 点击\"收起\"回到收起状态\n")
+            append("  - 层按钮按住激活对应层，松开回公共层\n")
+            append("  - 点击\"清除层\"清除所有激活层\n")
+            append("  - 点击\"关闭\"停止服务\n")
+        }
     }
 
     /**
@@ -843,24 +836,29 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * 计算字符串显示宽度（中文字符算 2，西文字符算 1）
+     * 计算字符串显示宽度（中文字符/全角字符算 2，西文字符/半角算 1）
      *
-     * 用于按显示宽度对齐文本，避免等宽字体下中英文混合时不对齐。
+     * 用于按显示宽度对齐文本，避免中英文混合时不对齐。
+     * 宽度规则与默认字体渲染一致：汉字/全角（含全角空格 U+3000）占 1em=2 单位，
+     * 西文字母数字/半角空格/方向箭头（↑↓←→ 在默认字体为半角）占 0.5em=1 单位。
      */
     private fun displayWidth(s: String): Int = s.sumOf { c ->
-        // CJK 统一汉字 + CJK 符号 + 全角字符算 2，否则算 1
-        if (c.code in 0x2E80..0x9FFF || c.code in 0xFF00..0xFFEF) 2 else 1
+        val code = c.code
+        if (code in 0x2E80..0x9FFF || code in 0xFF00..0xFFEF) 2 else 1
     }
 
     /**
-     * 按显示宽度填充字符串到目标宽度
+     * 按显示宽度精确填充字符串到目标宽度
      *
-     * 在字符串末尾补充空格，使其显示宽度等于 [targetWidth]。
-     * 用于让后续的 → 箭头对齐。
+     * 用**全角空格（U+3000，1em=2 单位）**补偶数余量、**半角空格（0.5em=1 单位）**补奇数余量，
+     * 两者相加精确等于 [targetWidth] - 当前宽度，确保 → 箭头列严格对齐。
      */
     private fun padToDisplayWidth(s: String, targetWidth: Int): String {
         val pad = targetWidth - displayWidth(s)
-        return if (pad > 0) s + " ".repeat(pad) else s
+        if (pad <= 0) return s
+        val fullWidthSpaces = pad / 2
+        val halfWidthSpaces = pad % 2
+        return s + "\u3000".repeat(fullWidthSpaces) + " ".repeat(halfWidthSpaces)
     }
 
     /**
