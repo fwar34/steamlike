@@ -16,8 +16,10 @@ setlocal
 
 set EXE_NAME=inputbridge_client.exe
 set EXE_PATH=%~dp0%EXE_NAME%
+REM 游戏 EXE 路径（由 SteamLike App 导出时写入；留空则不启动游戏）
+set GAME_EXE=__GAME_EXE__
 
-if "%1"=="" goto help
+if "%1"=="" goto start
 if "%1"=="start" goto start
 if "%1"=="stop" goto stop
 if "%1"=="status" goto status
@@ -27,6 +29,38 @@ echo [ERROR] Unknown command: %1
 goto help
 
 :start
+REM ============================================================
+REM 1. 先启动游戏 EXE（若已配置路径），成功后再启动输入桥接客户端
+REM ============================================================
+set GAME_STARTED=0
+if "%GAME_EXE%"=="" (
+    echo [INFO] No game EXE configured, skip game launch.
+) else (
+    if exist "%GAME_EXE%" (
+        for %%F in ("%GAME_EXE%") do set GAME_PROCESS=%%~nxF
+        echo [INFO] Starting game: %GAME_EXE%
+        start "" "%GAME_EXE%"
+        REM 等待游戏启动并检测进程
+        timeout /t 3 /nobreak >NUL
+        tasklist /FI "IMAGENAME eq %GAME_PROCESS%" 2>NUL | find /I "%GAME_PROCESS%" >NUL
+        if %ERRORLEVEL%==0 (
+            echo [OK] Game started: %GAME_PROCESS%
+            set GAME_STARTED=1
+        ) else (
+            echo [WARN] Game process %GAME_PROCESS% not detected after launch.
+            echo [INFO] Input bridge will NOT be started.
+            goto end
+        )
+    ) else (
+        echo [WARN] Game EXE not found: %GAME_EXE%
+        echo [INFO] Please set the correct path in SteamLike App (Windows client page).
+        goto end
+    )
+)
+goto end
+REM ============================================================
+REM 2. 游戏已成功启动后，再启动输入桥接客户端
+REM ============================================================
 REM Check if already running
 tasklist /FI "IMAGENAME eq %EXE_NAME%" 2>NUL | find /I "%EXE_NAME%" >NUL
 if %ERRORLEVEL%==0 (

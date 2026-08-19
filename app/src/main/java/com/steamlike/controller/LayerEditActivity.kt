@@ -1,6 +1,7 @@
 package com.steamlike.controller
 
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.Gravity
@@ -282,6 +283,12 @@ class LayerEditActivity : AppCompatActivity() {
      */
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // 状态栏深色（与深色界面一致，图标为浅色）
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            window.statusBarColor = 0xFF1C1C1C.toInt()
+        }
+
         setContentView(R.layout.activity_layer_edit)
 
         // 启用 ActionBar 返回箭头（替代边缘滑动返回手势，模拟器/手机上更可靠）
@@ -365,15 +372,14 @@ class LayerEditActivity : AppCompatActivity() {
     /**
      * Activity 销毁时调用
      *
-     * 通知 ControllerOverlayService 恢复悬浮窗和焦点窗口。
-     *
-     * ## 重要性
-     * 必须在 onDestroy 调用 RESUME_OVERLAY，否则悬浮窗不会重建，
-     * 用户将无法看到状态、激活层，也无法接收手柄事件。
+     * 通知 ControllerOverlayService 恢复悬浮窗和焦点窗口（**仅在服务运行时**，
+     * 服务未运行时发送会通过 startForegroundService 主动拉起手柄映射）。
      */
     override fun onDestroy() {
         super.onDestroy()
-        sendOverlayAction(ControllerOverlayService.ACTION_RESUME_OVERLAY)
+        if (steamInputRef != null) {
+            sendOverlayAction(ControllerOverlayService.ACTION_RESUME_OVERLAY)
+        }
     }
 
     /**

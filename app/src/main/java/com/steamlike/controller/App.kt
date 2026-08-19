@@ -1,12 +1,15 @@
 package com.steamlike.controller
 
 import android.app.Application
+import androidx.appcompat.app.AppCompatDelegate
 
 /**
  * Application 入口
  *
  * ## 职责
- * 应用级初始化入口。当前为空实现，预留扩展点。
+ * 应用级初始化入口：
+ * - 强制深色主题：界面（状态栏/列表/控件/对话框）统一深色，
+ *   避免系统浅色模式下状态栏变白、列表文字变黑
  *
  * ## 声明位置
  * 在 [AndroidManifest.xml](../AndroidManifest.xml) 中通过 `<application android:name=".App">` 声明。
@@ -20,9 +23,13 @@ import android.app.Application
  * 此处可添加:
  * - 全局异常处理器（`Thread.setDefaultUncaughtExceptionHandler`）
  * - 全局日志初始化
- * - 全局配置加载
- * - 性能监控初始化
- *
- * 当前未使用任何全局状态，所有初始化都在 [MainActivity] 或 [service.ControllerOverlayService] 中完成。
  */
-class App : Application()
+class App : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        // 强制深色主题（不随系统浅色模式变化）：
+        // 应用界面为自绘深色卡片风格，系统浅色模式下若跟随 DayNight 会导致
+        // 状态栏变白、ListView/控件文字变黑。强制深色后全界面统一。
+        AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
+    }
+}

@@ -92,6 +92,7 @@ object ControllerConfig {
         json.put("captureWhitelist", whitelist)
         json.put("captureEnabled", cfg.captureEnabled)
         json.put("launcherPackage", cfg.launcherPackage)
+        json.put("gameExePath", cfg.gameExePath)
         return json
     }
 
@@ -110,7 +111,8 @@ object ControllerConfig {
                     .distinct()
             } ?: AppConfig.DEFAULT_WHITELIST,
             captureEnabled = json.optBoolean("captureEnabled", true),
-            launcherPackage = json.optString("launcherPackage", AppConfig.DEFAULT_LAUNCHER)
+            launcherPackage = json.optString("launcherPackage", AppConfig.DEFAULT_LAUNCHER),
+            gameExePath = json.optString("gameExePath", "")
         )
     }
 

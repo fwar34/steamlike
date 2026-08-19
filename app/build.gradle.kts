@@ -47,20 +47,24 @@ dependencies {
 // ====================================================================
 // Windows 客户端预编译任务
 // ====================================================================
-// 在 APK 编译前自动编译 Windows 端 inputbridge_client.exe 并打包到 assets 目录。
-// 这样 APK 内置的 exe 始终与源码同步，无需手动编译。
+// 在 APK 编译前自动执行：
+//   1. 编译 windows/inputbridge_client.c → 打包到 assets（gcc 可用时）
+//   2. 同步 windows/control.bat → 打包到 assets（脚本始终与源码一致）
+// 这样 APK 内置的 exe 和脚本每次都与源码同步，无需手动复制。
 //
 // 依赖: MinGW gcc (M:\msys64\ucrt64\bin\gcc.exe 或系统 PATH 中的 gcc)
-// 如 gcc 不可用，任务会跳过（使用 assets 中已有的 exe）
+// 如 gcc 不可用，exe 编译跳过（使用 assets 中已有的 exe），脚本仍会同步。
 // ====================================================================
 
 tasks.register("compileWindowsExe") {
     group = "build"
-    description = "Compiles Windows inputbridge_client.exe and copies to assets"
+    description = "Compiles Windows inputbridge_client.exe and syncs scripts to assets"
 
     val sourceFile = rootProject.file("windows/inputbridge_client.c")
     val outputExe = rootProject.file("windows/inputbridge_client.exe")
     val assetsExe = file("src/main/assets/inputbridge_client.exe")
+    val controlSource = rootProject.file("windows/control.bat")
+    val assetsControl = file("src/main/assets/control.bat")
 
     // 搜索 gcc 路径
     val gccCandidates = listOf(
@@ -75,36 +79,46 @@ tasks.register("compileWindowsExe") {
     val gccPath = gccCandidates.map { File(it) }.firstOrNull { it.exists() } ?: pathGcc
 
     doLast {
+        // 1. 编译 exe（gcc 可用时）
         if (gccPath == null || !gccPath.exists()) {
             logger.warn("gcc not found, skipping Windows exe compilation. Using existing assets/inputbridge_client.exe")
-            return@doLast
+        } else {
+            logger.lifecycle("Compiling Windows exe with: ${gccPath.absolutePath}")
+
+            // 确保输出目录存在
+            outputExe.parentFile.mkdirs()
+            assetsExe.parentFile.mkdirs()
+
+            // 执行编译命令
+            val cmd = listOf(
+                gccPath.absolutePath,
+                "-O2",
+                "-o", outputExe.absolutePath,
+                sourceFile.absolutePath,
+                "-lws2_32", "-luser32"
+            )
+            val process = ProcessBuilder(cmd).redirectErrorStream(true).start()
+            val output = process.inputStream.bufferedReader().readText()
+            val exitCode = process.waitFor()
+            if (exitCode != 0) {
+                logger.warn("gcc compilation failed (exit=$exitCode), using existing exe. Output:\n$output")
+            } else {
+                logger.lifecycle("Windows exe compiled: ${outputExe.absolutePath} (${outputExe.length()} bytes)")
+
+                // 复制到 assets
+                outputExe.copyTo(assetsExe, overwrite = true)
+                logger.lifecycle("Copied to assets: ${assetsExe.absolutePath}")
+            }
         }
-        logger.lifecycle("Compiling Windows exe with: ${gccPath.absolutePath}")
 
-        // 确保输出目录存在
-        outputExe.parentFile.mkdirs()
-        assetsExe.parentFile.mkdirs()
-
-        // 执行编译命令
-        val cmd = listOf(
-            gccPath.absolutePath,
-            "-O2",
-            "-o", outputExe.absolutePath,
-            sourceFile.absolutePath,
-            "-lws2_32", "-luser32"
-        )
-        val process = ProcessBuilder(cmd).redirectErrorStream(true).start()
-        val output = process.inputStream.bufferedReader().readText()
-        val exitCode = process.waitFor()
-        if (exitCode != 0) {
-            logger.warn("gcc compilation failed (exit=$exitCode), using existing exe. Output:\n$output")
-            return@doLast
+        // 2. 始终同步 control.bat 脚本到 assets（保证 APK 内脚本与源码一致）
+        if (controlSource.exists()) {
+            assetsControl.parentFile.mkdirs()
+            controlSource.copyTo(assetsControl, overwrite = true)
+            logger.lifecycle("Copied control.bat to assets: ${assetsControl.absolutePath}")
+        } else {
+            logger.warn("windows/control.bat not found, keeping existing assets/control.bat")
         }
-        logger.lifecycle("Windows exe compiled: ${outputExe.absolutePath} (${outputExe.length()} bytes)")
-
-        // 复制到 assets
-        outputExe.copyTo(assetsExe, overwrite = true)
-        logger.lifecycle("Copied to assets: ${assetsExe.absolutePath}")
     }
 }
 

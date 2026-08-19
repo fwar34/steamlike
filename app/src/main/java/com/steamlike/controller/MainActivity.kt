@@ -3,6 +3,7 @@ package com.steamlike.controller
 import android.app.ActivityManager
 import android.app.AppOpsManager
 import android.content.BroadcastReceiver
+import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -59,6 +60,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var captureStatusText: TextView
     /** 悬浮窗"游戏"按钮拉起应用包名输入框 */
     private lateinit var launcherEditText: EditText
+    /** 游戏 EXE 路径显示文本 */
+    private lateinit var gameExeText: TextView
     /** 抑制捕获开关监听标志（程序化同步状态时避免循环触发） */
     private var suppressCaptureListener = false
     /** TCP监听地址输入框 */
@@ -114,8 +117,28 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * SAF 打开文档启动器（选择游戏 EXE 路径）
+     *
+     * 用户从 Download 目录选择游戏 exe，解析为 Android 路径后
+     * 转换为 Winlator 内部路径（Download 映射为 D 盘）保存到配置。
+     */
+    private val openExeLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val uri = result.data?.data
+        if (result.resultCode == RESULT_OK && uri != null) {
+            handleExeSelection(uri)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // 状态栏深色（与深色界面一致，图标为浅色）
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            window.statusBarColor = 0xFF1C1C1C.toInt()
+        }
 
         // 加载当前运行时配置（随配置文件持久化）
         val appCfg = AppConfigStore.load(this)
@@ -444,6 +467,22 @@ class MainActivity : AppCompatActivity() {
         val winCard = UiKit.card(this)
         winCard.addView(UiKit.sectionTitle(this, "Windows 客户端"))
         winCard.addView(UiKit.spacer(this, 6))
+
+        // 游戏 EXE 路径（导出后 control.bat 先启动客户端、成功后再启动游戏）
+        winCard.addView(UiKit.label(this, "游戏 EXE 路径（Winlator 内完整路径）"))
+        winCard.addView(UiKit.spacer(this, 4))
+        gameExeText = UiKit.caption(
+            this,
+            appCfg.gameExePath.ifBlank { "未设置（control.bat 将只启动输入桥接客户端）" },
+            0xFFCCCCCC.toInt(), 12f
+        )
+        winCard.addView(gameExeText)
+        winCard.addView(UiKit.spacer(this, 6))
+        winCard.addView(UiKit.button(this, "选择游戏 EXE 路径", {
+            // 弹出系统文件选择器，直接定位到 Download 目录
+            openExeLauncher.launch(buildOpenExeIntent())
+        }))
+        winCard.addView(UiKit.spacer(this, 8))
         winCard.addView(UiKit.button(this, "导出 Windows 客户端到 Download/AControler", {
             exportFilesToDownload()
         }))
@@ -611,9 +650,103 @@ class MainActivity : AppCompatActivity() {
             smartPauseEnabled = smartPauseSwitch.isChecked,
             captureWhitelist = AppConfig.parseWhitelist(whitelistEditText.text.toString()),
             captureEnabled = captureSwitch.isChecked,
-            launcherPackage = launcherEditText.text.toString().trim().ifBlank { AppConfig.DEFAULT_LAUNCHER }
+            launcherPackage = launcherEditText.text.toString().trim().ifBlank { AppConfig.DEFAULT_LAUNCHER },
+            // 游戏 EXE 路径由"选择游戏 EXE 路径"对话框维护，保存其它设置时保留
+            gameExePath = AppConfigStore.load(this).gameExePath
         )
         AppConfigStore.save(this, cfg)
+    }
+
+    /**
+     * 构建打开文件选择器的 Intent
+     *
+     * 注：不传 EXTRA_INITIAL_URI 跳转 Download——该设备上的系统文件选择器
+     * （com.google.android.documentsui）在带初始目录跳转时存在面包屑动画
+     * 崩溃 bug（RecyclerView: Tmp detached view），去掉跳转可正常打开选择器。
+     */
+    private fun buildOpenExeIntent(): Intent {
+        return Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+        }
+    }
+
+    /**
+     * 处理用户选择的游戏 EXE 文件
+     *
+     * 1. 解析 SAF URI 得到 Android 真实路径（须在 Download 目录下）
+     * 2. 转换为 Winlator 内部路径：Download 目录映射为 D 盘
+     * 3. 保存到配置（导出 control.bat 时嵌入，脚本先启动客户端、成功后再启动游戏）
+     *
+     * @param uri SAF 返回的文件 URI
+     */
+    private fun handleExeSelection(uri: Uri) {
+        val androidPath = resolveFileAbsolutePath(uri)
+        if (androidPath == null) {
+            toastLog("无法获取文件路径，请从 Download 目录选择 EXE", long = true)
+            return
+        }
+        val downloadDir = Environment.getExternalStoragePublicDirectory(
+            Environment.DIRECTORY_DOWNLOADS
+        ).absolutePath
+        if (!androidPath.startsWith(downloadDir)) {
+            toastLog("请选择 Download 目录下的 EXE 文件（该目录在 Winlator 中映射为 D 盘）", long = true)
+            return
+        }
+        // 相对 Download 的路径 → D 盘路径
+        val rel = androidPath.removePrefix(downloadDir).trimStart('/', '\\')
+        val winPath = "D:\\" + rel.replace('/', '\\')
+
+        val cfg = AppConfigStore.load(this).copy(gameExePath = winPath)
+        AppConfigStore.save(this, cfg)
+        if (::gameExeText.isInitialized) {
+            gameExeText.text = winPath
+        }
+        toastLog("游戏路径已保存（Winlator D 盘）: $winPath")
+    }
+
+    /**
+     * 解析 SAF content:// URI 为 Android 文件系统绝对路径
+     *
+     * 优先用 MediaStore 的 DATA 列；Android 10+ 部分文件无 DATA 时
+     * 用 RELATIVE_PATH + DISPLAY_NAME 拼出绝对路径。
+     *
+     * @param uri 文件 URI
+     * @return 绝对路径；解析失败返回 null
+     */
+    private fun resolveFileAbsolutePath(uri: Uri): String? {
+        // 1. 尝试 DATA 列（多数 MediaStore 文件可用）
+        contentResolver.query(
+            uri,
+            arrayOf(MediaStore.MediaColumns.DATA),
+            null, null, null
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val data = cursor.getString(0)
+                if (!data.isNullOrEmpty() && File(data).exists()) return data
+            }
+        }
+        // 2. RELATIVE_PATH + DISPLAY_NAME（Android 10+ Downloads 集合）
+        contentResolver.query(
+            uri,
+            arrayOf(MediaStore.MediaColumns.DISPLAY_NAME, MediaStore.MediaColumns.RELATIVE_PATH),
+            null, null, null
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val name = cursor.getString(0) ?: return null
+                var rel = cursor.getString(1) ?: ""
+                // RELATIVE_PATH 形如 "Download/AControler/"，去掉开头的 Download/
+                rel = rel.removePrefix("${Environment.DIRECTORY_DOWNLOADS}/")
+                val downloadDir = Environment.getExternalStoragePublicDirectory(
+                    Environment.DIRECTORY_DOWNLOADS
+                ).absolutePath
+                val file = File(downloadDir, rel + name)
+                if (file.exists()) return file.absolutePath
+            }
+        }
+        // 3. file:// 直接路径
+        if (uri.scheme == "file") return uri.path
+        return null
     }
 
     /**
@@ -725,10 +858,14 @@ class MainActivity : AppCompatActivity() {
             append("【配置管理】\n")
             append("· 操作层设置：可视化编辑按键映射 / 层名 / 触发键\n")
             append("· 导出 / 导入：JSON 完整备份（含运行时设置）\n")
-            append("· 重置配置：恢复默认 WoW 预设\n\n")
+            append("· 重置配置：恢复默认 WoW 预设\n")
+            append("· 游戏 EXE 路径：导出后 control.bat 先启动客户端，成功后再自动启动游戏\n\n")
+            append("【智能暂停】\n")
+            append("· 开启后自动检测前台应用：白名单（如 Winlator）在前台时保持手柄捕获，\n")
+            append("  切到其他应用自动暂停捕获，右滑返回恢复正常（需授权\"使用情况访问\"）\n\n")
             append("【悬浮窗】\n")
             append("· 收起胶囊显示当前层，点击展开面板，可拖动\n")
-            append("· 「游戏」拉起 Winlator；「暂停/恢复」切换捕获\n")
+            append("· 「游戏」拉起 Winlator；「暂停/恢复」切换捕获（与 App 内开关同步）\n")
             append("· 层按钮按住激活、松开回公共层；「清除层」清空激活层\n")
             append("· 「关闭」停止服务\n")
         }
@@ -876,6 +1013,9 @@ class MainActivity : AppCompatActivity() {
     /** 导出目标子目录名 */
     private val exportDirName = "AControler"
 
+    /** control.bat 模板中游戏 EXE 路径占位符（导出时替换为实际路径） */
+    private val GAME_EXE_PLACEHOLDER = "__GAME_EXE__"
+
     /** 需要导出的文件列表 (assetName → displayName) */
     private val exportFiles = listOf(
         "inputbridge_client.exe" to "inputbridge_client.exe",
@@ -886,20 +1026,27 @@ class MainActivity : AppCompatActivity() {
      * 导出 Windows 客户端文件到 Download/AControler 目录
      *
      * 从 APK 的 assets 中读取 exe 和 control.bat，写入到公共 Download/AControler 目录。
+     * control.bat 导出时嵌入用户配置的游戏 EXE 路径（脚本先启动客户端，成功后再启动游戏）。
      */
     private fun exportFilesToDownload() {
         val results = mutableListOf<String>()
+        val gameExe = AppConfigStore.load(this).gameExePath
 
         for ((assetName, displayName) in exportFiles) {
-            // 从 assets 读取文件字节
+            // 从 assets 读取文件字节（control.bat 模板嵌入游戏路径）
             val bytes = try {
-                assets.open(assetName).use { it.readBytes() }
+                if (assetName == "control.bat") {
+                    val template = assets.open(assetName).use { it.readBytes().toString(Charsets.UTF_8) }
+                    template.replace(GAME_EXE_PLACEHOLDER, gameExe).toByteArray(Charsets.UTF_8)
+                } else {
+                    assets.open(assetName).use { it.readBytes() }
+                }
             } catch (e: Exception) {
                 toastLog("读取 $assetName 失败: ${e.message}", long = true)
                 return
             }
 
-            // 根据 Android 版本选择写入方式
+            // 根据 Android 版本选择写入方式（均强制覆盖已存在文件）
             val success = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 exportViaMediaStore(bytes, displayName)
             } else {
@@ -914,7 +1061,11 @@ class MainActivity : AppCompatActivity() {
         val msg = if (allSuccess) {
             "已导出 ${exportFiles.size} 个文件到 Download/$exportDirName 目录:\n" +
             results.joinToString("\n") { "  $it" } + "\n" +
-            "请将文件复制到 Winlator 的 C 盘后运行 control.bat start"
+            if (gameExe.isBlank()) {
+                "请将文件复制到 Winlator 的 C 盘后运行 control.bat start"
+            } else {
+                "游戏路径已写入 control.bat：$gameExe"
+            }
         } else {
             "导出部分失败:\n" + results.joinToString("\n") { "  $it" }
         }
@@ -922,7 +1073,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * 通过 MediaStore.Downloads 写入文件到子目录 (Android 10+)
+     * 通过 MediaStore.Downloads 写入文件到子目录 (Android 10+)，强制覆盖同名文件
      *
      * 使用 MediaStore API 写入公共 Download/AControler 目录，无需申请存储权限。
      *
@@ -933,12 +1084,34 @@ class MainActivity : AppCompatActivity() {
     private fun exportViaMediaStore(bytes: ByteArray, displayName: String): Boolean {
         return try {
             val resolver = contentResolver
+            // 带尾斜杠的目录路径（MediaStore RELATIVE_PATH 规范格式为 "Download/AControler/"）
+            val relativePath = "${Environment.DIRECTORY_DOWNLOADS}/$exportDirName/"
+
+            // 强制覆盖：删除已存在的同名文件（兼容带/不带尾斜杠的 RELATIVE_PATH）
+            resolver.query(
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                arrayOf(MediaStore.MediaColumns._ID),
+                "${MediaStore.MediaColumns.DISPLAY_NAME}=? AND (" +
+                    "${MediaStore.MediaColumns.RELATIVE_PATH}=? OR " +
+                    "${MediaStore.MediaColumns.RELATIVE_PATH}=?)",
+                arrayOf(displayName, relativePath, relativePath.trimEnd('/')),
+                null
+            )?.use { cursor ->
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(0)
+                    resolver.delete(
+                        ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, id),
+                        null, null
+                    )
+                }
+            }
+
             val values = android.content.ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
                 put(MediaStore.MediaColumns.MIME_TYPE, "application/octet-stream")
                 // 指定写入 Downloads/AControler 子目录
                 put(MediaStore.MediaColumns.RELATIVE_PATH,
-                    "${Environment.DIRECTORY_DOWNLOADS}/$exportDirName")
+                    "${Environment.DIRECTORY_DOWNLOADS}/$exportDirName/")
             }
             val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
             val uri = resolver.insert(collection, values) ?: run {
