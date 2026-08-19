@@ -11,6 +11,8 @@ import android.net.Uri
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.graphics.PixelFormat
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.StateListDrawable
 import android.os.Build
 import android.os.IBinder
 import android.os.Process
@@ -130,6 +132,28 @@ class ControllerOverlayService : Service() {
 
         /** 默认层名匹配（未重命名的层显示预设中文名） */
         private val DEFAULT_LAYER_NAME_REGEX = Regex("Layer\\d+")
+
+        // ===== 悬浮窗配色 =====
+        /** 展开面板背景（近实深色，圆角） */
+        private const val COLOR_PANEL = 0xF21C1C1C.toInt()
+        /** 层按钮正常态背景 */
+        private const val COLOR_LAYER_NORMAL = 0xCC333333.toInt()
+        /** 层按钮激活态背景（绿色） */
+        private const val COLOR_LAYER_ACTIVE = 0xFF4CAF50.toInt()
+        /** 功能按钮正常态背景 */
+        private const val COLOR_BTN_NORMAL = 0xCC444444.toInt()
+        /** 功能按钮按下态背景 */
+        private const val COLOR_BTN_PRESSED = 0xCC6E6E6E.toInt()
+        /** 游戏按钮背景（主操作，深绿） */
+        private const val COLOR_BTN_GAME = 0xFF2E7D32.toInt()
+        /** 游戏按钮按下态 */
+        private const val COLOR_BTN_GAME_PRESSED = 0xFF388E3C.toInt()
+        /** 关闭按钮背景（危险操作，深红） */
+        private const val COLOR_BTN_DANGER = 0xCCB71C1C.toInt()
+        /** 关闭按钮按下态 */
+        private const val COLOR_BTN_DANGER_PRESSED = 0xCCD32F2F.toInt()
+        /** 收起胶囊边框 */
+        private const val COLOR_COLLAPSED_STROKE = 0x66FFFFFF
     }
 
     private var windowManager: WindowManager? = null
@@ -893,7 +917,11 @@ class ControllerOverlayService : Service() {
                     if (captureEnabled) {
                         val fg = getForegroundPackage()
                         if (fg != null) {
-                            val needCapture = captureWhitelist.contains(fg) || fg == packageName
+                            // 仅白名单应用（如 Winlator）在前台时保持捕获。
+                            // 本应用自身在前台时也要暂停捕获（needCapture=false），
+                            // 否则应用内界面（MainActivity/操作层设置等）右滑返回
+                            // 会被焦点窗口吃掉。
+                            val needCapture = captureWhitelist.contains(fg)
                             if (needCapture && !isCapturing) {
                                 Log.i(TAG, "Smart pause: foreground=$fg, resuming capture")
                                 mainHandler.post { resumeCapturing() }
@@ -1045,13 +1073,19 @@ class ControllerOverlayService : Service() {
         overlayView = null
         collapsedTextView = null
 
-        // 创建收起视图（显示当前激活层名，点击展开）
+        // 创建收起视图（圆角胶囊：显示当前激活层名，点击展开）
         val collapsed = TextView(this).apply {
             text = buildCollapsedText(mapper?.getActiveLayers() ?: emptyList())
-            textSize = 14f
+            textSize = 13f
             setTextColor(0xFFFFFFFF.toInt())
-            setBackgroundColor(0x88000000.toInt())
-            setPadding(20, 8, 20, 8)
+            // 圆角胶囊背景 + 细边框
+            background = roundedDrawable(
+                color = 0xE6222222.toInt(),
+                cornerRadius = dp(18),
+                strokeColor = COLOR_COLLAPSED_STROKE,
+                strokeWidth = dp(1)
+            )
+            setPadding(dp(16), dp(8), dp(16), dp(8))
         }
         setupOverlayTouchListener(collapsed, isCollapsed = true)
         overlayView = collapsed
@@ -1109,24 +1143,34 @@ class ControllerOverlayService : Service() {
 
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(0x88000000.toInt())
-            setPadding(24, 16, 24, 16)
+            // 圆角深色面板
+            background = roundedDrawable(COLOR_PANEL, dp(14))
+            setPadding(dp(12), dp(10), dp(12), dp(10))
         }
+
+        // 面板标题
+        container.addView(TextView(this).apply {
+            text = "SteamLike 手柄"
+            textSize = 13f
+            setTextColor(0xFFCCCCCC.toInt())
+            setPadding(0, 0, 0, dp(2))
+        })
 
         // 状态（恢复最近一次的状态文本，避免展开后仍显示"初始化中"）
         statusText = TextView(this).apply {
             text = currentStatus
             setTextColor(0xFFFFFFFF.toInt())
-            textSize = 12f
+            textSize = 11f
+            setPadding(0, 0, 0, dp(2))
         }
         container.addView(statusText)
 
         // 操作层堆栈
         layerText = TextView(this).apply {
             text = ""
-            setTextColor(0xFFAAAAFF.toInt())
+            setTextColor(0xFF9FA8FF.toInt())
             textSize = 10f
-            setPadding(0, 4, 0, 0)
+            setPadding(0, dp(2), 0, dp(4))
         }
         container.addView(layerText)
 
@@ -1134,7 +1178,7 @@ class ControllerOverlayService : Service() {
         getLayerDisplayNames().chunked(2).forEach { rowLayers ->
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
-                setPadding(0, 6, 0, 0)
+                setPadding(0, dp(2), 0, 0)
             }
             rowLayers.forEach { (name, display) ->
                 row.addView(createLayerButton(name, display))
@@ -1142,29 +1186,61 @@ class ControllerOverlayService : Service() {
             container.addView(row)
         }
 
-        // 清除/收起/关闭行
-        val ctrlRow = LinearLayout(this).apply {
+        // ===== 控制按钮（分组布局）=====
+        // 主操作行：游戏（绿色主按钮） + 暂停/恢复捕获
+        val primaryRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(0, 8, 0, 4)
+            setPadding(0, dp(6), 0, 0)
         }
-        ctrlRow.addView(createOverlayButton("清除层") { mapper?.clearAllLayers() })
+        primaryRow.addView(
+            createOverlayButton(
+                label = "游戏",
+                onClick = { launchGameApp() },
+                weight = 1.2f,
+                normalColor = COLOR_BTN_GAME,
+                pressedColor = COLOR_BTN_GAME_PRESSED,
+                textSize = 12f
+            )
+        )
         // 暂停/恢复捕获按钮（始终显示，与 app 内开关状态双向同步）
-        captureButton = createOverlayButton("暂停捕获") {
-            setCaptureEnabled(!captureEnabled)
+        captureButton = createOverlayButton(
+            label = "暂停捕获",
+            onClick = { setCaptureEnabled(!captureEnabled) },
+            weight = 1f,
+            textSize = 12f
+        )
+        primaryRow.addView(captureButton!!)
+        container.addView(primaryRow)
+
+        // 次操作行：清除层 + 收起 + 关闭（关闭红色）
+        val secondaryRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(3), 0, 0)
         }
-        ctrlRow.addView(captureButton!!)
-        // 游戏按钮：拉起配置的应用（AppConfig.launcherPackage）
-        ctrlRow.addView(createOverlayButton("游戏") { launchGameApp() })
-        ctrlRow.addView(createOverlayButton("收起") { showCollapsedView() })
-        ctrlRow.addView(createOverlayButton("关闭") { stopSelf() })
-        container.addView(ctrlRow)
+        secondaryRow.addView(
+            createOverlayButton("清除层", { mapper?.clearAllLayers() }, weight = 1f, textSize = 11f)
+        )
+        secondaryRow.addView(
+            createOverlayButton("收起", { showCollapsedView() }, weight = 1f, textSize = 11f)
+        )
+        secondaryRow.addView(
+            createOverlayButton(
+                label = "关闭",
+                onClick = { stopSelf() },
+                weight = 1f,
+                normalColor = COLOR_BTN_DANGER,
+                pressedColor = COLOR_BTN_DANGER_PRESSED,
+                textSize = 11f
+            )
+        )
+        container.addView(secondaryRow)
 
         // 快捷键提示
         hintText = TextView(this).apply {
             text = "LB+方向键/A/B/X/Y/L3/R3 切层\nLB+HOME 清全部\n组合键: A+RB=选怪 D-Pad+L3=栏5-8 D-Pad+R3=栏9/0/-/="
-            setTextColor(0xFF888888.toInt())
+            setTextColor(0xFF8A8A8A.toInt())
             textSize = 9f
-            setPadding(0, 4, 0, 0)
+            setPadding(0, dp(5), 0, 0)
         }
         container.addView(hintText)
 
@@ -1178,8 +1254,8 @@ class ControllerOverlayService : Service() {
             updateLayerText(mapper?.getActiveLayers() ?: emptyList())
             updateLayerButtonColors(mapper?.getActiveLayers() ?: emptyList())
         }
-        // 同步"暂停/恢复捕获"按钮文本
-        captureButton?.text = if (isCapturing) "暂停捕获" else "恢复捕获"
+        // 同步"暂停/恢复捕获"按钮文本（与捕获开关一致）
+        captureButton?.text = if (captureEnabled) "暂停捕获" else "恢复捕获"
     }
 
     /**
@@ -1235,10 +1311,11 @@ class ControllerOverlayService : Service() {
     private fun createLayerButton(name: String, display: String): Button {
         val btn = Button(this).apply {
             text = display
-            textSize = 9f
+            textSize = 12f
             setTextColor(0xFFFFFFFF.toInt())
-            setBackgroundColor(0x44000000.toInt())
-            setPadding(16, 4, 16, 4)
+            // 圆角背景（保存引用供激活时变色）
+            background = roundedDrawable(COLOR_LAYER_NORMAL, dp(8))
+            setPadding(0, 0, 0, 0)
             // 按住激活层，松开停用层（松开即回到公共层）
             setOnTouchListener { _, event ->
                 when (event.action) {
@@ -1251,31 +1328,102 @@ class ControllerOverlayService : Service() {
                 }
                 true
             }
-            val params = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            params.setMargins(4, 0, 4, 0)
+            // 两列均分宽度，高度统一
+            val params = LinearLayout.LayoutParams(0, dp(36), 1f)
+            params.setMargins(dp(2), dp(2), dp(2), dp(2))
             layoutParams = params
         }
         layerButtons[name] = btn
         return btn
     }
 
-    private fun createOverlayButton(label: String, onClick: () -> Unit): Button {
+    /**
+     * 创建圆角功能按钮（带按下态反馈）
+     *
+     * @param label 按钮文本
+     * @param onClick 点击回调
+     * @param weight 水平均分权重（>0 时占满并均分；0 为自适应宽度）
+     * @param normalColor 正常态背景色
+     * @param pressedColor 按下态背景色
+     * @param textSize 文本大小（sp）
+     */
+    private fun createOverlayButton(
+        label: String,
+        onClick: () -> Unit,
+        weight: Float = 0f,
+        normalColor: Int = COLOR_BTN_NORMAL,
+        pressedColor: Int = COLOR_BTN_PRESSED,
+        textSize: Float = 11f
+    ): Button {
         return Button(this).apply {
             text = label
-            textSize = 9f
+            this.textSize = textSize
             setTextColor(0xFFFFFFFF.toInt())
-            setBackgroundColor(0x44000000.toInt())
-            setPadding(16, 4, 16, 4)
+            isAllCaps = false
+            background = createStateListBackground(normalColor, pressedColor, 8f)
+            setPadding(0, 0, 0, 0)
             setOnClickListener { onClick() }
             val params = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
+                if (weight > 0f) 0 else LinearLayout.LayoutParams.WRAP_CONTENT,
+                dp(34)
             )
-            params.setMargins(4, 0, 4, 0)
+            if (weight > 0f) params.weight = weight
+            params.setMargins(dp(2), dp(2), dp(2), dp(2))
             layoutParams = params
+        }
+    }
+
+    // ===== 悬浮窗样式辅助 =====
+
+    /** dp → px（接受 Int/Float） */
+    private fun dp(value: Number): Int =
+        (value.toFloat() * resources.displayMetrics.density).toInt()
+
+    /**
+     * 创建圆角矩形背景
+     *
+     * @param color 填充色
+     * @param cornerRadius 圆角半径（px）
+     * @param strokeColor 边框色（null=无边框）
+     * @param strokeWidth 边框宽度（px）
+     */
+    private fun roundedDrawable(
+        color: Int,
+        cornerRadius: Int,
+        strokeColor: Int? = null,
+        strokeWidth: Int = 0
+    ): GradientDrawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(color)
+            this.cornerRadius = cornerRadius.toFloat()
+            if (strokeColor != null) {
+                setStroke(strokeWidth, strokeColor)
+            }
+        }
+    }
+
+    /**
+     * 创建带按下态反馈的圆角按钮背景
+     *
+     * @param normalColor 正常态颜色
+     * @param pressedColor 按下态颜色
+     * @param cornerRadiusDp 圆角半径（dp）
+     */
+    private fun createStateListBackground(
+        normalColor: Int,
+        pressedColor: Int,
+        cornerRadiusDp: Float
+    ): StateListDrawable {
+        return StateListDrawable().apply {
+            addState(
+                intArrayOf(android.R.attr.state_pressed),
+                roundedDrawable(pressedColor, dp(cornerRadiusDp))
+            )
+            addState(
+                intArrayOf(),
+                roundedDrawable(normalColor, dp(cornerRadiusDp))
+            )
         }
     }
 
@@ -1297,11 +1445,13 @@ class ControllerOverlayService : Service() {
         val activeSet = activeLayers.toSet()
         layerButtons.forEach { (name, btn) ->
             btn.post {
+                // 通过 GradientDrawable 设置圆角背景颜色（保留圆角）
+                val bg = btn.background as? GradientDrawable
                 if (name in activeSet) {
-                    btn.setBackgroundColor(0xFF4CAF50.toInt())  // 绿色=激活
+                    bg?.setColor(COLOR_LAYER_ACTIVE)   // 绿色=激活
                     btn.setTextColor(0xFFFFFFFF.toInt())
                 } else {
-                    btn.setBackgroundColor(0x44000000.toInt())  // 半透明=未激活
+                    bg?.setColor(COLOR_LAYER_NORMAL)   // 深灰=未激活
                     btn.setTextColor(0xFFFFFFFF.toInt())
                 }
             }
