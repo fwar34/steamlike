@@ -346,25 +346,25 @@ class ControllerOverlayService : Service() {
                 bridgeServer = InputBridgeServer(serverHost, serverPort)
                 bridgeServer?.onClientConnected = { addr ->
                     Log.i(TAG, "Client connected: $addr")
-                    updateStatus("Client connected: $addr")
-                    broadcastClientStatus("Client connected: $addr", true)
+                    updateStatus("✅ 客户端已连接: $addr")
+                    broadcastClientStatus("客户端: $addr", true)
                 }
                 bridgeServer?.onClientDisconnected = { addr ->
                     Log.i(TAG, "Client disconnected: $addr")
-                    val msg = "Waiting for Windows client... (${serverHost ?: "0.0.0.0"}:${serverPort})"
+                    val msg = waitMessage()
                     updateStatus(msg)
                     broadcastClientStatus(msg, false)
                 }
                 bridgeServer?.onServerError = { msg ->
                     Log.e(TAG, "Server error: $msg")
-                    updateStatus("Server error: $msg")
-                    broadcastClientStatus("Server error: $msg", false)
+                    updateStatus("❌ 服务器错误: $msg")
+                    broadcastClientStatus("服务器错误: $msg", false)
                 }
 
                 if (bridgeServer?.start() != true) {
                     Log.e(TAG, "TCP server start failed")
-                    updateStatus("TCP server start failed")
-                    broadcastClientStatus("TCP server start failed", false)
+                    updateStatus("❌ TCP 服务器启动失败")
+                    broadcastClientStatus("TCP 服务器启动失败", false)
                     return@Thread
                 }
                 Log.i(TAG, "TCP server started on ${serverHost ?: "0.0.0.0"}:${serverPort}")
@@ -402,23 +402,29 @@ class ControllerOverlayService : Service() {
                     // 启动智能暂停监控（检测前台应用自动移除/恢复焦点窗口）
                     startSmartMonitor()
 
-                    val waitMsg = "Waiting for Windows client... (${serverHost ?: "0.0.0.0"}:${serverPort})"
+                    val waitMsg = waitMessage()
                     updateStatus(waitMsg)
                     broadcastClientStatus(waitMsg, false)
                     updateLayerText(mapper?.getActiveLayers() ?: emptyList())
                     updateLayerButtonColors(mapper?.getActiveLayers() ?: emptyList())
                 } else {
                     Log.e(TAG, "Mapper start failed - check overlay permission")
-                    updateStatus("Start failed - check overlay permission")
-                    broadcastClientStatus("Start failed - check overlay permission", false)
+                    updateStatus("❌ 启动失败 - 请检查悬浮窗权限")
+                    broadcastClientStatus("启动失败 - 请检查悬浮窗权限", false)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "startMapper error", e)
-                updateStatus("Error: ${e.message}")
-                broadcastClientStatus("Error: ${e.message}", false)
+                updateStatus("❌ 错误: ${e.message}")
+                broadcastClientStatus("错误: ${e.message}", false)
             }
         }.start()
     }
+
+    /**
+     * 等待 Windows 客户端连接的状态文本（悬浮窗/通知/主界面共用）
+     */
+    private fun waitMessage(): String =
+        "⏳ 等待 Windows 客户端连接（${serverHost ?: "0.0.0.0"}:${serverPort}）"
 
     // ====================================================================
     // 配置管理

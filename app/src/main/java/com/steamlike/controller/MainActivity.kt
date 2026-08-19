@@ -151,7 +151,7 @@ class MainActivity : AppCompatActivity() {
         statusCard.addView(statusText)
         statusCard.addView(UiKit.spacer(this, 4))
         // 连接状态：固定两行高度，服务广播更新文本时不改变卡片高度，避免页面自动滚动
-        connectionStatusText = UiKit.caption(this, "Client: not started", 0xFFAAAAAA.toInt(), 13f).apply {
+        connectionStatusText = UiKit.caption(this, "未启动", 0xFFAAAAAA.toInt(), 13f).apply {
             minLines = 2
             maxLines = 2
             ellipsize = android.text.TextUtils.TruncateAt.END
@@ -1029,9 +1029,9 @@ class MainActivity : AppCompatActivity() {
                         ?: "unknown"
                     val connected = intent.getBooleanExtra(ControllerOverlayService.EXTRA_CONNECTED, false)
                     val displayText = if (connected) {
-                        "Client: connected\n$statusText"
+                        "✅ 已连接 Windows 客户端\n$statusText"
                     } else {
-                        "Client: disconnected\n$statusText"
+                        "⏳ 等待 Windows 客户端连接\n$statusText"
                     }
                     connectionStatusText.text = displayText
                     connectionStatusText.setTextColor(
