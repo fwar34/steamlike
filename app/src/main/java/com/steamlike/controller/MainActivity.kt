@@ -16,7 +16,6 @@ import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Log
 import android.widget.Button
-import android.widget.CompoundButton
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -34,6 +33,7 @@ import com.steamlike.controller.core.ControllerButton
 import com.steamlike.controller.core.ControllerProfile
 import com.steamlike.controller.core.GlobalSettings
 import com.steamlike.controller.service.ControllerOverlayService
+import com.steamlike.controller.ui.UiKit
 import java.io.File
 import java.io.FileOutputStream
 
@@ -115,307 +115,213 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val scroll = ScrollView(this)
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(48, 48, 48, 48)
-        }
-
-        // 标题
-        container.addView(TextView(this).apply {
-            text = "SteamLike 手柄控制器\nWoW乌龟服 1.18.1"
-            textSize = 20f
-            setPadding(0, 0, 0, 24)
-        })
-
-        // 状态
-        statusText = TextView(this).apply {
-            textSize = 13f
-            setLineSpacing(0f, 1.3f)
-            setPadding(0, 0, 0, 24)
-        }
-        container.addView(statusText)
-
-        // 悬浮窗权限按钮
-        overlayButton = Button(this).apply {
-            text = "授予悬浮窗权限"
-            setOnClickListener {
-                if (!Settings.canDrawOverlays(this@MainActivity)) {
-                    val intent = Intent(
-                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                        Uri.parse("package:$packageName")
-                    )
-                    startActivity(intent)
-                }
-            }
-        }
-        container.addView(overlayButton)
-
         // 加载当前运行时配置（随配置文件持久化）
         val appCfg = AppConfigStore.load(this)
 
-        // ===== 智能暂停（Smart Pause）=====
-        // 可焦点悬浮窗在 Android 13+ 会吃掉系统右滑返回手势。
-        // 智能暂停: 检测前台应用，仅当"捕获白名单"内的应用(如 Winlator)在前台时
-        // 保持焦点窗口捕获手柄，其他应用自动移除焦点窗口 → 右滑返回恢复正常。
-        // 需要"使用情况访问"权限（设置 → 安全 → 使用情况访问）。
-        container.addView(TextView(this).apply {
-            text = "\n智能暂停（修复右滑返回失效）"
-            textSize = 16f
-            setPadding(0, 24, 0, 8)
-        })
+        val scroll = ScrollView(this).apply {
+            UiKit.applyDarkBackground(this, this@MainActivity)
+        }
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(
+                UiKit.dp(this@MainActivity, 20),
+                UiKit.dp(this@MainActivity, 24),
+                UiKit.dp(this@MainActivity, 20),
+                UiKit.dp(this@MainActivity, 32)
+            )
+        }
 
-        container.addView(TextView(this).apply {
-            text = ("焦点窗口会拦截 Android 13+ 的右滑返回手势。\n"
-                + "开启后自动检测前台应用：白名单应用（如 Winlator）在前台时保持手柄捕获，\n"
-                + "切到其他应用自动暂停捕获，右滑返回恢复正常。\n"
-                + "需要授权\"使用情况访问\"（如未授权则退化为手动暂停按钮）。\n"
-                + "以上设置随配置文件一并保存/导出。")
-            textSize = 11f
-            setLineSpacing(0f, 1.3f)
-            setTextColor(0xFFAAAAAA.toInt())
-            setPadding(0, 0, 0, 12)
-        })
+        // ===== 头部 =====
+        container.addView(UiKit.bigTitle(this, "SteamLike 手柄控制器"))
+        container.addView(UiKit.caption(
+            this,
+            "WoW 乌龟服 1.18.1 · 手柄 → 键鼠桥接（Winlator）",
+            0xFF888888.toInt(), 13f
+        ))
+        container.addView(UiKit.spacer(this, 8))
+
+        // ===== 运行状态卡片 =====
+        val statusCard = UiKit.card(this)
+        statusCard.addView(UiKit.sectionTitle(this, "运行状态"))
+        statusCard.addView(UiKit.spacer(this, 6))
+        statusText = UiKit.caption(this, "", 0xFFDDDDDD.toInt(), 13f)
+        statusCard.addView(statusText)
+        statusCard.addView(UiKit.spacer(this, 4))
+        connectionStatusText = UiKit.caption(this, "Client: not started", 0xFFAAAAAA.toInt(), 13f)
+        statusCard.addView(connectionStatusText)
+        statusCard.addView(UiKit.spacer(this, 10))
+        // 悬浮窗权限按钮
+        overlayButton = UiKit.button(this, "授予悬浮窗权限", {
+            if (!Settings.canDrawOverlays(this@MainActivity)) {
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+                startActivity(intent)
+            }
+        }, UiKit.Style.PRIMARY)
+        statusCard.addView(overlayButton)
+        container.addView(statusCard)
+
+        // ===== 智能暂停卡片 =====
+        val smartCard = UiKit.card(this)
+        smartCard.addView(UiKit.sectionTitle(this, "智能暂停（修复右滑返回失效）"))
+        smartCard.addView(UiKit.spacer(this, 4))
+        smartCard.addView(UiKit.caption(
+            this,
+            ("焦点窗口会拦截 Android 13+ 的右滑返回手势。白名单应用（如 Winlator）在前台时保持手柄捕获，\n"
+                + "切到其他应用自动暂停捕获，右滑返回恢复正常。需要授权\"使用情况访问\"，\n"
+                + "以上设置随配置文件一并保存/导出。"),
+            0xFF999999.toInt(), 11f
+        ))
+        smartCard.addView(UiKit.spacer(this, 6))
 
         // 智能暂停开关
-        smartPauseSwitch = Switch(this).apply {
-            text = "启用智能暂停"
-            isChecked = appCfg.smartPauseEnabled
-            setOnCheckedChangeListener { _: CompoundButton, checked: Boolean ->
-                updateUsageStatsStatus()
-                toastLog(if (checked) "智能暂停已开启（切出游戏自动暂停捕获）" else "智能暂停已关闭（手动模式）")
-            }
+        smartPauseSwitch = UiKit.switchRow(this, "启用智能暂停", appCfg.smartPauseEnabled) { checked ->
+            updateUsageStatsStatus()
+            toastLog(if (checked) "智能暂停已开启（切出游戏自动暂停捕获）" else "智能暂停已关闭（手动模式）")
         }
-        container.addView(smartPauseSwitch)
+        smartCard.addView(smartPauseSwitch)
 
         // 捕获开关（与悬浮窗暂停/恢复按钮双向同步）
-        captureSwitch = Switch(this).apply {
-            text = "手柄捕获"
-            isChecked = appCfg.captureEnabled
-            setOnCheckedChangeListener { _: CompoundButton, checked: Boolean ->
-                if (suppressCaptureListener) return@setOnCheckedChangeListener
-                setCaptureSwitch(checked)
-            }
+        captureSwitch = UiKit.switchRow(this, "手柄捕获", appCfg.captureEnabled) { checked ->
+            if (!suppressCaptureListener) setCaptureSwitch(checked)
         }
-        container.addView(captureSwitch)
+        smartCard.addView(captureSwitch)
 
         // 捕获状态显示（实时接收服务广播同步）
-        captureStatusText = TextView(this).apply {
-            textSize = 11f
-            setPadding(0, 4, 0, 12)
-            setTextColor(0xFFAAAAAA.toInt())
-        }
-        container.addView(captureStatusText)
+        captureStatusText = UiKit.caption(this, "", 0xFF999999.toInt(), 11f)
+        smartCard.addView(captureStatusText)
+        smartCard.addView(UiKit.spacer(this, 6))
 
         // 白名单输入框（支持多个包名，逗号/空格/换行分隔）
-        container.addView(TextView(this).apply {
-            text = "捕获白名单（支持多个包名，逗号或换行分隔）"
-            textSize = 12f
-            setTextColor(0xFFCCCCCC.toInt())
-            setPadding(0, 8, 0, 4)
-        })
-        whitelistEditText = EditText(this).apply {
-            setText(appCfg.captureWhitelist.joinToString(","))
-            hint = "如: com.winlator, com.winlator.hub"
+        smartCard.addView(UiKit.label(this, "捕获白名单（支持多个包名，逗号或换行分隔）"))
+        whitelistEditText = UiKit.input(
+            this,
+            "如: com.winlator, com.winlator.hub",
+            appCfg.captureWhitelist.joinToString(",")
+        ).apply {
             inputType = android.text.InputType.TYPE_CLASS_TEXT or
                 android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
             minLines = 2
-            isFocusable = true
-            isFocusableInTouchMode = true
-            setOnClickListener {
-                requestFocus()
-                val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
-                imm.showSoftInput(this, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
-            }
         }
-        container.addView(whitelistEditText)
+        smartCard.addView(whitelistEditText)
+        smartCard.addView(UiKit.spacer(this, 6))
 
         // 拉起应用包名（悬浮窗"游戏"按钮使用）
-        container.addView(TextView(this).apply {
-            text = "悬浮窗\"游戏\"按钮拉起的应用包名"
-            textSize = 12f
-            setTextColor(0xFFCCCCCC.toInt())
-            setPadding(0, 8, 0, 4)
-        })
-        launcherEditText = EditText(this).apply {
-            setText(appCfg.launcherPackage)
-            hint = "如: com.winlator"
-            inputType = android.text.InputType.TYPE_CLASS_TEXT
-            isFocusable = true
-            isFocusableInTouchMode = true
-            setOnClickListener {
-                requestFocus()
-                val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
-                imm.showSoftInput(this, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
-            }
-        }
-        container.addView(launcherEditText)
+        smartCard.addView(UiKit.label(this, "悬浮窗\"游戏\"按钮拉起的应用包名"))
+        launcherEditText = UiKit.input(this, "如: com.winlator", appCfg.launcherPackage)
+        smartCard.addView(launcherEditText)
+        smartCard.addView(UiKit.spacer(this, 8))
 
         // 使用情况访问授权入口
-        usageStatsButton = Button(this).apply {
-            text = "授权使用情况访问"
-            setOnClickListener {
-                startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
-            }
-        }
-        container.addView(usageStatsButton)
-
-        usageStatsStatusText = TextView(this).apply {
-            textSize = 11f
-            setPadding(0, 4, 0, 0)
-            setTextColor(0xFFAAAAAA.toInt())
-        }
-        container.addView(usageStatsStatusText)
-
-        // ===== TCP服务器配置 =====
-        container.addView(TextView(this).apply {
-            text = "\nTCP服务器配置"
-            textSize = 16f
-            setPadding(0, 24, 0, 8)
+        usageStatsButton = UiKit.button(this, "授权使用情况访问", {
+            startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
         })
+        smartCard.addView(usageStatsButton)
+        usageStatsStatusText = UiKit.caption(this, "", 0xFF999999.toInt(), 11f)
+        smartCard.addView(usageStatsStatusText)
+        container.addView(smartCard)
+
+        // ===== TCP 服务器配置卡片 =====
+        val serverCard = UiKit.card(this)
+        serverCard.addView(UiKit.sectionTitle(this, "TCP 服务器配置"))
+        serverCard.addView(UiKit.spacer(this, 6))
 
         // 地址和端口输入框（水平布局）
         val hostPortLayout = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
         }
-        hostEditText = EditText(this).apply {
-            hint = "监听地址 (如 0.0.0.0)"
-            inputType = android.text.InputType.TYPE_CLASS_TEXT
-            isFocusable = true
-            isFocusableInTouchMode = true
-            setText(appCfg.serverHost)
+        hostEditText = UiKit.input(this, "监听地址 (如 0.0.0.0)", appCfg.serverHost).apply {
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 2f)
-            setOnClickListener {
-                requestFocus()
-                val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
-                imm.showSoftInput(this, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
-            }
         }
-        portEditText = EditText(this).apply {
-            hint = "端口"
+        portEditText = UiKit.input(this, "端口", appCfg.serverPort.toString()).apply {
             inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            isFocusable = true
-            isFocusableInTouchMode = true
-            setText(appCfg.serverPort.toString())
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            setOnClickListener {
-                requestFocus()
-                val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
-                imm.showSoftInput(this, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
-            }
         }
         hostPortLayout.addView(hostEditText)
         hostPortLayout.addView(portEditText)
-        container.addView(hostPortLayout)
+        serverCard.addView(hostPortLayout)
+        serverCard.addView(UiKit.spacer(this, 8))
 
         // 启动服务按钮
-        startButton = Button(this).apply {
-            text = "启动手柄映射"
-            setOnClickListener {
-                val host = hostEditText.text.toString().trim()
-                val portStr = portEditText.text.toString().trim()
-                val port = portStr.toIntOrNull() ?: 27015
-                // 保存全部运行时配置到配置文件（随配置一并导入/导出）
-                saveRuntimeConfig()
-                val intent = Intent(this@MainActivity, ControllerOverlayService::class.java).apply {
-                    putExtra(ControllerOverlayService.EXTRA_HOST, host)
-                    putExtra(ControllerOverlayService.EXTRA_PORT, port)
-                    putExtra(ControllerOverlayService.EXTRA_SMART_PAUSE, smartPauseSwitch.isChecked)
-                    putExtra(ControllerOverlayService.EXTRA_WHITELIST, whitelistEditText.text.toString().trim())
-                    putExtra(ControllerOverlayService.EXTRA_LAUNCHER_PACKAGE, launcherEditText.text.toString().trim())
-                }
-                ContextCompat.startForegroundService(this@MainActivity, intent)
-                statusText.append("\n\n✅ 服务已启动！监听 ${host.ifBlank { "0.0.0.0" }}:$port")
-                connectionStatusText.text = "Client: waiting for connection..."
-                logD("Start button clicked, host=$host port=$port")
+        startButton = UiKit.button(this, "启动手柄映射", {
+            val host = hostEditText.text.toString().trim()
+            val portStr = portEditText.text.toString().trim()
+            val port = portStr.toIntOrNull() ?: 27015
+            // 保存全部运行时配置到配置文件（随配置一并导入/导出）
+            saveRuntimeConfig()
+            val intent = Intent(this@MainActivity, ControllerOverlayService::class.java).apply {
+                putExtra(ControllerOverlayService.EXTRA_HOST, host)
+                putExtra(ControllerOverlayService.EXTRA_PORT, port)
+                putExtra(ControllerOverlayService.EXTRA_SMART_PAUSE, smartPauseSwitch.isChecked)
+                putExtra(ControllerOverlayService.EXTRA_WHITELIST, whitelistEditText.text.toString().trim())
+                putExtra(ControllerOverlayService.EXTRA_LAUNCHER_PACKAGE, launcherEditText.text.toString().trim())
             }
-        }
-        container.addView(startButton)
+            ContextCompat.startForegroundService(this@MainActivity, intent)
+            statusText.append("\n\n✅ 服务已启动！监听 ${host.ifBlank { "0.0.0.0" }}:$port")
+            connectionStatusText.text = "Client: waiting for connection..."
+            logD("Start button clicked, host=$host port=$port")
+        }, UiKit.Style.PRIMARY)
+        serverCard.addView(startButton)
+        serverCard.addView(UiKit.spacer(this, 6))
 
         // 停止按钮
-        container.addView(Button(this).apply {
-            text = "停止服务"
-            setOnClickListener {
-                val intent = Intent(this@MainActivity, ControllerOverlayService::class.java)
-                intent.action = ControllerOverlayService.ACTION_STOP
-                startService(intent)
-                stopService(Intent(this@MainActivity, ControllerOverlayService::class.java))
-                connectionStatusText.text = "Client: service stopped"
-                updateUI()
-            }
-        })
+        serverCard.addView(UiKit.button(this, "停止服务", {
+            val intent = Intent(this@MainActivity, ControllerOverlayService::class.java)
+            intent.action = ControllerOverlayService.ACTION_STOP
+            startService(intent)
+            stopService(Intent(this@MainActivity, ControllerOverlayService::class.java))
+            connectionStatusText.text = "Client: service stopped"
+            updateUI()
+        }, UiKit.Style.DANGER))
+        container.addView(serverCard)
 
-        // ===== 客户端连接状态 =====
-        container.addView(TextView(this).apply {
-            text = "\nConnection Status"
-            textSize = 16f
-            setPadding(0, 24, 0, 8)
-        })
-
-        connectionStatusText = TextView(this).apply {
-            text = "Client: not started"
-            textSize = 13f
-            setLineSpacing(0f, 1.3f)
-            setPadding(0, 0, 0, 12)
-            setTextColor(0xFFAAAAAA.toInt())
-        }
-        container.addView(connectionStatusText)
-
-        // ===== 配置管理 =====
-        container.addView(TextView(this).apply {
-            text = "\n配置管理"
-            textSize = 16f
-            setPadding(0, 24, 0, 8)
-        })
+        // ===== 配置管理卡片 =====
+        val configCard = UiKit.card(this)
+        configCard.addView(UiKit.sectionTitle(this, "配置管理"))
+        configCard.addView(UiKit.spacer(this, 4))
 
         // 配置状态
-        configStatusText = TextView(this).apply {
-            textSize = 12f
-            setLineSpacing(0f, 1.3f)
-            setPadding(0, 0, 0, 12)
-        }
-        container.addView(configStatusText)
+        configStatusText = UiKit.caption(this, "", 0xFFDDDDDD.toInt(), 12f)
+        configCard.addView(configStatusText)
+        configCard.addView(UiKit.spacer(this, 6))
 
         // 导出配置按钮
-        container.addView(Button(this).apply {
-            text = "导出配置"
-            setOnClickListener {
-                // 先确保服务已启动
-                ensureServiceRunning()
-                // 启动 SAF 创建文档
-                createDocumentLauncher.launch("steamlike_config.json")
-            }
-        })
+        configCard.addView(UiKit.button(this, "导出配置", {
+            // 先确保服务已启动
+            ensureServiceRunning()
+            // 启动 SAF 创建文档
+            createDocumentLauncher.launch("steamlike_config.json")
+        }))
+        configCard.addView(UiKit.spacer(this, 6))
 
         // 导入配置按钮
-        container.addView(Button(this).apply {
-            text = "导入配置"
-            setOnClickListener {
-                // 先确保服务已启动
-                ensureServiceRunning()
-                // 启动 SAF 打开文档
-                openDocumentLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
-            }
-        })
+        configCard.addView(UiKit.button(this, "导入配置", {
+            // 先确保服务已启动
+            ensureServiceRunning()
+            // 启动 SAF 打开文档
+            openDocumentLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
+        }))
+        configCard.addView(UiKit.spacer(this, 6))
 
         // 重置为默认按钮
-        container.addView(Button(this).apply {
-            text = "重置为默认配置"
-            setOnClickListener {
-                ensureServiceRunning()
-                val intent = Intent(this@MainActivity, ControllerOverlayService::class.java)
-                intent.action = ControllerOverlayService.ACTION_RESET_CONFIG
-                ContextCompat.startForegroundService(this@MainActivity, intent)
-                toastLog("正在重置...")
-                // 延迟刷新UI
-                configStatusText.postDelayed({ updateConfigStatus() }, 1000)
-            }
-        })
+        configCard.addView(UiKit.button(this, "重置为默认配置", {
+            ensureServiceRunning()
+            val intent = Intent(this@MainActivity, ControllerOverlayService::class.java)
+            intent.action = ControllerOverlayService.ACTION_RESET_CONFIG
+            ContextCompat.startForegroundService(this@MainActivity, intent)
+            toastLog("正在重置...")
+            // 延迟刷新UI
+            configStatusText.postDelayed({ updateConfigStatus() }, 1000)
+        }, UiKit.Style.DANGER))
+        configCard.addView(UiKit.spacer(this, 6))
 
         // 操作层设置按钮
-        container.addView(Button(this).apply {
-            text = "操作层设置"
-            setOnClickListener {
+        configCard.addView(UiKit.button(
+            this,
+            "操作层设置",
+            onClick = {
                 // 必须先启动服务（LayerEditActivity.steamInputRef 在服务启动后才非空）
                 ensureServiceRunning()
                 if (LayerEditActivity.steamInputRef == null) {
@@ -436,32 +342,28 @@ class MainActivity : AppCompatActivity() {
                             }
                         }
                     }, tick.toLong())
-                    return@setOnClickListener
+                } else {
+                    startActivity(Intent(this@MainActivity, LayerEditActivity::class.java))
                 }
-                val intent = Intent(this@MainActivity, LayerEditActivity::class.java)
-                startActivity(intent)
-            }
-        })
+            },
+            style = UiKit.Style.PRIMARY
+        ))
+        container.addView(configCard)
 
-        // ===== 右摇杆优化设置 =====
-        container.addView(TextView(this).apply {
-            text = "\n右摇杆优化设置"
-            textSize = 16f
-            setPadding(0, 24, 0, 8)
-        })
-
-        // 总体说明
-        container.addView(TextView(this).apply {
-            text = ("右摇杆控制鼠标视角时，可通过以下参数调节手感。\n"
+        // ===== 右摇杆优化设置卡片 =====
+        val lookCard = UiKit.card(this)
+        lookCard.addView(UiKit.sectionTitle(this, "右摇杆优化设置"))
+        lookCard.addView(UiKit.spacer(this, 4))
+        lookCard.addView(UiKit.caption(
+            this,
+            ("右摇杆控制鼠标视角时，可通过以下参数调节手感。\n"
                 + "• 觉得滑动过快 → 降低「灵敏度」或提高「加速曲线指数」\n"
                 + "• 觉得不够流畅/抖动 → 提高「平滑系数」(0.5~0.8 推荐)\n"
                 + "• 摇杆居中时仍在漂移 → 提高「死区」(0.1~0.25)\n"
-                + "• 轻推难以精确瞄准 → 降低「加速曲线指数」靠近 1.0")
-            textSize = 11f
-            setLineSpacing(0f, 1.3f)
-            setTextColor(0xFFAAAAAA.toInt())
-            setPadding(0, 0, 0, 16)
-        })
+                + "• 轻推难以精确瞄准 → 降低「加速曲线指数」靠近 1.0"),
+            0xFF999999.toInt(), 11f
+        ))
+        lookCard.addView(UiKit.spacer(this, 4))
 
         // 读取当前设置值
         val currentSettings = getCurrentProfile().globalSettings
@@ -474,7 +376,7 @@ class MainActivity : AppCompatActivity() {
                 + "推荐: 0.10~0.25。摇杆容易漂移可调高；摇杆精准可调低。"),
             value = currentSettings.deadzone
         )
-        container.addView(deadzoneEdit.first)
+        lookCard.addView(deadzoneEdit.first)
 
         // 视角灵敏度
         val sensitivityEdit = makeSettingsEdit(
@@ -484,7 +386,7 @@ class MainActivity : AppCompatActivity() {
                 + "数值越大移动越快。觉得滑动过快请降低此值(如 0.3)；过慢可提高(如 0.8)。"),
             value = currentSettings.lookSensitivity
         )
-        container.addView(sensitivityEdit.first)
+        lookCard.addView(sensitivityEdit.first)
 
         // 平滑系数
         val smoothingEdit = makeSettingsEdit(
@@ -495,7 +397,7 @@ class MainActivity : AppCompatActivity() {
                 + "推荐: 0.3~0.7。觉卡顿降一点，觉延迟降一点。"),
             value = currentSettings.lookSmoothing
         )
-        container.addView(smoothingEdit.first)
+        lookCard.addView(smoothingEdit.first)
 
         // 加速曲线指数
         val accelerationEdit = makeSettingsEdit(
@@ -507,7 +409,7 @@ class MainActivity : AppCompatActivity() {
                 + "觉得轻推过快难以瞄准 → 提高此值(如 1.8~2.2)。"),
             value = currentSettings.lookAcceleration
         )
-        container.addView(accelerationEdit.first)
+        lookCard.addView(accelerationEdit.first)
 
         // 光标速度倍率
         val cursorSpeedEdit = makeSettingsEdit(
@@ -517,12 +419,14 @@ class MainActivity : AppCompatActivity() {
                 + ">1.0 更快，<1.0 更慢。一般保持 1.0 即可。"),
             value = currentSettings.cursorSpeed
         )
-        container.addView(cursorSpeedEdit.first)
+        lookCard.addView(cursorSpeedEdit.first)
+        lookCard.addView(UiKit.spacer(this, 6))
 
         // 保存按钮
-        container.addView(Button(this).apply {
-            text = "保存右摇杆设置"
-            setOnClickListener {
+        lookCard.addView(UiKit.button(
+            this,
+            "保存右摇杆设置",
+            onClick = {
                 val dz = deadzoneEdit.second.text.toString().trim().toFloatOrNull()
                 val sens = sensitivityEdit.second.text.toString().trim().toFloatOrNull()
                 val sm = smoothingEdit.second.text.toString().trim().toFloatOrNull()
@@ -530,51 +434,43 @@ class MainActivity : AppCompatActivity() {
                 val cs = cursorSpeedEdit.second.text.toString().trim().toFloatOrNull()
                 if (dz == null || sens == null || sm == null || ac == null || cs == null) {
                     toastLog("请填写全部 5 个数值", long = true)
-                    return@setOnClickListener
-                }
-                if (!Settings.canDrawOverlays(this@MainActivity)) {
+                } else if (!Settings.canDrawOverlays(this@MainActivity)) {
                     toastLog("请先授予悬浮窗权限并启动服务", long = true)
-                    return@setOnClickListener
+                } else {
+                    ensureServiceRunning()
+                    val intent = Intent(this@MainActivity, ControllerOverlayService::class.java).apply {
+                        action = ControllerOverlayService.ACTION_UPDATE_SETTINGS
+                        putExtra(ControllerOverlayService.EXTRA_DEADZONE, dz)
+                        putExtra(ControllerOverlayService.EXTRA_LOOK_SENSITIVITY, sens)
+                        putExtra(ControllerOverlayService.EXTRA_LOOK_SMOOTHING, sm)
+                        putExtra(ControllerOverlayService.EXTRA_LOOK_ACCELERATION, ac)
+                        putExtra(ControllerOverlayService.EXTRA_CURSOR_SPEED, cs)
+                    }
+                    ContextCompat.startForegroundService(this@MainActivity, intent)
+                    toastLog("正在保存右摇杆设置...")
                 }
-                ensureServiceRunning()
-                val intent = Intent(this@MainActivity, ControllerOverlayService::class.java).apply {
-                    action = ControllerOverlayService.ACTION_UPDATE_SETTINGS
-                    putExtra(ControllerOverlayService.EXTRA_DEADZONE, dz)
-                    putExtra(ControllerOverlayService.EXTRA_LOOK_SENSITIVITY, sens)
-                    putExtra(ControllerOverlayService.EXTRA_LOOK_SMOOTHING, sm)
-                    putExtra(ControllerOverlayService.EXTRA_LOOK_ACCELERATION, ac)
-                    putExtra(ControllerOverlayService.EXTRA_CURSOR_SPEED, cs)
-                }
-                ContextCompat.startForegroundService(this@MainActivity, intent)
-                toastLog("正在保存右摇杆设置...")
-            }
-        })
+            },
+            style = UiKit.Style.PRIMARY
+        ))
+        container.addView(lookCard)
 
-        // ===== Windows 客户端导出 =====
-        container.addView(TextView(this).apply {
-            text = "\nWindows 客户端"
-            textSize = 16f
-            setPadding(0, 24, 0, 8)
-        })
+        // ===== Windows 客户端卡片 =====
+        val winCard = UiKit.card(this)
+        winCard.addView(UiKit.sectionTitle(this, "Windows 客户端"))
+        winCard.addView(UiKit.spacer(this, 6))
+        winCard.addView(UiKit.button(this, "导出 Windows 客户端到 Download/AControler", {
+            exportFilesToDownload()
+        }))
+        container.addView(winCard)
 
-        // 导出 Windows 客户端文件到 Download/AControler 目录按钮
-        container.addView(Button(this).apply {
-            text = "导出 Windows 客户端到 Download/AControler"
-            setOnClickListener {
-                exportFilesToDownload()
-            }
-        })
-
-        // ===== 调试: 手柄按键测试 =====
-        container.addView(TextView(this).apply {
-            text = "\n调试"
-            textSize = 16f
-            setPadding(0, 24, 0, 8)
-        })
-
-        container.addView(Button(this).apply {
-            text = "测试手柄按键（模拟器调试用）"
-            setOnClickListener {
+        // ===== 调试卡片 =====
+        val debugCard = UiKit.card(this)
+        debugCard.addView(UiKit.sectionTitle(this, "调试"))
+        debugCard.addView(UiKit.spacer(this, 6))
+        debugCard.addView(UiKit.button(
+            this,
+            "测试手柄按键（模拟器调试用）",
+            onClick = {
                 ensureServiceRunning()
                 if (LayerEditActivity.steamInputRef == null) {
                     toastLog("服务正在初始化，请稍候...")
@@ -593,19 +489,16 @@ class MainActivity : AppCompatActivity() {
                             }
                         }
                     }, tick.toLong())
-                    return@setOnClickListener
+                } else {
+                    startActivity(Intent(this@MainActivity, GamepadTestActivity::class.java))
                 }
-                startActivity(Intent(this@MainActivity, GamepadTestActivity::class.java))
             }
-        })
+        ))
+        container.addView(debugCard)
 
         // 使用说明（动态根据当前 profile 生成操作层切换说明）
-        usageTextView = TextView(this).apply {
-            textSize = 11f
-            setLineSpacing(0f, 1.3f)
-            setPadding(0, 32, 0, 0)
-            setTextColor(0xFFAAAAAA.toInt())
-        }
+        container.addView(UiKit.spacer(this, 10))
+        usageTextView = UiKit.caption(this, "", 0xFF888888.toInt(), 11f)
         container.addView(usageTextView)
 
         scroll.addView(container)
@@ -912,34 +805,14 @@ class MainActivity : AppCompatActivity() {
     ): Pair<LinearLayout, EditText> {
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, 12, 0, 12)
+            setPadding(0, UiKit.dp(this@MainActivity, 10), 0, 0)
         }
-        layout.addView(TextView(this).apply {
-            text = title
-            textSize = 13f
-            setTextColor(0xFFCCCCCC.toInt())
-            setPadding(0, 0, 0, 4)
-        })
-        layout.addView(TextView(this).apply {
-            text = desc
-            textSize = 10f
-            setLineSpacing(0f, 1.3f)
-            setTextColor(0xFF999999.toInt())
-            setPadding(0, 0, 0, 4)
-        })
-        val edit = EditText(this).apply {
-            this.hint = hint
+        layout.addView(UiKit.label(this, title))
+        layout.addView(UiKit.caption(this, desc, 0xFF999999.toInt(), 10f))
+        layout.addView(UiKit.spacer(this, 4))
+        val edit = UiKit.input(this, hint, value.toString()).apply {
             inputType = android.text.InputType.TYPE_CLASS_NUMBER or
                 android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
-            isFocusable = true
-            isFocusableInTouchMode = true
-            setText(value.toString())
-            setOnClickListener {
-                requestFocus()
-                val imm = getSystemService(Context.INPUT_METHOD_SERVICE)
-                    as android.view.inputmethod.InputMethodManager
-                imm.showSoftInput(this, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
-            }
         }
         layout.addView(edit)
         return Pair(layout, edit)

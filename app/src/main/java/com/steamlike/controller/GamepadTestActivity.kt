@@ -11,6 +11,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.steamlike.controller.core.ControllerButton
 import com.steamlike.controller.core.SteamInput
+import com.steamlike.controller.ui.UiKit
 
 /**
  * 手柄按键测试 Activity（调试用）
@@ -60,12 +61,14 @@ class GamepadTestActivity : AppCompatActivity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(16, 16, 16, 16)
+            background = UiKit.rounded(this@GamepadTestActivity, 0xF21C1C1C.toInt(), 0)
         }
 
         // 状态显示
         val statusLabel = TextView(this).apply {
             text = "当前激活层:"
             textSize = 14f
+            setTextColor(0xFFDDDDDD.toInt())
         }
         root.addView(statusLabel)
 
@@ -126,9 +129,13 @@ class GamepadTestActivity : AppCompatActivity() {
         for ((button, label) in buttons) {
             val btn = Button(this).apply {
                 text = label
+                setTextColor(0xFFFFFFFF.toInt())
+                isAllCaps = false
+                // 圆角按钮样式
+                background = UiKit.buttonBackground(this@GamepadTestActivity, UiKit.Style.NORMAL)
                 layoutParams = GridLayout.LayoutParams().apply {
                     width = 0
-                    height = LinearLayout.LayoutParams.WRAP_CONTENT
+                    height = UiKit.dp(this@GamepadTestActivity, 44)
                     columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
                     rowSpec = GridLayout.spec(GridLayout.UNDEFINED)
                 }
@@ -138,12 +145,16 @@ class GamepadTestActivity : AppCompatActivity() {
                     when (event.actionMasked) {
                         MotionEvent.ACTION_DOWN -> {
                             steamInput?.handleButtonEvent(button, true)
-                            v.setBackgroundResource(android.R.color.holo_blue_light)
+                            v.background = UiKit.rounded(
+                                this@GamepadTestActivity, 0xFF2196F3.toInt(), 10
+                            )
                             v.performClick()
                         }
                         MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                             steamInput?.handleButtonEvent(button, false)
-                            v.setBackgroundResource(0)
+                            v.background = UiKit.buttonBackground(
+                                this@GamepadTestActivity, UiKit.Style.NORMAL
+                            )
                         }
                     }
                     true
@@ -155,17 +166,14 @@ class GamepadTestActivity : AppCompatActivity() {
         root.addView(grid)
 
         // "释放所有" 按钮
-        val releaseAllBtn = Button(this).apply {
-            text = "释放所有按键"
-            setOnClickListener {
-                // 触发所有按钮的松开事件（避免状态残留）
-                for ((button, _) in buttons) {
-                    steamInput?.handleButtonEvent(button, false)
-                }
-                Toast.makeText(this@GamepadTestActivity, "已释放所有按键", Toast.LENGTH_SHORT).show()
+        root.addView(UiKit.spacer(this@GamepadTestActivity, 12))
+        root.addView(UiKit.button(this@GamepadTestActivity, "释放所有按键", {
+            // 触发所有按钮的松开事件（避免状态残留）
+            for ((button, _) in buttons) {
+                steamInput?.handleButtonEvent(button, false)
             }
-        }
-        root.addView(releaseAllBtn)
+            Toast.makeText(this@GamepadTestActivity, "已释放所有按键", Toast.LENGTH_SHORT).show()
+        }, UiKit.Style.PRIMARY))
 
         // 顶部提示
         val tip = TextView(this).apply {

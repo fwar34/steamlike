@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 圆角卡片背景（App 内深色卡片） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="#F22A2A2A" />
+    <corners android:radius="14dp" />
+</shape>

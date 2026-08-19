@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  操作层设置 Activity 布局
+  操作层设置 Activity 布局（深色美化版）
 
   布局结构（垂直 LinearLayout）:
   1. 标题文字
@@ -9,15 +9,12 @@
   4. 按键映射标题
   5. 按键映射列表（ListView，占满剩余空间）
   6. 底部保存按钮
-
-  Android 知识点:
-  - layout_weight: 在 LinearLayout 中按比例分配剩余空间。ListView 设 weight=1 会占满中间区域。
-  - match_parent / wrap_content: 前者填满父容器，后者根据内容自适应大小。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
+    android:background="@drawable/bg_panel"
     android:padding="16dp">
 
     <!-- ===== 标题 ===== -->
@@ -27,6 +24,7 @@
         android:text="操作层设置"
         android:textSize="22sp"
         android:textStyle="bold"
+        android:textColor="#FFFFFFFF"
         android:paddingBottom="12dp" />
 
     <!-- ===== 操作层选择行 ===== -->
@@ -41,14 +39,18 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="选择操作层: "
-            android:textSize="16sp" />
+            android:textSize="16sp"
+            android:textColor="#FFDDDDDD" />
 
         <!-- 操作层下拉选择器，包含 Common + Layer1-Layer10 -->
         <Spinner
             android:id="@+id/spinner_layer"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_weight="1" />
+            android:layout_weight="1"
+            android:background="@drawable/bg_input"
+            android:textColor="#FFFFFFFF"
+            android:paddingHorizontal="10dp" />
     </LinearLayout>
 
     <!-- ===== 层信息行（名称 + 触发按键） ===== -->
@@ -64,7 +66,10 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="层名称" />
+            android:layout_marginEnd="4dp"
+            android:text="层名称"
+            android:textColor="#FFFFFFFF"
+            android:background="@drawable/bg_button" />
 
         <!-- 编辑当前操作层触发按键（Common 层禁用） -->
         <Button
@@ -72,7 +77,10 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="触发按键" />
+            android:layout_marginStart="4dp"
+            android:text="触发按键"
+            android:textColor="#FFFFFFFF"
+            android:background="@drawable/bg_button" />
     </LinearLayout>
 
     <!-- ===== 按键映射列表标题 ===== -->
@@ -81,6 +89,7 @@
         android:layout_height="wrap_content"
         android:text="按键映射（点击编辑）:"
         android:textSize="16sp"
+        android:textColor="#FFDDDDDD"
         android:paddingTop="8dp"
         android:paddingBottom="8dp" />
 
@@ -93,7 +102,11 @@
         android:id="@+id/list_mappings"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1" />
+        android:layout_weight="1"
+        android:background="@drawable/bg_card"
+        android:divider="#33FFFFFF"
+        android:dividerHeight="1dp"
+        android:padding="6dp" />
 
     <!-- ===== 底部保存按钮 ===== -->
     <Button
@@ -101,6 +114,8 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="保存配置"
-        android:layout_marginTop="8dp" />
+        android:textColor="#FFFFFFFF"
+        android:background="@drawable/bg_button_green"
+        android:layout_marginTop="10dp" />
 
 </LinearLayout>
