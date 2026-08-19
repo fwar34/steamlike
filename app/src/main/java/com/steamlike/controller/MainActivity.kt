@@ -65,6 +65,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var hostEditText: EditText
     /** TCP监听端口输入框 */
     private lateinit var portEditText: EditText
+    /** 主界面滚动容器（用于保存/恢复滚动位置） */
+    private lateinit var mainScroll: ScrollView
 
     // ====================================================================
     // SAF（Storage Access Framework）文件选择器
@@ -121,6 +123,7 @@ class MainActivity : AppCompatActivity() {
         val scroll = ScrollView(this).apply {
             UiKit.applyDarkBackground(this, this@MainActivity)
         }
+        mainScroll = scroll
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(
@@ -147,7 +150,12 @@ class MainActivity : AppCompatActivity() {
         statusText = UiKit.caption(this, "", 0xFFDDDDDD.toInt(), 13f)
         statusCard.addView(statusText)
         statusCard.addView(UiKit.spacer(this, 4))
-        connectionStatusText = UiKit.caption(this, "Client: not started", 0xFFAAAAAA.toInt(), 13f)
+        // 连接状态：固定两行高度，服务广播更新文本时不改变卡片高度，避免页面自动滚动
+        connectionStatusText = UiKit.caption(this, "Client: not started", 0xFFAAAAAA.toInt(), 13f).apply {
+            minLines = 2
+            maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
         statusCard.addView(connectionStatusText)
         statusCard.addView(UiKit.spacer(this, 10))
         // 悬浮窗权限按钮
@@ -194,17 +202,13 @@ class MainActivity : AppCompatActivity() {
         smartCard.addView(captureStatusText)
         smartCard.addView(UiKit.spacer(this, 6))
 
-        // 白名单输入框（支持多个包名，逗号/空格/换行分隔）
-        smartCard.addView(UiKit.label(this, "捕获白名单（支持多个包名，逗号或换行分隔）"))
+        // 白名单输入框（支持多个包名，逗号分隔）
+        smartCard.addView(UiKit.label(this, "捕获白名单（支持多个包名，逗号分隔）"))
         whitelistEditText = UiKit.input(
             this,
             "如: com.winlator, com.winlator.hub",
             appCfg.captureWhitelist.joinToString(",")
-        ).apply {
-            inputType = android.text.InputType.TYPE_CLASS_TEXT or
-                android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
-            minLines = 2
-        }
+        )
         smartCard.addView(whitelistEditText)
         smartCard.addView(UiKit.spacer(this, 6))
 
@@ -259,8 +263,13 @@ class MainActivity : AppCompatActivity() {
                 putExtra(ControllerOverlayService.EXTRA_LAUNCHER_PACKAGE, launcherEditText.text.toString().trim())
             }
             ContextCompat.startForegroundService(this@MainActivity, intent)
-            statusText.append("\n\n✅ 服务已启动！监听 ${host.ifBlank { "0.0.0.0" }}:$port")
-            connectionStatusText.text = "Client: waiting for connection..."
+            // 连接状态由服务广播(ACTION_CLIENT_STATUS)实时更新，不在此手动改文本（避免布局高度变化导致滚动）
+            toastLog("✅ 服务已启动！监听 ${host.ifBlank { "0.0.0.0" }}:$port")
+            // 收起软键盘并清除输入框焦点，避免布局因 IME 弹出/收起而自动滚动
+            hostEditText.clearFocus()
+            portEditText.clearFocus()
+            (getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager)
+                ?.hideSoftInputFromWindow(this@MainActivity.currentFocus?.windowToken, 0)
             logD("Start button clicked, host=$host port=$port")
         }, UiKit.Style.PRIMARY)
         serverCard.addView(startButton)
@@ -272,7 +281,6 @@ class MainActivity : AppCompatActivity() {
             intent.action = ControllerOverlayService.ACTION_STOP
             startService(intent)
             stopService(Intent(this@MainActivity, ControllerOverlayService::class.java))
-            connectionStatusText.text = "Client: service stopped"
             updateUI()
         }, UiKit.Style.DANGER))
         container.addView(serverCard)
@@ -317,34 +325,12 @@ class MainActivity : AppCompatActivity() {
         }, UiKit.Style.DANGER))
         configCard.addView(UiKit.spacer(this, 6))
 
-        // 操作层设置按钮
+        // 操作层设置按钮（不启动手柄映射服务；LayerEditActivity 直接读写配置文件）
         configCard.addView(UiKit.button(
             this,
             "操作层设置",
             onClick = {
-                // 必须先启动服务（LayerEditActivity.steamInputRef 在服务启动后才非空）
-                ensureServiceRunning()
-                if (LayerEditActivity.steamInputRef == null) {
-                    // 服务正在异步初始化，提示并轮询等待最多3秒
-                    toastLog("服务正在初始化，请稍候...")
-                    var waited = 0
-                    val tick = 100
-                    val maxWait = 3000
-                    configStatusText.postDelayed(object : Runnable {
-                        override fun run() {
-                            waited += tick
-                            if (LayerEditActivity.steamInputRef != null) {
-                                startActivity(Intent(this@MainActivity, LayerEditActivity::class.java))
-                            } else if (waited < maxWait) {
-                                configStatusText.postDelayed(this, tick.toLong())
-                            } else {
-                                toastLog("服务初始化超时，请重试", long = true)
-                            }
-                        }
-                    }, tick.toLong())
-                } else {
-                    startActivity(Intent(this@MainActivity, LayerEditActivity::class.java))
-                }
+                startActivity(Intent(this@MainActivity, LayerEditActivity::class.java))
             },
             style = UiKit.Style.PRIMARY
         ))
@@ -503,6 +489,13 @@ class MainActivity : AppCompatActivity() {
 
         scroll.addView(container)
         setContentView(scroll)
+
+        // 恢复上次退出的滚动位置（上划退出/进程重建后回到原位置）
+        mainScroll.post {
+            mainScroll.scrollTo(
+                0, getSharedPreferences(SCROLL_PREFS, MODE_PRIVATE).getInt(KEY_SCROLL_Y, 0)
+            )
+        }
     }
 
     // ====================================================================
@@ -1027,6 +1020,9 @@ class MainActivity : AppCompatActivity() {
         /** 请求 WRITE_EXTERNAL_STORAGE 权限的请求码 (仅 Android 9 及以下使用) */
         private const val REQUEST_WRITE_STORAGE = 1001
         private const val TAG = "SteamLikeUI"
+        /** 主界面滚动位置持久化 */
+        private const val SCROLL_PREFS = "main_scroll"
+        private const val KEY_SCROLL_Y = "scroll_y"
         /** Debug用: 启动 MainActivity 时传入此 extra=true 会自动启动服务并跳转到测试页面 */
         const val EXTRA_AUTO_OPEN_TEST = "auto_open_test"
     }
@@ -1144,6 +1140,11 @@ class MainActivity : AppCompatActivity() {
         super.onPause()
         // 注销广播接收器，避免内存泄漏
         unregisterReceiver(clientStatusReceiver)
+        // 保存滚动位置（下次进入/进程重建后恢复）
+        if (::mainScroll.isInitialized) {
+            getSharedPreferences(SCROLL_PREFS, MODE_PRIVATE).edit()
+                .putInt(KEY_SCROLL_Y, mainScroll.scrollY).apply()
+        }
         logD("onPause: unregistered client status receiver")
     }
 

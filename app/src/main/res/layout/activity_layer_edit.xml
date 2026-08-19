@@ -42,14 +42,12 @@
             android:textSize="16sp"
             android:textColor="#FFDDDDDD" />
 
-        <!-- 操作层下拉选择器，包含 Common + Layer1-Layer10 -->
+        <!-- 操作层下拉选择器，包含 Common + Layer1-Layer10（使用系统默认风格） -->
         <Spinner
             android:id="@+id/spinner_layer"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:background="@drawable/bg_input"
-            android:textColor="#FFFFFFFF"
             android:paddingHorizontal="10dp" />
     </LinearLayout>
 

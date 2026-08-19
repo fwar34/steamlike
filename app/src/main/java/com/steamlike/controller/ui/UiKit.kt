@@ -140,6 +140,9 @@ object UiKit {
             textSize = 14f
             setTextColor(0xFFFFFFFF.toInt())
             isAllCaps = false
+            // 不获取焦点：避免点击后 ScrollView 自动滚动到按钮（触屏下点击回调不受影响）
+            isFocusable = false
+            isFocusableInTouchMode = false
             background = buttonBackground(context, style)
             setOnClickListener { onClick() }
             layoutParams = LinearLayout.LayoutParams(
@@ -148,15 +151,13 @@ object UiKit {
         }
     }
 
-    /** 圆角输入框 */
+    /** 输入框（系统默认样式，文字/提示色适配深色背景） */
     fun input(context: Context, hint: String, value: String = ""): EditText {
         return EditText(context).apply {
             this.hint = hint
             setText(value)
             setTextColor(0xFFFFFFFF.toInt())
             setHintTextColor(0x88AAAAAA.toInt())
-            background = rounded(context, 0x33222222.toInt(), 10, 0x55FFFFFF.toInt(), 1)
-            setPadding(dp(context, 12), dp(context, 8), dp(context, 12), dp(context, 8))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
             )

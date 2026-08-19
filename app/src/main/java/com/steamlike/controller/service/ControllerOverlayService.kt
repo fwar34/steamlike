@@ -22,7 +22,10 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.view.animation.AccelerateInterpolator
+import android.view.animation.DecelerateInterpolator
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -701,10 +704,10 @@ class ControllerOverlayService : Service() {
             if (gamepadInputView == null && mapper != null) {
                 createGamepadInputWindow()
             }
-            // 重新创建悬浮窗 UI（pauseOverlay 已将 overlayView 置 null）
-            // showCollapsedView 内部会读取当前激活层并显示对应文本
+            // 重新创建悬浮窗窗口（pauseOverlay 已将 overlayView 置 null）
+            // createOverlay 内部会创建常驻容器并显示收起胶囊
             if (overlayView == null) {
-                showCollapsedView()
+                createOverlay()
             }
             Log.i(TAG, "Overlay resumed (windows recreated)")
         }
@@ -1058,20 +1061,50 @@ class ControllerOverlayService : Service() {
             x = 0
             y = 100
         }
+
+        // 常驻单窗口容器（FrameLayout）：收起/展开只切换内部子视图，
+        // 不再 removeView/addView 重建窗口，避免系统窗口动画造成的闪烁
+        val frame = FrameLayout(this)
+        overlayView = frame
+        overlayParams?.let { windowManager?.addView(frame, it) }
+        setupOverlayTouchListener(frame)
+        // 初始显示收起胶囊
         showCollapsedView()
     }
 
     /**
      * 显示收起状态的悬浮窗
      *
-     * 移除展开视图（如果存在），创建一个小图标按钮。
-     * 点击小图标切换到展开状态。
+     * 收起状态显示一个小胶囊（当前激活层名），点击展开。
      */
     private fun showCollapsedView() {
-        // 移除展开视图
-        overlayView?.let { windowManager?.removeView(it) }
-        overlayView = null
-        collapsedTextView = null
+        val frame = overlayView as? FrameLayout ?: return
+        if (isExpanded && frame.childCount > 0) {
+            // 展开面板先缩小淡出（离场动画），动画结束后切换到收起胶囊
+            val panel = frame.getChildAt(0)
+            panel.animate()
+                .scaleX(0.6f)
+                .scaleY(0.6f)
+                .alpha(0f)
+                .setDuration(200)
+                .setInterpolator(AccelerateInterpolator())
+                .withEndAction { showCollapsedNow(frame) }
+                .start()
+        } else {
+            showCollapsedNow(frame)
+        }
+    }
+
+    /**
+     * 实际切换到收起状态（单窗口内替换子视图）
+     *
+     * @param frame 悬浮窗常驻容器
+     */
+    private fun showCollapsedNow(frame: FrameLayout) {
+        if (isOverlayPaused) return  // 悬浮窗暂停中不重建
+
+        // 移除旧子视图（与新增同帧完成，无空白帧）
+        frame.removeAllViews()
 
         // 创建收起视图（圆角胶囊：显示当前激活层名，点击展开）
         val collapsed = TextView(this).apply {
@@ -1087,11 +1120,46 @@ class ControllerOverlayService : Service() {
             )
             setPadding(dp(16), dp(8), dp(16), dp(8))
         }
-        setupOverlayTouchListener(collapsed, isCollapsed = true)
-        overlayView = collapsed
         collapsedTextView = collapsed
-        overlayParams?.let { windowManager?.addView(collapsed, it) }
+        frame.addView(collapsed, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        ))
+
+        // 轻量进入动画：起始可见（alpha 0.4 + 缩放 0.9），避免首帧透明造成闪烁
+        collapsed.alpha = 0.4f
+        collapsed.scaleX = 0.9f
+        collapsed.scaleY = 0.9f
+        collapsed.animate()
+            .alpha(1f)
+            .scaleX(1f)
+            .scaleY(1f)
+            .setDuration(200)
+            .setInterpolator(DecelerateInterpolator())
+            .start()
         isExpanded = false
+    }
+
+    /**
+     * 悬浮窗进入动画（淡入 + 缩放 + 下移回弹）
+     *
+     * 用于展开/收起状态切换时的过渡。时长与位移调大，保证动效清晰可见。
+     *
+     * @param view 刚添加的新视图
+     */
+    private fun animateOverlayIn(view: View) {
+        view.alpha = 0f
+        view.scaleX = 0.8f
+        view.scaleY = 0.8f
+        view.translationY = -dp(40).toFloat()
+        view.animate()
+            .alpha(1f)
+            .scaleX(1f)
+            .scaleY(1f)
+            .translationY(0f)
+            .setDuration(420)
+            .setInterpolator(DecelerateInterpolator())
+            .start()
     }
 
     /**
@@ -1137,9 +1205,9 @@ class ControllerOverlayService : Service() {
      * 面板包含"收起"按钮可切换回收起状态。
      */
     private fun showExpandedView() {
-        // 移除收起视图
-        overlayView?.let { windowManager?.removeView(it) }
-        overlayView = null
+        val frame = overlayView as? FrameLayout ?: return
+        // 移除收起胶囊（与新增面板同帧完成，无空白帧）
+        frame.removeAllViews()
 
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1244,9 +1312,13 @@ class ControllerOverlayService : Service() {
         }
         container.addView(hintText)
 
-        setupOverlayTouchListener(container, isCollapsed = false)
-        overlayView = container
-        overlayParams?.let { windowManager?.addView(container, it) }
+        // 添加到常驻容器（frame 已有拖动/点击监听）
+        frame.addView(container, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        ))
+        // 收起→展开：淡入缩放动画
+        animateOverlayIn(container)
         isExpanded = true
 
         // 刷新当前状态（展开后显示最新状态）
@@ -1259,15 +1331,14 @@ class ControllerOverlayService : Service() {
     }
 
     /**
-     * 为悬浮窗视图设置拖动和点击监听
+     * 为悬浮窗常驻容器设置拖动和点击监听
      *
      * - 拖动: 移动悬浮窗位置（收起和展开状态都支持）
-     * - 点击: 收起状态下点击触发展开；展开状态下不拦截按钮点击
+     * - 点击: 收起状态下未移动的点击触发展开；展开状态下不拦截按钮点击
      *
-     * @param view 目标视图
-     * @param isCollapsed 是否为收起状态（收起状态下点击=展开）
+     * @param view 悬浮窗常驻容器（FrameLayout）
      */
-    private fun setupOverlayTouchListener(view: View, isCollapsed: Boolean) {
+    private fun setupOverlayTouchListener(view: View) {
         var initialX = 0
         var initialY = 0
         var initialTouchX = 0f
@@ -1297,7 +1368,7 @@ class ControllerOverlayService : Service() {
                 }
                 MotionEvent.ACTION_UP -> {
                     // 收起状态下，未移动的点击 = 展开
-                    if (!hasMoved && isCollapsed) {
+                    if (!hasMoved && !isExpanded) {
                         showExpandedView()
                         return@setOnTouchListener true
                     }

@@ -22,7 +22,9 @@ import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import com.steamlike.controller.config.AppConfigStore
 import com.steamlike.controller.config.ConfigManager
+import com.steamlike.controller.config.ControllerConfig
 import com.steamlike.controller.core.ControllerButton
 import com.steamlike.controller.service.ControllerOverlayService
 import com.steamlike.controller.core.ControllerProfile
@@ -31,6 +33,7 @@ import com.steamlike.controller.core.MappedAction
 import com.steamlike.controller.core.MouseButton
 import com.steamlike.controller.core.OperationLayer
 import com.steamlike.controller.core.SteamInput
+import java.io.File
 
 /**
  * 操作层设置 Activity
@@ -249,6 +252,14 @@ class LayerEditActivity : AppCompatActivity() {
     /** 当前选中的操作层 */
     private var currentLayer: OperationLayer? = null
 
+    /**
+     * 当前编辑的控制器配置（本地副本）
+     *
+     * 不依赖手柄映射服务运行：优先取服务运行时 [SteamInput.profile]，
+     * 否则从配置文件加载，编辑后写回文件。服务运行时同步到 [SteamInput]。
+     */
+    private var profile: ControllerProfile = ControllerProfile.createDefault()
+
     /** 所有操作层名称列表（用于 Spinner 选项） */
     private var layerNames: List<String> = emptyList()
 
@@ -279,18 +290,15 @@ class LayerEditActivity : AppCompatActivity() {
             setDisplayShowHomeEnabled(true)
         }
 
-        // 检查 SteamInput 实例是否可用（由 ControllerOverlayService 设置）
-        if (steamInputRef == null) {
-            Toast.makeText(this, "控制器服务未启动，请先启动手柄映射服务", Toast.LENGTH_LONG).show()
-            Log.w(TAG, "steamInputRef is null, finishing activity")
-            finish()
-            return
-        }
+        // 加载配置（优先服务运行时 profile，否则从配置文件加载，不依赖服务运行）
+        profile = loadProfile()
 
         // 暂停悬浮窗：全屏焦点窗口会拦截系统手势（边缘返回滑动），
         // 进入设置界面时移除悬浮窗和焦点窗口，让出屏幕给设置界面。
-        // 仅在服务就绪时发送（避免服务未启动时被 startForegroundService 拉起）
-        sendOverlayAction(ControllerOverlayService.ACTION_PAUSE_OVERLAY)
+        // 仅在服务运行时发送（避免未运行时被 startForegroundService 拉起）
+        if (steamInputRef != null) {
+            sendOverlayAction(ControllerOverlayService.ACTION_PAUSE_OVERLAY)
+        }
 
         // 初始化 UI 元素
         layerSpinner = findViewById(R.id.spinner_layer)
@@ -314,7 +322,26 @@ class LayerEditActivity : AppCompatActivity() {
             showMappingEditDialog(button)
         }
 
-        Log.i(TAG, "LayerEditActivity created, profile layers: ${steamInputRef?.profile?.allLayers?.size}")
+        Log.i(TAG, "LayerEditActivity created, profile layers: ${profile.allLayers.size}")
+    }
+
+    /**
+     * 加载控制器配置（不依赖服务运行）
+     *
+     * 优先级：服务运行时 [SteamInput.profile] → 内部配置文件 → 默认配置。
+     */
+    private fun loadProfile(): ControllerProfile {
+        steamInputRef?.profile?.let { return it }
+        val file = File(filesDir, ConfigManager.CONFIG_FILE_NAME)
+        if (file.exists()) {
+            return try {
+                ControllerConfig.fromJson(file.readText())
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to parse config, using default", e)
+                ControllerProfile.createDefault()
+            }
+        }
+        return ControllerProfile.createDefault()
     }
 
     /**
@@ -375,7 +402,7 @@ class LayerEditActivity : AppCompatActivity() {
      * 如果 Intent 携带了 EXTRA_LAYER_NAME，则初始选中该层。
      */
     private fun setupLayerSpinner() {
-        val profile = steamInputRef?.profile ?: return
+        val profile = this.profile
 
         // 获取所有层名称（Common + Layer1-Layer10）
         layerNames = profile.allLayers.map { it.name }
@@ -414,7 +441,7 @@ class LayerEditActivity : AppCompatActivity() {
      * @param name 操作层名称（如 "Common"、"Layer1"）
      */
     private fun loadLayer(name: String) {
-        val profile = steamInputRef?.profile ?: return
+        val profile = this.profile
         currentLayer = profile.findLayer(name)
         refreshMappingsList()
         updateLayerInfoButtons()
@@ -450,7 +477,7 @@ class LayerEditActivity : AppCompatActivity() {
      */
     private fun updateLayerInfoButtons() {
         val layer = currentLayer
-        val profile = steamInputRef?.profile
+        val profile = this.profile
 
         if (layer == null) {
             editLayerNameButton.text = "层名称"
@@ -683,7 +710,7 @@ class LayerEditActivity : AppCompatActivity() {
      */
     private fun showTriggerButtonEditDialog() {
         val layer = currentLayer ?: return
-        val profile = steamInputRef?.profile ?: return
+        val profile = this.profile
 
         // 公共层不能设置触发按键（始终激活，无需触发）
         if (layer === profile.commonLayer) {
@@ -739,10 +766,9 @@ class LayerEditActivity : AppCompatActivity() {
      * @param triggerButton 新的触发按键（null = 无触发按键）
      */
     private fun applyLayerInfoChange(name: String, triggerButton: ControllerButton?) {
-        val si = steamInputRef ?: return
-        val profile = si.profile
         val oldLayer = currentLayer ?: return
         val oldName = oldLayer.name
+        val profile = this.profile
 
         // 创建新的操作层（copy 保持 buttonMappings 引用不变）
         val newLayer = oldLayer.copy(name = name, triggerButton = triggerButton)
@@ -780,11 +806,8 @@ class LayerEditActivity : AppCompatActivity() {
             Log.i(TAG, "Updated SwitchLayer references: $oldName -> $name")
         }
 
-        // 更新 SteamInput 运行时配置
-        si.loadProfile(newProfile)
-
-        // 持久化到内部存储
-        ConfigManager(this, si).saveToInternal(newProfile)
+        // 更新本地配置
+        this.profile = newProfile
 
         // 更新当前层引用（指向新对象）
         currentLayer = if (oldLayer === profile.commonLayer) {
@@ -792,6 +815,9 @@ class LayerEditActivity : AppCompatActivity() {
         } else {
             newProfile.findLayer(name)
         }
+
+        // 保存（写文件 + 服务运行时同步）
+        saveProfile(showToast = false)
 
         // 刷新操作层 Spinner（层名可能已改变）
         refreshLayerSpinner(newName = name)
@@ -805,25 +831,20 @@ class LayerEditActivity : AppCompatActivity() {
     }
 
     /**
-     * 保存当前配置到运行时和内部存储
+     * 保存当前配置到文件（服务运行时同步到 SteamInput）
      *
-     * 调用 [SteamInput.loadProfile] 更新运行时配置，
-     * 调用 [ConfigManager.saveToInternal] 持久化到内部存储文件。
+     * - 写回 `steamlike_config.json`（含运行时配置 settings）
+     * - 若手柄映射服务在运行，同步 [SteamInput.loadProfile]
      *
      * @param showToast 是否显示保存成功提示
      */
     private fun saveProfile(showToast: Boolean) {
-        val si = steamInputRef ?: run {
-            Toast.makeText(this, "控制器服务未启动", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val profile = si.profile
-
-        // 更新 SteamInput 运行时配置（会停用所有激活的操作层）
-        si.loadProfile(profile)
-
-        // 持久化到内部存储
-        ConfigManager(this, si).saveToInternal(profile)
+        // 持久化到配置文件（含运行时设置 settings）
+        val appConfig = AppConfigStore.load(this)
+        File(filesDir, ConfigManager.CONFIG_FILE_NAME)
+            .writeText(ControllerConfig.toJson(profile, 2, appConfig))
+        // 服务运行时同步（不依赖服务也可正常保存）
+        steamInputRef?.let { si -> si.loadProfile(profile) }
 
         if (showToast) {
             Toast.makeText(this, "配置已保存", Toast.LENGTH_SHORT).show()
@@ -844,7 +865,7 @@ class LayerEditActivity : AppCompatActivity() {
      * @param newName 新选中的层名
      */
     private fun refreshLayerSpinner(newName: String) {
-        val profile = steamInputRef?.profile ?: return
+        val profile = this.profile
         suppressLayerSpinnerListener = true
 
         // 重建层名列表

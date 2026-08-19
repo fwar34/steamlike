@@ -45,8 +45,6 @@
             android:id="@+id/spinner_action_type"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@drawable/bg_input"
-            android:textColor="#FFFFFFFF"
             android:paddingHorizontal="10dp"
             android:paddingBottom="10dp" />
 
@@ -63,8 +61,6 @@
             android:id="@+id/spinner_action_value"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@drawable/bg_input"
-            android:textColor="#FFFFFFFF"
             android:paddingHorizontal="10dp"
             android:paddingBottom="14dp" />
 
