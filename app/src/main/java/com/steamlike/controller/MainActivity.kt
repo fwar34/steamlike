@@ -1019,23 +1019,24 @@ class MainActivity : AppCompatActivity() {
     /** 需要导出的文件列表 (assetName → displayName) */
     private val exportFiles = listOf(
         "inputbridge_client.exe" to "inputbridge_client.exe",
-        "control.bat" to "control.bat"
+        "control.bat" to "control.bat",
+        "control.ps1" to "control.ps1"
     )
 
     /**
      * 导出 Windows 客户端文件到 Download/AControler 目录
      *
-     * 从 APK 的 assets 中读取 exe 和 control.bat，写入到公共 Download/AControler 目录。
-     * control.bat 导出时嵌入用户配置的游戏 EXE 路径（脚本先启动客户端，成功后再启动游戏）。
+     * 从 APK 的 assets 中读取 exe、control.bat 和 control.ps1，写入到公共 Download/AControler 目录。
+     * control.bat 和 control.ps1 导出时嵌入用户配置的游戏 EXE 路径（脚本先启动客户端，成功后再启动游戏）。
      */
     private fun exportFilesToDownload() {
         val results = mutableListOf<String>()
         val gameExe = AppConfigStore.load(this).gameExePath
 
         for ((assetName, displayName) in exportFiles) {
-            // 从 assets 读取文件字节（control.bat 模板嵌入游戏路径）
+            // 从 assets 读取文件字节（control.bat 和 control.ps1 模板嵌入游戏路径）
             val bytes = try {
-                if (assetName == "control.bat") {
+                if (assetName == "control.bat" || assetName == "control.ps1") {
                     val template = assets.open(assetName).use { it.readBytes().toString(Charsets.UTF_8) }
                     template.replace(GAME_EXE_PLACEHOLDER, gameExe).toByteArray(Charsets.UTF_8)
                 } else {
@@ -1064,7 +1065,7 @@ class MainActivity : AppCompatActivity() {
             if (gameExe.isBlank()) {
                 "请将文件复制到 Winlator 的 C 盘后运行 control.bat start"
             } else {
-                "游戏路径已写入 control.bat：$gameExe"
+                "游戏路径已写入 control.bat 和 control.ps1：$gameExe"
             }
         } else {
             "导出部分失败:\n" + results.joinToString("\n") { "  $it" }

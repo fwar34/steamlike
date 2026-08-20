@@ -64,7 +64,9 @@ tasks.register("compileWindowsExe") {
     val outputExe = rootProject.file("windows/inputbridge_client.exe")
     val assetsExe = file("src/main/assets/inputbridge_client.exe")
     val controlSource = rootProject.file("windows/control.bat")
-    val assetsControl = file("src/main/assets/control.bat")
+        val assetsControl = file("src/main/assets/control.bat")
+        val controlPs1Source = rootProject.file("windows/control.ps1")
+        val assetsPs1Control = file("src/main/assets/control.ps1")
 
     // 搜索 gcc 路径
     val gccCandidates = listOf(
@@ -118,6 +120,15 @@ tasks.register("compileWindowsExe") {
             logger.lifecycle("Copied control.bat to assets: ${assetsControl.absolutePath}")
         } else {
             logger.warn("windows/control.bat not found, keeping existing assets/control.bat")
+        }
+
+        // 3. 同步 control.ps1 脚本到 assets（保证 APK 内脚本与源码一致）
+        if (controlPs1Source.exists()) {
+            assetsPs1Control.parentFile.mkdirs()
+            controlPs1Source.copyTo(assetsPs1Control, overwrite = true)
+            logger.lifecycle("Copied control.ps1 to assets: ${assetsPs1Control.absolutePath}")
+        } else {
+            logger.warn("windows/control.ps1 not found, keeping existing assets/control.ps1")
         }
     }
 }
