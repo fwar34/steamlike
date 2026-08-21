@@ -5,6 +5,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -100,6 +101,8 @@ class ControllerOverlayService : Service() {
         const val EXTRA_LAUNCHER_PACKAGE = "launcher_package"
         /** 捕获开关 (Boolean) */
         const val EXTRA_CAPTURE_ENABLED = "capture_enabled"
+        /** 切换悬浮窗视图（通知栏按钮触发） */
+        const val ACTION_TOGGLE_OVERLAY = "TOGGLE_OVERLAY"
         /** Intent extra: 配置文件 URI */
         const val EXTRA_CONFIG_URI = "config_uri"
         /** Intent extra: TCP监听地址，空表示监听所有接口 */
@@ -326,6 +329,9 @@ class ControllerOverlayService : Service() {
             }
             ACTION_REFRESH_LAYERS -> {
                 refreshLayerNames()
+            }
+            ACTION_TOGGLE_OVERLAY -> {
+                toggleOverlayView()
             }
         }
         // 首次启动时初始化映射器
@@ -753,6 +759,8 @@ class ControllerOverlayService : Service() {
         if (isOverlayPaused) return
         if (gamepadInputView != null) return  // 已存在，避免重复创建
         gamepadInputView = GamepadInputView(this).also { view ->
+            // Ctrl+Alt+Shift+X 切换悬浮窗（在 GamepadInputView 中直接消费，不发往 Windows）
+            view.onToggleOverlay = { mainHandler.post { toggleOverlayView() } }
             // 转发手柄事件到 KeyboardMouseMapper → SteamInput
             view.onKeyEvent = { event ->
                 mapper?.onKeyEvent(event) ?: false
@@ -1352,21 +1360,23 @@ class ControllerOverlayService : Service() {
      * 展示当前激活层（或公共层）的所有按键映射，格式: X->Space
      * 点击任意区域返回展开视图。
      */
-    private fun showMappingView() {
+    private fun showMappingView(animate: Boolean = true) {
         val frame = overlayView as? FrameLayout ?: return
         frame.removeAllViews()
         isMappingView = true
 
-        val container = LinearLayout(this).apply {
+        val activeLayers = mapper?.getActiveLayers() ?: emptyList()
+        val layerName = if (activeLayers.isEmpty()) "公共层" else activeLayers.last()
+
+        // 内容面板
+        val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = roundedDrawable(COLOR_PANEL, dp(14))
             setPadding(dp(12), dp(10), dp(12), dp(10))
         }
 
         // 标题
-        val activeLayers = mapper?.getActiveLayers() ?: emptyList()
-        val layerName = if (activeLayers.isEmpty()) "公共层" else activeLayers.last()
-        container.addView(TextView(this).apply {
+        content.addView(TextView(this).apply {
             text = "映射 - $layerName"
             textSize = 13f
             setTextColor(0xFFCCCCCC.toInt())
@@ -1376,13 +1386,12 @@ class ControllerOverlayService : Service() {
         // 获取映射列表
         val profile = steamInput?.profile
         if (profile == null) {
-            container.addView(TextView(this).apply {
+            content.addView(TextView(this).apply {
                 text = "无配置"
                 textSize = 11f
                 setTextColor(0xFF888888.toInt())
             })
         } else {
-            // 确定要展示的层：优先激活层，否则公共层
             val targetLayer = if (activeLayers.isNotEmpty()) {
                 profile.findLayer(activeLayers.last())
             } else {
@@ -1390,25 +1399,21 @@ class ControllerOverlayService : Service() {
             }
 
             if (targetLayer != null) {
-                // 合并：目标层自己的映射 + 公共层中目标层未覆盖的映射
                 val mappings = mutableMapOf<ControllerButton, KeyMapping>()
-                // 先放公共层
                 profile.commonLayer.buttonMappings.forEach { (btn, mapping) ->
                     mappings[btn] = mapping
                 }
-                // 再用目标层覆盖（仅公共层中的映射会显示，目标层独有的也显示）
                 targetLayer.buttonMappings.forEach { (btn, mapping) ->
                     mappings[btn] = mapping
                 }
 
                 if (mappings.isEmpty()) {
-                    container.addView(TextView(this).apply {
+                    content.addView(TextView(this).apply {
                         text = "无映射"
                         textSize = 11f
                         setTextColor(0xFF888888.toInt())
                     })
                 } else {
-                    // 按 ControllerButton 枚举顺序排列
                     val sortedMappings = ControllerButton.entries
                         .filter { it in mappings }
                         .map { it to mappings[it]!! }
@@ -1426,14 +1431,14 @@ class ControllerOverlayService : Service() {
                             LinearLayout.LayoutParams.WRAP_CONTENT
                         )
                         params.setMargins(0, dp(1), 0, dp(1))
-                        container.addView(item, params)
+                        content.addView(item, params)
                     }
                 }
             }
         }
 
         // 提示文本
-        container.addView(TextView(this).apply {
+        content.addView(TextView(this).apply {
             text = "长按任意处返回"
             textSize = 9f
             setTextColor(0xFF666666.toInt())
@@ -1441,18 +1446,20 @@ class ControllerOverlayService : Service() {
             gravity = android.view.Gravity.CENTER
         })
 
-        // 长按任意处返回展开视图
-        container.setOnLongClickListener {
+        // 单击任意处收起悬浮窗
+        content.setOnClickListener {
             isMappingView = false
-            showExpandedView()
-            true
+            showCollapsedView()
         }
 
-        frame.addView(container, FrameLayout.LayoutParams(
+        frame.addView(content, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT,
             FrameLayout.LayoutParams.WRAP_CONTENT
         ))
-        animateOverlayIn(container)
+
+        if (animate) {
+            animateOverlayIn(content)
+        }
     }
 
     /**
@@ -1661,7 +1668,26 @@ class ControllerOverlayService : Service() {
      */
     private fun updateMappingView() {
         if (!isMappingView) return
-        showMappingView()
+        showMappingView(animate = false)
+    }
+
+    /**
+     * 切换悬浮窗视图：收起→展开，展开→映射列表，映射列表→展开
+     */
+    private fun toggleOverlayView() {
+        if (isOverlayPaused) return
+        when {
+            isMappingView -> {
+                isMappingView = false
+                showExpandedView()
+            }
+            isExpanded -> {
+                showMappingView()
+            }
+            else -> {
+                showExpandedView()
+            }
+        }
     }
 
     /**
@@ -1711,11 +1737,20 @@ class ControllerOverlayService : Service() {
             manager.createNotificationChannel(channel)
         }
 
+        val toggleIntent = Intent(this, ControllerOverlayService::class.java).apply {
+            action = ACTION_TOGGLE_OVERLAY
+        }
+        val togglePending = PendingIntent.getService(
+            this, 0, toggleIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("SteamLike手柄控制器")
             .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setOngoing(true)
+            .addAction(0, "切换视图", togglePending)
             .build()
     }
 

@@ -46,6 +46,9 @@ class GamepadInputView(context: Context) : View(context) {
     /** MotionEvent 回调（摇杆/扳机），返回 true=已处理 */
     var onGenericMotion: ((MotionEvent) -> Boolean)? = null
 
+    /** 悬浮窗切换回调（Ctrl+Alt+Shift+X 触发），在主线程调用 */
+    var onToggleOverlay: (() -> Unit)? = null
+
     init {
         // 必须设置可获焦点，才能接收 KeyEvent
         isFocusable = true
@@ -53,6 +56,14 @@ class GamepadInputView(context: Context) : View(context) {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Ctrl+Alt+Shift+X 切换悬浮窗，仅本 APK 消费，不发送到 Windows
+        if (event.action == KeyEvent.ACTION_DOWN
+            && event.keyCode == KeyEvent.KEYCODE_X
+            && event.isCtrlPressed && event.isAltPressed && event.isShiftPressed
+        ) {
+            onToggleOverlay?.invoke()
+            return true
+        }
         val handled = onKeyEvent?.invoke(event) ?: false
         return handled || super.dispatchKeyEvent(event)
     }
