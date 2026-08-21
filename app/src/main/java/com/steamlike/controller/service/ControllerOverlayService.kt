@@ -37,6 +37,8 @@ import com.steamlike.controller.config.AppConfig
 import com.steamlike.controller.config.AppConfigStore
 import com.steamlike.controller.config.ConfigManager
 import com.steamlike.controller.config.ControllerConfig
+import com.steamlike.controller.core.ControllerButton
+import com.steamlike.controller.core.KeyMapping
 import com.steamlike.controller.core.SteamInput
 import com.steamlike.controller.injection.BridgeInputInjector
 import com.steamlike.controller.injection.GamepadInputView
@@ -137,8 +139,8 @@ class ControllerOverlayService : Service() {
         private val DEFAULT_LAYER_NAME_REGEX = Regex("Layer\\d+")
 
         // ===== 悬浮窗配色 =====
-        /** 展开面板背景（近实深色，圆角） */
-        private const val COLOR_PANEL = 0xF21C1C1C.toInt()
+        /** 展开面板背景（实深色，圆角） */
+        private const val COLOR_PANEL = 0xFF1C1C1C.toInt()
         /** 层按钮正常态背景 */
         private const val COLOR_LAYER_NORMAL = 0xCC333333.toInt()
         /** 层按钮激活态背景（绿色） */
@@ -157,6 +159,8 @@ class ControllerOverlayService : Service() {
         private const val COLOR_BTN_DANGER_PRESSED = 0xCCD32F2F.toInt()
         /** 收起胶囊边框 */
         private const val COLOR_COLLAPSED_STROKE = 0x66FFFFFF
+        /** 按键映射列表项背景 */
+        private const val COLOR_MAPPING_ITEM = 0xDD222222.toInt()
     }
 
     private var windowManager: WindowManager? = null
@@ -181,8 +185,9 @@ class ControllerOverlayService : Service() {
     private val layerButtons = mutableMapOf<String, Button>()
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
-    // 悬浮窗收起/展开状态
+    // 悬浮窗收起/展开/映射列表状态
     private var isExpanded = false
+    private var isMappingView = false
     private var overlayParams: WindowManager.LayoutParams? = null
 
     /**
@@ -388,6 +393,7 @@ class ControllerOverlayService : Service() {
                     updateLayerText(layers)
                     updateLayerButtonColors(layers)
                     updateCollapsedViewText(layers)
+                    updateMappingView()
                 }
 
                 if (mapper?.start() == true) {
@@ -1085,6 +1091,7 @@ class ControllerOverlayService : Service() {
      */
     private fun showCollapsedView() {
         val frame = overlayView as? FrameLayout ?: return
+        isMappingView = false
         if (isExpanded && frame.childCount > 0) {
             // 展开面板先缩小淡出（离场动画），动画结束后切换到收起胶囊
             val panel = frame.getChildAt(0)
@@ -1286,13 +1293,16 @@ class ControllerOverlayService : Service() {
         primaryRow.addView(captureButton!!)
         container.addView(primaryRow)
 
-        // 次操作行：清除层 + 收起 + 关闭（关闭红色）
+        // 次操作行：清除层 + 映射 + 收起 + 关闭（关闭红色）
         val secondaryRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, dp(3), 0, 0)
         }
         secondaryRow.addView(
             createOverlayButton("清除层", { mapper?.clearAllLayers() }, weight = 1f, textSize = 11f)
+        )
+        secondaryRow.addView(
+            createOverlayButton("映射", { showMappingView() }, weight = 1f, textSize = 11f)
         )
         secondaryRow.addView(
             createOverlayButton("收起", { showCollapsedView() }, weight = 1f, textSize = 11f)
@@ -1334,6 +1344,115 @@ class ControllerOverlayService : Service() {
         }
         // 同步"暂停/恢复捕获"按钮文本（与捕获开关一致）
         captureButton?.text = if (captureEnabled) "暂停捕获" else "恢复捕获"
+    }
+
+    /**
+     * 显示按键映射列表视图
+     *
+     * 展示当前激活层（或公共层）的所有按键映射，格式: X->Space
+     * 点击任意区域返回展开视图。
+     */
+    private fun showMappingView() {
+        val frame = overlayView as? FrameLayout ?: return
+        frame.removeAllViews()
+        isMappingView = true
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = roundedDrawable(COLOR_PANEL, dp(14))
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+        }
+
+        // 标题
+        val activeLayers = mapper?.getActiveLayers() ?: emptyList()
+        val layerName = if (activeLayers.isEmpty()) "公共层" else activeLayers.last()
+        container.addView(TextView(this).apply {
+            text = "映射 - $layerName"
+            textSize = 13f
+            setTextColor(0xFFCCCCCC.toInt())
+            setPadding(0, 0, 0, dp(4))
+        })
+
+        // 获取映射列表
+        val profile = steamInput?.profile
+        if (profile == null) {
+            container.addView(TextView(this).apply {
+                text = "无配置"
+                textSize = 11f
+                setTextColor(0xFF888888.toInt())
+            })
+        } else {
+            // 确定要展示的层：优先激活层，否则公共层
+            val targetLayer = if (activeLayers.isNotEmpty()) {
+                profile.findLayer(activeLayers.last())
+            } else {
+                profile.commonLayer
+            }
+
+            if (targetLayer != null) {
+                // 合并：目标层自己的映射 + 公共层中目标层未覆盖的映射
+                val mappings = mutableMapOf<ControllerButton, KeyMapping>()
+                // 先放公共层
+                profile.commonLayer.buttonMappings.forEach { (btn, mapping) ->
+                    mappings[btn] = mapping
+                }
+                // 再用目标层覆盖（仅公共层中的映射会显示，目标层独有的也显示）
+                targetLayer.buttonMappings.forEach { (btn, mapping) ->
+                    mappings[btn] = mapping
+                }
+
+                if (mappings.isEmpty()) {
+                    container.addView(TextView(this).apply {
+                        text = "无映射"
+                        textSize = 11f
+                        setTextColor(0xFF888888.toInt())
+                    })
+                } else {
+                    // 按 ControllerButton 枚举顺序排列
+                    val sortedMappings = ControllerButton.entries
+                        .filter { it in mappings }
+                        .map { it to mappings[it]!! }
+
+                    sortedMappings.forEach { (btn, mapping) ->
+                        val item = TextView(this).apply {
+                            text = "${btn.name} -> ${mapping.describe()}"
+                            textSize = 11f
+                            setTextColor(0xFFFFFFFF.toInt())
+                            setPadding(dp(8), dp(3), dp(8), dp(3))
+                            background = roundedDrawable(COLOR_MAPPING_ITEM, dp(6))
+                        }
+                        val params = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT
+                        )
+                        params.setMargins(0, dp(1), 0, dp(1))
+                        container.addView(item, params)
+                    }
+                }
+            }
+        }
+
+        // 提示文本
+        container.addView(TextView(this).apply {
+            text = "长按任意处返回"
+            textSize = 9f
+            setTextColor(0xFF666666.toInt())
+            setPadding(0, dp(6), 0, 0)
+            gravity = android.view.Gravity.CENTER
+        })
+
+        // 长按任意处返回展开视图
+        container.setOnLongClickListener {
+            isMappingView = false
+            showExpandedView()
+            true
+        }
+
+        frame.addView(container, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        ))
+        animateOverlayIn(container)
     }
 
     /**
@@ -1536,6 +1655,16 @@ class ControllerOverlayService : Service() {
     }
 
     /**
+     * 更新按键映射列表视图（层切换时自动刷新）
+     *
+     * 仅在映射列表视图显示时生效，重新构建映射内容。
+     */
+    private fun updateMappingView() {
+        if (!isMappingView) return
+        showMappingView()
+    }
+
+    /**
      * 获取悬浮窗层按钮的 (内部名, 显示名) 列表，与 app 内部配置动态同步
      *
      * - 未重命名的层（name 形如 "LayerN"）→ 显示预设中文名（战斗/骑乘/...）
@@ -1562,7 +1691,8 @@ class ControllerOverlayService : Service() {
     private fun refreshLayerNames() {
         mainHandler.post {
             if (isOverlayPaused) return@post  // 设置界面期间不重建
-            if (isExpanded) {
+            if (isExpanded || isMappingView) {
+                isMappingView = false
                 showExpandedView()
             } else {
                 updateCollapsedViewText(mapper?.getActiveLayers() ?: emptyList())
