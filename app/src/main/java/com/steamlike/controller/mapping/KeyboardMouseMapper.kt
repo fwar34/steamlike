@@ -275,6 +275,12 @@ class KeyboardMouseMapper(
             is MappedAction.MouseMove, is MappedAction.LookAround -> {
                 // 摇杆动作，在 handleStick 中处理
             }
+            is MappedAction.MouseScrollUp -> {
+                handleMouseScroll(button, SCROLL_DELTA)
+            }
+            is MappedAction.MouseScrollDown -> {
+                handleMouseScroll(button, -SCROLL_DELTA)
+            }
         }
     }
 
@@ -416,6 +422,19 @@ class KeyboardMouseMapper(
             toggledMouseButtons[button] = mouseButton
             Log.d(TAG, "Toggle MouseDown: $mouseButton")
         }
+    }
+
+    /**
+     * 处理鼠标滚轮映射
+     *
+     * 每次按下发送一次滚轮事件（不需要松开）。
+     *
+     * @param button 手柄按钮
+     * @param delta 滚轮增量（正数=上滚，负数=下滚）
+     */
+    private fun handleMouseScroll(button: ControllerButton, delta: Float) {
+        injector.sendMouseScroll(delta)
+        Log.d(TAG, "MouseScroll: delta=$delta")
     }
 
     /**
@@ -581,5 +600,8 @@ class KeyboardMouseMapper(
          * 每 tick 位移 1~4px，配合余量累积实现平滑连续移动。
          */
         private const val LOOK_TICK_MS = 8L
+
+        /** 鼠标滚轮增量（每次按下发送的滚轮量） */
+        private const val SCROLL_DELTA = 120f
     }
 }

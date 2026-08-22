@@ -94,6 +94,22 @@ sealed class MappedAction {
      * @param button 鼠标按钮（[MouseButton.LEFT]/[MouseButton.RIGHT]等）
      */
     data class MouseToggle(val button: MouseButton) : MappedAction()
+
+    /**
+     * 鼠标滚轮上滚动作
+     *
+     * 将手柄按键映射为鼠标滚轮向上滚动（发送一次固定增量的滚轮事件）。
+     * 每次按下发送一次滚轮上滚，无需松开。
+     */
+    data object MouseScrollUp : MappedAction()
+
+    /**
+     * 鼠标滚轮下滚动作
+     *
+     * 将手柄按键映射为鼠标滚轮向下滚动（发送一次固定增量的滚轮事件）。
+     * 每次按下发送一次滚轮下滚，无需松开。
+     */
+    data object MouseScrollDown : MappedAction()
 }
 
 /**
@@ -149,6 +165,8 @@ data class KeyMapping(
             is MappedAction.MouseMove -> parts.add("鼠标移动")
             is MappedAction.LookAround -> parts.add("视角控制")
             is MappedAction.MouseToggle -> parts.add("长按${action.button.toDisplayName()}")
+            is MappedAction.MouseScrollUp -> parts.add("滚轮上滚")
+            is MappedAction.MouseScrollDown -> parts.add("滚轮下滚")
         }
         subCommands.forEach { parts.add(keyCodeToName(it)) }
         return parts.joinToString("+")

@@ -778,6 +778,10 @@ class ControllerOverlayService : Service() {
         gamepadInputView?.post {
             gamepadInputView?.requestFocus()
         }
+        // 延迟再次请求焦点，确保窗口动画完成后仍获得焦点
+        gamepadInputView?.postDelayed({
+            gamepadInputView?.requestFocus()
+        }, 300)
         Log.i(TAG, "GamepadInputView created (capturing enabled)")
     }
 
@@ -843,11 +847,8 @@ class ControllerOverlayService : Service() {
         AppConfigStore.save(this, cfg)
         Log.i(TAG, "Capture switch: $enabled")
         if (enabled) {
-            // 智能监控运行时由它决定是否恢复（依据前台应用）；未运行
-            // （智能暂停关闭/未授权手动模式）时直接恢复捕获
-            if (!smartMonitorRunning) {
-                mainHandler.post { resumeCapturing() }
-            }
+            // 用户手动恢复：立即恢复捕获，不受智能监控状态影响
+            mainHandler.post { resumeCapturing() }
         } else {
             // 手动暂停：移除焦点窗口（下层应用恢复右滑返回）
             mainHandler.post { pauseCapturing() }
@@ -874,6 +875,8 @@ class ControllerOverlayService : Service() {
      * 例如从桌面快速回到 Winlator 游戏。
      * 拥有 SYSTEM_ALERT_WINDOW 权限的应用从后台启动 Activity 属于豁免场景，
      * 不受 Android 10+ 后台启动限制。
+     *
+     * 拉起应用后自动收起悬浮窗（缩到最小胶囊），避免遮挡游戏画面。
      */
     private fun launchGameApp() {
         val pkg = launcherPackage
@@ -887,6 +890,12 @@ class ControllerOverlayService : Service() {
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 startActivity(intent)
                 Log.i(TAG, "Launch app: $pkg")
+                // 拉起应用后自动收起悬浮窗，避免遮挡游戏画面
+                mainHandler.post {
+                    if (isExpanded || isMappingView) {
+                        showCollapsedView()
+                    }
+                }
             } else {
                 toast("未找到应用 $pkg，请在 App 内检查拉起应用包名")
             }

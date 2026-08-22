@@ -300,12 +300,7 @@ class LayerEditActivity : AppCompatActivity() {
         // 加载配置（优先服务运行时 profile，否则从配置文件加载，不依赖服务运行）
         profile = loadProfile()
 
-        // 暂停悬浮窗：全屏焦点窗口会拦截系统手势（边缘返回滑动），
-        // 进入设置界面时移除悬浮窗和焦点窗口，让出屏幕给设置界面。
-        // 仅在服务运行时发送（避免未运行时被 startForegroundService 拉起）
-        if (steamInputRef != null) {
-            sendOverlayAction(ControllerOverlayService.ACTION_PAUSE_OVERLAY)
-        }
+        // 注意：不再暂停悬浮窗，用户要求进入设置页面时悬浮窗保持可见
 
         // 初始化 UI 元素
         layerSpinner = findViewById(R.id.spinner_layer)
@@ -372,14 +367,10 @@ class LayerEditActivity : AppCompatActivity() {
     /**
      * Activity 销毁时调用
      *
-     * 通知 ControllerOverlayService 恢复悬浮窗和焦点窗口（**仅在服务运行时**，
-     * 服务未运行时发送会通过 startForegroundService 主动拉起手柄映射）。
+     * 注意：不再需要恢复悬浮窗，因为进入设置页面时没有暂停悬浮窗。
      */
     override fun onDestroy() {
         super.onDestroy()
-        if (steamInputRef != null) {
-            sendOverlayAction(ControllerOverlayService.ACTION_RESUME_OVERLAY)
-        }
     }
 
     /**
@@ -538,8 +529,10 @@ class LayerEditActivity : AppCompatActivity() {
         tvButtonName.text = "编辑按键: ${buttonDisplayName(button)}"
 
         // ===== 设置动作类型 Spinner =====
-        // 0=未设置(取消映射), 1=键盘按键, 2=鼠标点击, 3=鼠标长按, 4=切换操作层
-        val actionTypes = listOf("未设置", "键盘按键", "鼠标点击", "鼠标长按", "切换操作层")
+        // 0=未设置(取消映射), 1=键盘按键, 2=鼠标点击, 3=鼠标长按, 4=切换操作层,
+        // 5=滚轮上滚, 6=滚轮下滚
+        val actionTypes = listOf("未设置", "键盘按键", "鼠标点击", "鼠标长按", "切换操作层",
+            "滚轮上滚", "滚轮下滚")
         spinnerActionType.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, actionTypes).also {
             it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         }
@@ -550,6 +543,8 @@ class LayerEditActivity : AppCompatActivity() {
             is MappedAction.MouseClick -> 2
             is MappedAction.MouseToggle -> 3
             is MappedAction.SwitchLayer -> 4
+            is MappedAction.MouseScrollUp -> 5
+            is MappedAction.MouseScrollDown -> 6
             is MappedAction.MouseMove, is MappedAction.LookAround -> 0  // 摇杆专用，显示未设置
             null -> 0  // 未映射 → 未设置
         }
@@ -594,9 +589,11 @@ class LayerEditActivity : AppCompatActivity() {
         }
         updateAddSubCommandButton(btnAddSubCommand, subCommandSpinners.size)
 
-        // 子命令区域可见性（未设置/切换操作层时隐藏，因为子命令对二者无效）
+        // 子命令区域可见性（未设置/切换操作层/滚轮时隐藏）
         layoutSubCommands.visibility =
-            if (initialActionType == 0 || initialActionType == 4) View.GONE else View.VISIBLE
+            if (initialActionType == 0 || initialActionType == 4 ||
+                initialActionType == 5 || initialActionType == 6)
+                View.GONE else View.VISIBLE
 
         // ===== 动作类型切换监听器 =====
         // 用户切换动作类型时，更新动作值 Spinner 的选项
@@ -604,9 +601,10 @@ class LayerEditActivity : AppCompatActivity() {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 // 重新设置动作值 Spinner 的选项
                 setupActionValueSpinner(spinnerActionValue, tvActionLabel, position)
-                // 未设置/切换操作层时隐藏子命令区域
+                // 未设置/切换操作层/滚轮时隐藏子命令区域
                 layoutSubCommands.visibility =
-                    if (position == 0 || position == 4) View.GONE else View.VISIBLE
+                    if (position == 0 || position == 4 || position == 5 || position == 6)
+                        View.GONE else View.VISIBLE
             }
 
             override fun onNothingSelected(parent: AdapterView<*>?) {}
@@ -925,6 +923,14 @@ class LayerEditActivity : AppCompatActivity() {
                 label.text = "选择目标层:"
                 layerNames
             }
+            5 -> {  // 滚轮上滚
+                label.text = "按下时发送滚轮上滚事件"
+                listOf("（滚轮上滚）")
+            }
+            6 -> {  // 滚轮下滚
+                label.text = "按下时发送滚轮下滚事件"
+                listOf("（滚轮下滚）")
+            }
             else -> emptyList()
         }
 
@@ -954,6 +960,8 @@ class LayerEditActivity : AppCompatActivity() {
             3 -> {  // 切换操作层
                 MappedAction.SwitchLayer(layerNames[valuePosition])
             }
+            4 -> MappedAction.MouseScrollUp   // 滚轮上滚
+            5 -> MappedAction.MouseScrollDown  // 滚轮下滚
             else -> MappedAction.KeyboardKey(keyboardKeyOptions[0].second)
         }
     }

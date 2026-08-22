@@ -108,6 +108,13 @@ interface InputInjector {
     fun sendMouseMove(dx: Float, dy: Float)
 
     /**
+     * 鼠标滚轮滚动
+     *
+     * @param delta 滚轮增量（正数=上滚，负数=下滚）
+     */
+    fun sendMouseScroll(delta: Float)
+
+    /**
      * 释放所有按下的键和按钮
      *
      * 在以下场景调用:

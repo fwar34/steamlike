@@ -264,6 +264,12 @@ object ControllerConfig {
             is MappedAction.LookAround -> {
                 json.put("type", "lookAround")
             }
+            is MappedAction.MouseScrollUp -> {
+                json.put("type", "mouseScrollUp")
+            }
+            is MappedAction.MouseScrollDown -> {
+                json.put("type", "mouseScrollDown")
+            }
         }
         return json
     }
@@ -293,6 +299,8 @@ object ControllerConfig {
             }
             "mouseMove" -> MappedAction.MouseMove
             "lookAround" -> MappedAction.LookAround
+            "mouseScrollUp" -> MappedAction.MouseScrollUp
+            "mouseScrollDown" -> MappedAction.MouseScrollDown
             else -> null
         }
     }

@@ -127,6 +127,14 @@ class BridgeInputInjector(
     }
 
     /**
+     * 发送鼠标滚轮事件
+     * @param delta 滚轮增量（正数=上滚，负数=下滚）
+     */
+    override fun sendMouseScroll(delta: Float) {
+        server.sendMouseWheel(delta)
+    }
+
+    /**
      * 释放所有按下的键和按钮
      * 通知Windows客户端执行释放操作
      */

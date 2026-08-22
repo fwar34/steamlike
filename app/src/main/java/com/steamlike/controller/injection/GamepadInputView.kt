@@ -83,6 +83,8 @@ class GamepadInputView(context: Context) : View(context) {
         super.onWindowFocusChanged(hasWindowFocus)
         if (hasWindowFocus) {
             requestFocus()
+            // 延迟再次请求焦点，确保在窗口动画完成后仍获得焦点
+            postDelayed({ requestFocus() }, 200)
         }
     }
 
