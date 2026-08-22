@@ -1638,7 +1638,8 @@ class ControllerOverlayService : Service() {
 
                     sortedMappings.forEach { (btn, mapping) ->
                         val item = TextView(this).apply {
-                            text = "${btn.name} -> ${mapping.describe()}"
+                            // 使用与按键映射设置页一致的显示名（LB/RB/L2/R2 等），而非枚举原名
+                            text = "${LayerEditActivity.buttonDisplayName(btn)} -> ${mapping.describe()}"
                             textSize = 11f
                             setTextColor(0xFFFFFFFF.toInt())
                             setPadding(dp(8), dp(3), dp(8), dp(3))

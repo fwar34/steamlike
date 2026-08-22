@@ -33,7 +33,8 @@
             android:exported="true"
             android:alwaysRetainTaskState="true"
             android:windowSoftInputMode="adjustResize|stateHidden"
-            android:configChanges="orientation|screenSize|keyboard|keyboardHidden|navigation">
+            android:configChanges="orientation|screenSize|keyboard|keyboardHidden|navigation"
+            android:theme="@style/Theme.AppCompat.DayNight.NoActionBar">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
