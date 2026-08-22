@@ -823,33 +823,30 @@ class ControllerOverlayService : Service() {
     }
 
     /**
-     * 暂停手柄捕获
+     * 暂停手柄捕获：移除 1x1 焦点输入窗口，恢复系统边缘滑动返回手势。
      *
-     * 默认保留 1x1 焦点输入窗口：窗口不遮挡屏幕边缘（不影响系统右滑返回手势），
-     * 同时继续接收手柄按键，使"切换捕获"键在暂停后仍能恢复捕获
-     * （事件经 dispatchKeyEvent → dispatchKeyEventWhilePaused 处理切换动作）。
+     * 有焦点的 overlay 窗口（即使 1x1）会吃掉 Android 预测式返回手势，实测在这台
+     * 设备上暂停后右滑返回无效；必须真正移除窗口才能恢复手势。
      *
-     * @param removeWindow true=同时移除焦点窗口（键盘弹出等场景，需把输入焦点
-     *   让给下层应用），此时暂停后手柄按键无法恢复，仅能靠悬浮窗按钮/主界面开关恢复
+     * 移除窗口后手柄按键无法再到达本应用（无障碍按键过滤在这台 MIUI 上未被授予，
+     * capabilities=0），因此暂停后无法用手柄"切换捕获"键恢复，只能通过悬浮窗
+     * "恢复捕获"按钮或主界面开关恢复（见 [resumeCapturing]）。
      */
-    fun pauseCapturing(removeWindow: Boolean = false) {
+    fun pauseCapturing() {
         val wasCapturing = isCapturing
-        // 即使已处于暂停态（isCapturing=false 但保留了 1x1 窗口），
-        // removeWindow=true 仍要移除窗口（如键盘弹出场景需让出输入焦点）
-        if (removeWindow) {
-            gamepadInputView?.let { windowManager?.removeView(it) }
-            gamepadInputView = null
-        }
+        // 始终移除焦点输入窗口
+        gamepadInputView?.let { windowManager?.removeView(it) }
+        gamepadInputView = null
         if (!wasCapturing) {
-            Log.i(TAG, if (removeWindow) "Focus window removed (already paused)" else "Already paused, nothing done")
+            Log.i(TAG, "Focus window removed (already paused)")
             return
         }
         steamInput?.isCapturing = false
         isCapturing = false
-        // 不再依赖无障碍服务转发；暂停后手柄按键经保留的 1x1 焦点窗口到达应用
+        // 无障碍转发路径已弃用（该设备未授予按键过滤能力）
         GamepadAccessibilityService.onPausedKeyEvent = null
         updateCaptureButtonState()
-        Log.i(TAG, if (removeWindow) "Capturing paused (focus window removed)" else "Capturing paused (1x1 focus window kept)")
+        Log.i(TAG, "Capturing paused (focus window removed)")
     }
 
     fun resumeCapturing() {
@@ -859,8 +856,7 @@ class ControllerOverlayService : Service() {
         manualPaused = false
         // 恢复捕获后焦点窗口重新接收按键，清除无障碍转发
         GamepadAccessibilityService.onPausedKeyEvent = null
-        // 兼容暂停时保留窗口的情况：窗口仍存在则无需重建；
-        // 若被 pauseCapturing(removeWindow=true) 移除（键盘弹出场景）则重建
+        // 暂停时焦点窗口已被 pauseCapturing 移除，恢复捕获时重新创建
         if (gamepadInputView == null && !isOverlayPaused && mapper != null) {
             createGamepadInputWindow()
         }
