@@ -1354,3 +1354,35 @@ Device not detected. Checking adb devices.
 
 ---
 
+## 最终结论（更新于 2026-08-22，以下内容覆盖上文各中间阶段的描述）
+
+### 暂停捕获方案（最终版）
+
+- **暂停捕获 = 真正移除 1x1 焦点窗口**（`ControllerOverlayService.pauseCapturing()`），恢复 Android 预测式返回/侧滑返回手势。
+- **代价**：移除窗口后手柄按键无法再到达应用，**"切换捕获"手柄键在暂停后无法恢复捕获**。恢复只能通过：
+  1. 悬浮窗展开面板 → "恢复捕获"按钮
+  2. App 内"手柄捕获"开关
+- 上文 998-1007 行"1x1 窗口保留方案"、1134 行"窗口保留，所以暂停后手柄'切换捕获'键仍能恢复捕获"均为**中间过程，已被本方案取代**。
+
+### 无障碍按键过滤方案（已弃用）
+
+- 曾尝试 `GamepadAccessibilityService` + `FLAG_REQUEST_FILTER_KEY_EVENTS` 在暂停时全局接收手柄按键用于恢复捕获。
+- **实测这台小米设备未授予该能力**：服务可开启但 `dumpsys accessibility` 显示 `capabilities=0`，系统设置无"按键过滤"开关，`onKeyEvent` 从不触发（MIUI 阉割）。
+- 类保留仅用于能力检测，新代码不得依赖。
+
+### 切换键盘（IME 转发链路，最终版）
+
+- 按"切换键盘"弹出软键盘时**保持捕获（不暂停）**，软键盘绑定到 1x1 焦点窗口（IME 只能绑定本进程有焦点的窗口，Winlator 是独立进程无法直接绑定）。
+- 输入内容经 `InputConnection` → `forwardImeChar`/`forwardImeKey` 映射为 Windows VK → TCP → Windows 端 `SendInput` 注入 WoW。
+- **去重**：只有 `CONTROL_KEY_CODES`（回车/方向/翻页等）走按键事件通道 `onImeKey`；可打印字符仅走文本通道（`commitText`/`setComposingText`），否则 `BaseInputConnection(view, false)` 的 fallback 会重复派发 → "按一个字母出现两个"。
+- **退格**：`sendKeyEvent` 中 `KEYCODE_DEL` → `'\b'`（VK_BACK）、`KEYCODE_FORWARD_DEL` → `'\u007F'`（VK_DELETE）。
+- **键盘隐藏恢复**：点击键盘自身隐藏按钮/返回键/输入法失活 → `handleImeHidden()` 恢复捕获（insets 变化 / `closeConnection` / `onKeyPreIme` 三路信号驱动，`isKeyboardShowing` 守卫）。
+- 上文 1030-1052 行"先移除焦点窗口再弹键盘"为**已被推翻的中间方案**。
+
+### 悬浮窗 / App 界面
+
+- 悬浮窗"暂停/恢复捕获"按钮文字跟随实际捕获状态 `isCapturing`，与 App 内"手柄捕获"开关双向同步（广播 + 持久化）。
+- 暂停时收起胶囊显示"⏸"标记。
+
+---
+

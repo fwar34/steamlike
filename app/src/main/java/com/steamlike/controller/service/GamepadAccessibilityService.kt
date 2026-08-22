@@ -7,14 +7,28 @@ import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 
 /**
- * 无障碍服务：暂停捕获时接收手柄按键，用于恢复捕获
+ * 无障碍服务：暂停捕获时接收手柄按键，用于恢复捕获（**已弃用**）
  *
+ * ## 背景
  * 暂停捕获时 [ControllerOverlayService.pauseCapturing] 会移除 GamepadInputView
  * 焦点窗口，此后手柄事件无法再到达应用，导致"切换捕获"键无法恢复捕获。
- *
- * 本服务通过按键过滤（FLAG_REQUEST_FILTER_KEY_EVENTS）在暂停状态下全局接收
- * 手柄按键事件，转发给 [ControllerOverlayService] 注册的 [onPausedKeyEvent] 回调，
+ * 本服务曾尝试通过按键过滤（FLAG_REQUEST_FILTER_KEY_EVENTS）在暂停状态下全局
+ * 接收手柄按键，转发给 [ControllerOverlayService] 注册的 [onPausedKeyEvent] 回调，
  * 从而让"切换捕获"键在暂停后仍能恢复捕获。
+ *
+ * ## 现状（已弃用）
+ * 实测这台 MIUI 设备**没有授予按键过滤能力**：服务可正常开启，但
+ * `dumpsys accessibility` 显示 capabilities=0，系统设置中也没有"按键过滤"开关，
+ * [onKeyEvent] 永远不会被调用。因此该方案无法工作。
+ *
+ * ## 最终方案
+ * 暂停捕获 = 真正移除焦点窗口（恢复侧滑返回手势），放弃手柄键恢复捕获。
+ * 暂停后只能通过悬浮窗"恢复捕获"按钮或主界面捕获开关恢复（见
+ * [ControllerOverlayService.resumeCapturing]）。
+ *
+ * ## 本类保留原因
+ * 保留代码用于：① 在支持按键过滤的设备上验证能力（[hasKeyFiltering]）；
+ * ② 万一后续系统授予该能力，逻辑仍可直接启用。新代码不应依赖本类。
  *
  * 捕获进行中（焦点窗口存在）时 [onPausedKeyEvent] 为 null，[onKeyEvent] 直接
  * 返回 false 穿透事件，不干扰正常输入。
@@ -22,7 +36,7 @@ import android.view.accessibility.AccessibilityEvent
  * 按键过滤能力的获取方式：XML 中不声明 flagRequestFilterKeyEvents，而是在
  * [onServiceConnected] 中运行时动态请求该 flag 并重新赋值 serviceInfo，以触发
  * Android 13+ 的系统授权弹窗（或要求用户在服务详情中开启"按键过滤"）。
- * 用户授权与否通过 [hasKeyFiltering] 反映，暂停捕获时据此提示用户。
+ * 用户授权与否通过 [hasKeyFiltering] 反映。
  */
 class GamepadAccessibilityService : AccessibilityService() {
 

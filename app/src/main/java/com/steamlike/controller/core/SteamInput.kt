@@ -339,9 +339,9 @@ class SteamInput(context: Context) {
      * @return true=已处理
      */
     fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        // 暂停捕获时仅处理切换类动作（ToggleCapture/ToggleOverlay/ToggleKeyboard），
-        // 使"切换捕获"键在暂停状态下仍能恢复捕获。1x1 焦点窗口在暂停时保留，
-        // 手柄按键继续经此路径到达应用（不依赖无障碍服务）。
+        // 暂停捕获时走 dispatchKeyEventWhilePaused 处理切换类动作。
+        // 注意：现在暂停捕获会真正移除焦点窗口，手柄事件到不了应用，此分支
+        // 实际只会由无障碍按键过滤转发路径触发（该能力在本机未授予，已弃用）。
         if (!isCapturing) return dispatchKeyEventWhilePaused(event)
         if (!event.isFromSource(InputDevice.SOURCE_GAMEPAD) &&
             !event.isFromSource(InputDevice.SOURCE_DPAD) &&
@@ -359,14 +359,18 @@ class SteamInput(context: Context) {
     }
 
     /**
-     * 暂停捕获状态下处理按键（无障碍服务转发）
+     * 暂停捕获状态下处理按键（无障碍转发路径，当前已弃用）
      *
-     * 暂停捕获时 GamepadInputView 焦点窗口被移除，手柄事件无法再到达应用，
-     * 由无障碍服务全局接收按键后转发到此方法。
+     * 暂停捕获时 [ControllerOverlayService.pauseCapturing] 会真正移除 GamepadInputView
+     * 焦点窗口，手柄事件无法再到达应用。本方法原本设计为：由无障碍服务全局接收
+     * 按键后转发到此处，处理"切换捕获"等 Toggle 动作以便暂停后恢复。
+     *
+     * 但实测这台 MIUI 设备未授予无障碍按键过滤能力（capabilities=0），[GamepadAccessibilityService]
+     * 的 onKeyEvent 不会被调用，因此**本方法当前实际上不会被触发**。暂停后恢复捕获
+     * 只能通过悬浮窗"恢复捕获"按钮或主界面捕获开关。保留本方法以兼容旧调用点。
      *
      * 仅处理切换类动作（[MappedAction.ToggleCapture]/[MappedAction.ToggleOverlay]/
-     * [MappedAction.ToggleKeyboard]），用于在暂停状态下恢复捕获等场景。
-     * 不处理普通按键映射，避免暂停时仍向游戏注入键鼠事件。
+     * [MappedAction.ToggleKeyboard]），不处理普通按键映射，避免暂停时仍向游戏注入键鼠事件。
      *
      * @param event 系统按键事件
      * @return true=已处理（拦截该按键）

@@ -58,6 +58,9 @@ Unit tests are pure JVM (no device needed). Test files are under `app/src/test/`
 - **`ControllerOverlayService`** is the central orchestrator: creates `SteamInput`, `BridgeInputInjector`, `InputBridgeServer`, `KeyboardMouseMapper`, and the overlay views.
 - **`LayerEditActivity.steamInputRef`** is a static reference set by the service — the settings UI depends on the service running.
 - **LayerEditActivity pauses/resumes the overlay** on create/destroy (via Intent actions) to avoid blocking Android back gestures.
+- **Pause capture removes the focus window**: `pauseCapturing()` truly removes the 1x1 focus window (restoring the Android predictive-back swipe gesture). Consequence: while paused, gamepad events can't reach the app, so the `ToggleCapture` gamepad key cannot resume capture — resume via the overlay "恢复捕获" button or MainActivity's "手柄捕获" switch.
+- **Accessibility key-filtering is unavailable/deprecated**: `GamepadAccessibilityService` attempted `FLAG_REQUEST_FILTER_KEY_EVENTS` to receive gamepad keys while paused, but this MIUI device grants no key-filtering capability (capabilities=0, no "按键过滤" toggle in settings), so `onKeyEvent` never fires. The class is kept only for capability checks; new code must not rely on it.
+- **IME keyboard keeps capture active**: `ToggleKeyboard` shows the soft keyboard bound to the 1x1 focus window (IME can only bind to this process's focused window). Typed text/keys are forwarded over TCP as Windows VK codes and injected via SendInput. Showing the keyboard does NOT pause capture.
 - Config is persisted as version=2 JSON at `{internal storage}/files/steamlike_config.json`.
 
 ## Gotchas
@@ -68,3 +71,4 @@ Unit tests are pure JVM (no device needed). Test files are under `app/src/test/`
 - **GCC is optional**: the APK builds without GCC. The bundled exe in assets is used as fallback.
 - **`val` immutability on `OperationLayer`**: `name` and `triggerButton` are `val`. Use `copy()` to modify them (see `LayerEditActivity`).
 - **Single-process Windows client**: uses named mutex `Global\SteamLikeInputBridgeClient`.
+- **IME double-input guard**: only `CONTROL_KEY_CODES` (ENTER/TAB/DPAD/ESCAPE/PAGE_UP/PAGE_DOWN/MOVE_HOME/MOVE_END) go through the key-event channel (`onImeKey`); printable chars are injected only via the text channel (`commitText`/`setComposingText`). Forwarding printables in `sendKeyEvent` too would double-inject because `BaseInputConnection(view, false)`'s fallback also dispatches characters to the view.

@@ -110,14 +110,13 @@ class GamepadInputView(context: Context) : View(context) {
     var onToggleOverlay: (() -> Unit)? = null
 
     /**
-     * 是否正在捕获（控制映射器是否处理非切换动作）
+     * 是否正在捕获（历史字段，当前无实际作用）
      *
-     * true（捕获中）：映射器处理所有动作（键盘/鼠标/切换层等）
-     * false（暂停中）：映射器仅处理切换动作（ToggleCapture/ToggleKeyboard/ToggleOverlay），
-     *     普通手柄事件仍被转发到映射器，但映射器忽略非切换动作
-     *
-     * GamepadInputView 始终可获焦点，始终转发事件到映射器。
-     * 切换逻辑由映射器内部的 isCapturing 标志控制。
+     * 早期实现里映射器依据本字段决定是否处理非切换动作。现在捕获/暂停由
+     * [ControllerOverlayService.isCapturing] 统一管理：**暂停捕获时整个
+     * GamepadInputView 会被 WindowManager 移除**（恢复侧滑返回手势），事件根本
+     * 到不了本 View；恢复捕获时才重新创建窗口。本字段已不再被读取，保留仅为
+     * 兼容旧逻辑。
      */
     var isCapturing: Boolean = true
 

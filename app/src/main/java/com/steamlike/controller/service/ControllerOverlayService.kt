@@ -71,6 +71,11 @@ import com.steamlike.controller.mapping.WoWActionSets
  *
  * 注意: 焦点窗口捕获手柄事件后，触摸事件通过 FLAG_NOT_TOUCHABLE 穿透到 Winlator，
  * 用户仍可正常触摸操作 Winlator 界面。
+ *
+ * 注意: 有焦点的 overlay 窗口（即使 1x1）会让 Android 14+ 预测式返回手势失效。
+ * 因此提供"暂停捕获"：暂停时**真正移除焦点窗口**以恢复侧滑返回手势，代价是
+ * 手柄按键不再到达应用，恢复捕获需通过悬浮窗"恢复捕获"按钮或主界面开关
+ * （无障碍按键过滤方案已弃用，见 GamepadAccessibilityService）。
  */
 class ControllerOverlayService : Service() {
 
@@ -282,9 +287,9 @@ class ControllerOverlayService : Service() {
     /**
      * 系统键盘是否正在显示
      *
-     * 键盘显示时暂停捕获（移除 GamepadInputView），
-     * 使键盘输入能到达目标应用而非被焦点窗口消费。
-     * 键盘隐藏时恢复捕获。
+     * 键盘显示时**保持捕获**（不暂停、不移除 GamepadInputView）：软键盘绑定到
+     * 1x1 焦点窗口，键入内容经 IME 转发到 Windows 注入 WoW，同时手柄事件仍可
+     * 继续到达本应用。键盘隐藏时若捕获已暂停则恢复捕获。
      */
     @Volatile
     private var isKeyboardShowing = false
@@ -780,7 +785,7 @@ class ControllerOverlayService : Service() {
      *
      * 注意: 有焦点的 TYPE_APPLICATION_OVERLAY 窗口会让 Android 14+ 预测式返回手势
      * 失效（系统认为有窗口可能要处理返回键）。因此需要提供"暂停捕获"按钮，
-     * 用户需要右滑返回时手动暂停。
+     * 用户需要右滑返回时手动暂停；暂停会真正移除本窗口（见 [pauseCapturing]）。
      */
     private fun createGamepadInputWindow() {
         if (isOverlayPaused) return
@@ -1006,12 +1011,12 @@ class ControllerOverlayService : Service() {
     /**
      * 切换安卓系统键盘显示/隐藏
      *
-     * 弹出键盘：**保留 1x1 焦点窗口**并让软键盘绑定到它（软键盘只能绑定本进程
-     * 有焦点的窗口，Winlator 是独立进程无法直接绑定），暂停捕获避免手柄误触发
-     * 游戏动作；键入的文本经 IME → [forwardImeChar]/[forwardImeKey] → TCP →
-     * Windows SendInput 注入 WoW。
+     * 弹出键盘：**保持捕获、保留 1x1 焦点窗口**并让软键盘绑定到它（软键盘只能
+     * 绑定本进程有焦点的窗口，Winlator 是独立进程无法直接绑定）。键入的文本经
+     * IME → [forwardImeChar]/[forwardImeKey] → TCP → Windows SendInput 注入 WoW；
+     * 手柄事件仍继续到达本应用（不暂停捕获）。
      *
-     * 隐藏键盘：隐藏键盘并恢复捕获。
+     * 隐藏键盘：隐藏键盘并恢复捕获（若捕获已暂停）。
      *
      * 暂停捕获状态下也可调用（直接弹出/隐藏键盘）。
      */

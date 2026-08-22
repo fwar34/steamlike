@@ -169,11 +169,13 @@ class KeyboardMouseMapper(
     var onToggleCapture: (() -> Unit)? = null
 
     /**
-     * 是否正在捕获（暂停时仅处理切换动作）
+     * 是否正在捕获（历史字段，当前无实际作用）
      *
-     * true：处理所有映射动作
-     * false：仅处理切换动作（ToggleCapture/ToggleKeyboard/ToggleOverlay），
-     *     忽略键盘/鼠标/层切换等动作
+     * 早期设计中暂停捕获时由服务设置此字段，映射器据此仅处理切换动作。
+     * 现在暂停捕获会直接移除 GamepadInputView 焦点窗口，事件根本到不了映射器；
+     * 捕获状态由 [com.steamlike.controller.service.ControllerOverlayService.isCapturing]
+     * 与 [com.steamlike.controller.core.SteamInput.isCapturing] 统一管理。
+     * 本字段已不再被读写，保留仅为兼容旧逻辑。
      */
     var isCapturing: Boolean = true
 
