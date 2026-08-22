@@ -1,6 +1,7 @@
 package com.steamlike.controller.injection
 
 import android.content.Context
+import android.util.Log
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
@@ -27,68 +28,17 @@ import android.os.Build
  *      └─ dispatchGenericMotionEvent() → 摇杆移动/扳机按压（左/右摇杆, LT/RT）
  * ```
  *
- * ## 与Shizuku方案的对比
- * | 特性        | Shizuku(getevent)       | GamepadInputView(焦点)         |
- * |------------|-------------------------|--------------------------------|
- * | 依赖        | 需安装Shizuku应用+授权    | 仅需悬浮窗权限                  |
- * | 触摸穿透    | 不影响触摸               | FLAG_NOT_TOUCHABLE穿透          |
- * | 摇杆精度    | 原始轴值(0~255)          | Android已归一化(-1.0~1.0)       |
- * | 设备识别    | 需手动解析getevent设备   | Android自动识别手柄设备          |
- * | 稳定性      | 依赖getevent进程         | 系统原生事件分发                 |
+ * ## 悬浮窗切换快捷键
+ * 手柄 Home 键（KEYCODE_BUTTON_MODE）切换悬浮窗展开/收起/映射列表。
+ * 同时支持物理键盘 Ctrl+Shift+X。
  *
  * @param context Context
  */
 class GamepadInputView(context: Context) : View(context) {
 
-    /** KeyEvent 回调（按钮按下/释放），返回 true=已处理 */
-    var onKeyEvent: ((KeyEvent) -> Boolean)? = null
-
-    /** MotionEvent 回调（摇杆/扳机），返回 true=已处理 */
-    var onGenericMotion: ((MotionEvent) -> Boolean)? = null
-
-    /** 悬浮窗切换回调（Ctrl+Alt+Shift+X 触发），在主线程调用 */
-    var onToggleOverlay: (() -> Unit)? = null
-
-    init {
-        // 必须设置可获焦点，才能接收 KeyEvent
-        isFocusable = true
-        isFocusableInTouchMode = true
-    }
-
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        // Ctrl+Alt+Shift+X 切换悬浮窗，仅本 APK 消费，不发送到 Windows
-        if (event.action == KeyEvent.ACTION_DOWN
-            && event.keyCode == KeyEvent.KEYCODE_X
-            && event.isCtrlPressed && event.isAltPressed && event.isShiftPressed
-        ) {
-            onToggleOverlay?.invoke()
-            return true
-        }
-        val handled = onKeyEvent?.invoke(event) ?: false
-        return handled || super.dispatchKeyEvent(event)
-    }
-
-    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
-        val handled = onGenericMotion?.invoke(event) ?: false
-        return handled || super.dispatchGenericMotionEvent(event)
-    }
-
-    /**
-     * 窗口焦点变化时自动重新请求焦点
-     *
-     * 当用户切到其他应用再切回时，窗口可能失去焦点。
-     * 此回调在窗口重新获得焦点时自动 requestFocus()。
-     */
-    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
-        super.onWindowFocusChanged(hasWindowFocus)
-        if (hasWindowFocus) {
-            requestFocus()
-            // 延迟再次请求焦点，确保在窗口动画完成后仍获得焦点
-            postDelayed({ requestFocus() }, 200)
-        }
-    }
-
     companion object {
+        private const val TAG = "GamepadInputView"
+
         /**
          * 创建用于添加到 WindowManager 的 LayoutParams
          *
@@ -118,6 +68,66 @@ class GamepadInputView(context: Context) : View(context) {
                 // 设置软输入模式：不调整布局，避免焦点窗口被IME遮挡
                 softInputMode = LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN
             }
+        }
+    }
+
+    /** KeyEvent 回调（按钮按下/释放），返回 true=已处理 */
+    var onKeyEvent: ((KeyEvent) -> Boolean)? = null
+
+    /** MotionEvent 回调（摇杆/扳机），返回 true=已处理 */
+    var onGenericMotion: ((MotionEvent) -> Boolean)? = null
+
+    /** 悬浮窗切换回调（组合键触发），在主线程调用 */
+    var onToggleOverlay: (() -> Unit)? = null
+
+    init {
+        // 必须设置可获焦点，才能接收 KeyEvent
+        isFocusable = true
+        isFocusableInTouchMode = true
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // 手柄 Home 键（KEYCODE_BUTTON_MODE）切换悬浮窗
+        if (event.action == KeyEvent.ACTION_DOWN
+            && event.keyCode == KeyEvent.KEYCODE_BUTTON_MODE
+        ) {
+            Log.i(TAG, "Toggle overlay: Home/Mode button")
+            onToggleOverlay?.invoke()
+            return true
+        }
+
+        // 同时支持键盘的 Ctrl+Shift+X（物理键盘场景）
+        if (event.action == KeyEvent.ACTION_DOWN
+            && event.keyCode == KeyEvent.KEYCODE_X
+            && event.isCtrlPressed && event.isShiftPressed
+            && !event.isAltPressed
+        ) {
+            Log.i(TAG, "Toggle overlay: Ctrl+Shift+X")
+            onToggleOverlay?.invoke()
+            return true
+        }
+
+        val handled = onKeyEvent?.invoke(event) ?: false
+        return handled || super.dispatchKeyEvent(event)
+    }
+
+    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        val handled = onGenericMotion?.invoke(event) ?: false
+        return handled || super.dispatchGenericMotionEvent(event)
+    }
+
+    /**
+     * 窗口焦点变化时自动重新请求焦点
+     *
+     * 当用户切到其他应用再切回时，窗口可能失去焦点。
+     * 此回调在窗口重新获得焦点时自动 requestFocus()。
+     */
+    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+        super.onWindowFocusChanged(hasWindowFocus)
+        if (hasWindowFocus) {
+            requestFocus()
+            // 延迟再次请求焦点，确保在窗口动画完成后仍获得焦点
+            postDelayed({ requestFocus() }, 200)
         }
     }
 }

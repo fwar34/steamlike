@@ -1685,17 +1685,12 @@ class ControllerOverlayService : Service() {
      */
     private fun toggleOverlayView() {
         if (isOverlayPaused) return
-        when {
-            isMappingView -> {
-                isMappingView = false
-                showExpandedView()
-            }
-            isExpanded -> {
-                showMappingView()
-            }
-            else -> {
-                showExpandedView()
-            }
+        if (isMappingView) {
+            // 映射列表 → 收起
+            showCollapsedView()
+        } else {
+            // 收起或展开 → 映射列表
+            showMappingView()
         }
     }
 
