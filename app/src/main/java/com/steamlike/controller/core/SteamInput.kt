@@ -339,7 +339,10 @@ class SteamInput(context: Context) {
      * @return true=已处理
      */
     fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (!isCapturing) return false
+        // 暂停捕获时仅处理切换类动作（ToggleCapture/ToggleOverlay/ToggleKeyboard），
+        // 使"切换捕获"键在暂停状态下仍能恢复捕获。1x1 焦点窗口在暂停时保留，
+        // 手柄按键继续经此路径到达应用（不依赖无障碍服务）。
+        if (!isCapturing) return dispatchKeyEventWhilePaused(event)
         if (!event.isFromSource(InputDevice.SOURCE_GAMEPAD) &&
             !event.isFromSource(InputDevice.SOURCE_DPAD) &&
             !event.isFromSource(InputDevice.SOURCE_JOYSTICK)

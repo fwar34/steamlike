@@ -20,11 +20,13 @@ import android.os.Process
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.animation.AccelerateInterpolator
 import android.view.animation.DecelerateInterpolator
+import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -793,6 +795,15 @@ class ControllerOverlayService : Service() {
             view.onGenericMotion = { event ->
                 mapper?.onGenericMotionEvent(event) ?: false
             }
+            // IME 软键盘输入 → TCP → Windows SendInput 注入 WoW
+            view.onImeChar = { ch -> forwardImeChar(ch) }
+            view.onImeKey = { event -> forwardImeKey(event) }
+            // 键盘被隐藏（点击键盘自身隐藏按钮/返回键/输入法失活）→ 恢复捕获。
+            // 系统不会给应用直接回调，由 GamepadInputView 通过 insets 变化 /
+            // 连接关闭 / 返回键三种信号驱动
+            view.onImeHidden = { mainHandler.post { handleImeHidden() } }
+            view.onImeClosed = { mainHandler.post { handleImeHidden() } }
+            view.onImeBackPressed = { mainHandler.post { handleImeHidden() } }
         }
 
         val params = GamepadInputView.createLayoutParams()
@@ -814,32 +825,31 @@ class ControllerOverlayService : Service() {
     /**
      * 暂停手柄捕获
      *
-     * 移除可获焦点的 GamepadInputView 窗口，恢复系统边缘滑动手势
-     * （Android 13+ 预测式返回 / Winlator 边缘右滑返回桌面）。
+     * 默认保留 1x1 焦点输入窗口：窗口不遮挡屏幕边缘（不影响系统右滑返回手势），
+     * 同时继续接收手柄按键，使"切换捕获"键在暂停后仍能恢复捕获
+     * （事件经 dispatchKeyEvent → dispatchKeyEventWhilePaused 处理切换动作）。
      *
-     * 注意：有焦点的 TYPE_APPLICATION_OVERLAY 窗口即使把 `isCapturing` 置 false，
-     * 仍会吃掉系统预测式返回手势，必须真正移除窗口才能恢复手势。
-     * 恢复捕获请通过悬浮窗"恢复捕获"按钮 / MainActivity 开关调用 [resumeCapturing]。
+     * @param removeWindow true=同时移除焦点窗口（键盘弹出等场景，需把输入焦点
+     *   让给下层应用），此时暂停后手柄按键无法恢复，仅能靠悬浮窗按钮/主界面开关恢复
      */
-    fun pauseCapturing() {
-        if (!isCapturing) return
-        // 移除焦点输入窗口，恢复系统边缘滑动手势（右滑返回桌面）
-        gamepadInputView?.let { windowManager?.removeView(it) }
-        gamepadInputView = null
+    fun pauseCapturing(removeWindow: Boolean = false) {
+        val wasCapturing = isCapturing
+        // 即使已处于暂停态（isCapturing=false 但保留了 1x1 窗口），
+        // removeWindow=true 仍要移除窗口（如键盘弹出场景需让出输入焦点）
+        if (removeWindow) {
+            gamepadInputView?.let { windowManager?.removeView(it) }
+            gamepadInputView = null
+        }
+        if (!wasCapturing) {
+            Log.i(TAG, if (removeWindow) "Focus window removed (already paused)" else "Already paused, nothing done")
+            return
+        }
         steamInput?.isCapturing = false
         isCapturing = false
-        // 注册无障碍按键转发：暂停后焦点窗口已移除，手柄事件经无障碍服务回到应用，
-        // 使"切换捕获"键仍能触发恢复捕获
-        GamepadAccessibilityService.onPausedKeyEvent = { event ->
-            steamInput?.dispatchKeyEventWhilePaused(event) ?: false
-        }
-        if (!GamepadAccessibilityService.isConnected) {
-            toast("已暂停捕获；未开启无障碍服务，恢复请用悬浮窗按钮或主界面开关")
-        } else if (!GamepadAccessibilityService.hasKeyFiltering) {
-            toast("已暂停捕获；无障碍按键过滤未授权，恢复请用悬浮窗按钮或主界面开关，或到无障碍服务详情开启\"按键过滤\"")
-        }
+        // 不再依赖无障碍服务转发；暂停后手柄按键经保留的 1x1 焦点窗口到达应用
+        GamepadAccessibilityService.onPausedKeyEvent = null
         updateCaptureButtonState()
-        Log.i(TAG, "Capturing paused (focus window removed)")
+        Log.i(TAG, if (removeWindow) "Capturing paused (focus window removed)" else "Capturing paused (1x1 focus window kept)")
     }
 
     fun resumeCapturing() {
@@ -849,12 +859,18 @@ class ControllerOverlayService : Service() {
         manualPaused = false
         // 恢复捕获后焦点窗口重新接收按键，清除无障碍转发
         GamepadAccessibilityService.onPausedKeyEvent = null
-        // 重新创建被 pauseCapturing 移除的焦点输入窗口
+        // 兼容暂停时保留窗口的情况：窗口仍存在则无需重建；
+        // 若被 pauseCapturing(removeWindow=true) 移除（键盘弹出场景）则重建
         if (gamepadInputView == null && !isOverlayPaused && mapper != null) {
             createGamepadInputWindow()
         }
+        // 主动重新请求焦点（键盘隐藏后窗口可能失去焦点，手柄事件需窗口有焦点才能路由）
+        gamepadInputView?.let { view ->
+            view.post { view.requestFocus() }
+            view.postDelayed({ view.requestFocus() }, 200)
+        }
         updateCaptureButtonState()
-        Log.i(TAG, "Capturing resumed (focus window recreated)")
+        Log.i(TAG, "Capturing resumed (focus window ${if (gamepadInputView == null) "missing, not recreated" else "kept"})")
     }
 
     /**
@@ -994,13 +1010,17 @@ class ControllerOverlayService : Service() {
     /**
      * 切换安卓系统键盘显示/隐藏
      *
-     * 弹出键盘：先弹出键盘（窗口仍有焦点时），再暂停捕获
-     * 隐藏键盘：隐藏键盘，如果是自动暂停则恢复捕获
+     * 弹出键盘：**保留 1x1 焦点窗口**并让软键盘绑定到它（软键盘只能绑定本进程
+     * 有焦点的窗口，Winlator 是独立进程无法直接绑定），暂停捕获避免手柄误触发
+     * 游戏动作；键入的文本经 IME → [forwardImeChar]/[forwardImeKey] → TCP →
+     * Windows SendInput 注入 WoW。
+     *
+     * 隐藏键盘：隐藏键盘并恢复捕获。
      *
      * 暂停捕获状态下也可调用（直接弹出/隐藏键盘）。
      */
     private fun toggleSystemKeyboard() {
-        val imm = getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
         if (imm == null) {
             toast("无法获取输入法管理器")
             return
@@ -1008,26 +1028,109 @@ class ControllerOverlayService : Service() {
 
         if (isKeyboardShowing) {
             // 键盘正在显示 → 隐藏键盘
-            @Suppress("DEPRECATION")
-            imm.hideSoftInputFromWindow(overlayView?.windowToken ?: gamepadInputView?.windowToken, 0)
+            imm.hideSoftInputFromWindow(gamepadInputView?.windowToken, 0)
             isKeyboardShowing = false
-            // 如果当前暂停中且不是手动暂停 → 恢复捕获
-            if (!isCapturing && !manualPaused) {
+            manualPaused = false
+            if (!isCapturing) {
                 mainHandler.post { resumeCapturing() }
             }
-            Log.i(TAG, "Keyboard hidden")
+            // 键盘隐藏后主动重新请求焦点：1x1 焦点窗口可能在 IME 交互后失去焦点，
+            // 手柄事件需窗口有焦点才能继续路由到本应用
+            mainHandler.postDelayed({
+                gamepadInputView?.let { view ->
+                    view.requestFocus()
+                    view.postDelayed({ view.requestFocus() }, 200)
+                }
+            }, 100)
+            Log.i(TAG, "Keyboard hidden, capture resumed")
         } else {
-            // 键盘未显示 → 弹出键盘 → 暂停捕获
-            // 先弹出键盘（此时窗口仍有焦点），再暂停捕获
-            @Suppress("DEPRECATION")
-            imm.toggleSoftInput(android.view.inputmethod.InputMethodManager.SHOW_FORCED, 0)
+            // 键盘未显示 → 暂停捕获（保留窗口）并弹出键盘
             isKeyboardShowing = true
-            // 暂停捕获（让键盘输入到达目标应用）
+            manualPaused = true
             if (isCapturing) {
-                manualPaused = true
-                mainHandler.post { pauseCapturing() }
+                pauseCapturing()
             }
-            Log.i(TAG, "Keyboard shown, capture paused")
+            mainHandler.post {
+                gamepadInputView?.let { view ->
+                    view.requestFocus()
+                    imm.showSoftInput(view, 0)
+                }
+                Log.i(TAG, "Keyboard requested (1x1 focus window kept)")
+            }
+        }
+    }
+
+    /**
+     * IME 键盘已被隐藏（点击键盘自身隐藏按钮/返回键/输入法失活）→ 恢复捕获。
+     *
+     * 与 [toggleSystemKeyboard] 的隐藏分支执行相同清理，但由 GamepadInputView 的
+     * insets / 连接关闭 / 返回键信号驱动，而非"切换键盘"手柄键。
+     *
+     * 注意：这些信号在键盘未显示时也可能触发（如窗口 insets 变化），
+     * 用 [isKeyboardShowing] 守卫，仅当确实认为键盘在显示时才处理。
+     */
+    private fun handleImeHidden() {
+        if (!isKeyboardShowing) return
+        isKeyboardShowing = false
+        manualPaused = false
+        if (!isCapturing) {
+            mainHandler.post { resumeCapturing() }
+        }
+        // 键盘隐藏后主动重新请求焦点：1x1 焦点窗口可能在 IME 交互后失去焦点，
+        // 手柄事件需窗口有焦点才能继续路由到本应用
+        mainHandler.postDelayed({
+            gamepadInputView?.let { view ->
+                view.requestFocus()
+                view.postDelayed({ view.requestFocus() }, 200)
+            }
+        }, 100)
+        Log.i(TAG, "Keyboard hidden detected (IME signal), capture resumed")
+    }
+
+    /**
+     * 转发 IME 单个字符到 Windows 注入
+     *
+     * - '\b': 退格 VK_BACK (0x08)
+     * - '\u007F': 向前删除 VK_DELETE (0x2E)
+     * - 普通字符: 按 [BridgeInputInjector.charToWindowsVK] 转为 VK + 必要时
+     *   按下 Shift（VK_LSHIFT=0xA0）后注入按下/释放
+     */
+    private fun forwardImeChar(ch: Char) {
+        val server = bridgeServer ?: return
+        Log.d(TAG, "forwardImeChar ch='$ch' code=${ch.code}")
+        when (ch) {
+            '\b' -> {
+                server.sendKeyEvent(0x08, true)   // VK_BACK
+                server.sendKeyEvent(0x08, false)
+            }
+            '\u007F' -> {
+                server.sendKeyEvent(0x2E, true)   // VK_DELETE
+                server.sendKeyEvent(0x2E, false)
+            }
+            else -> {
+                val (vk, shift) = BridgeInputInjector.charToWindowsVK(ch) ?: return
+                if (shift) server.sendKeyEvent(0xA0, true)  // VK_LSHIFT
+                server.sendKeyEvent(vk, true)
+                server.sendKeyEvent(vk, false)
+                if (shift) server.sendKeyEvent(0xA0, false)
+            }
+        }
+    }
+
+    /**
+     * 转发 IME 特殊按键事件到 Windows 注入
+     *
+     * 仅处理按下事件（一次注入完整的按下+释放），把 Android KeyCode 映射为
+     * Windows VK 后发送。退格/删除已在 [forwardImeChar] 处理，不会重复。
+     */
+    private fun forwardImeKey(event: KeyEvent) {
+        if (event.action != KeyEvent.ACTION_DOWN) return
+        val server = bridgeServer ?: return
+        val vk = BridgeInputInjector.androidKeyCodeToWindowsVK(event.keyCode)
+        if (vk != 0) {
+            Log.d(TAG, "forwardImeKey key=${event.keyCode} vk=0x${vk.toString(16)}")
+            server.sendKeyEvent(vk, true)
+            server.sendKeyEvent(vk, false)
         }
     }
 

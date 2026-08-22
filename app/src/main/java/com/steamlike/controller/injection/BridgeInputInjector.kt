@@ -156,15 +156,16 @@ class BridgeInputInjector(
     // Android KeyCode → Windows VK Code 映射表
     // ====================================================================
 
-    /**
-     * 将Android KeyCode转换为Windows虚拟键码
-     *
-     * Windows VK Code参考: https://docs.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes
-     *
-     * @param androidKeyCode Android KeyEvent.KEYCODE_* 常量
-     * @return Windows VK Code，0=无对应映射
-     */
-    private fun androidKeyCodeToWindowsVK(androidKeyCode: Int): Int {
+    companion object {
+        /**
+         * 将Android KeyCode转换为Windows虚拟键码
+         *
+         * Windows VK Code参考: https://docs.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes
+         *
+         * @param androidKeyCode Android KeyEvent.KEYCODE_* 常量
+         * @return Windows VK Code，0=无对应映射
+         */
+        fun androidKeyCodeToWindowsVK(androidKeyCode: Int): Int {
         return when (androidKeyCode) {
             // ===== 字母 A-Z =====
             KeyEvent.KEYCODE_A -> 0x41  // VK_A
@@ -278,6 +279,60 @@ class BridgeInputInjector(
             KeyEvent.KEYCODE_SCROLL_LOCK -> 0x91   // VK_SCROLL
 
             else -> 0  // 无对应映射
+        }
+        }
+
+        /**
+         * 将单个字符映射为 Windows 虚拟键码及是否需要 Shift
+         *
+         * 用于把 IME 软键盘输入的文本转为 Windows VK 键码注入（配合 Shift 上档）。
+         * 仅覆盖 ASCII 可打印字符；无法映射的字符返回 null（忽略）。
+         *
+         * @param c 输入字符
+         * @return (VK Code, 是否需要Shift) 或 null=无对应映射
+         */
+        fun charToWindowsVK(c: Char): Pair<Int, Boolean>? {
+            return when {
+                c in 'a'..'z' -> (0x41 + (c - 'a')) to false  // VK_A..VK_Z
+                c in 'A'..'Z' -> (0x41 + (c - 'A')) to true
+                c in '0'..'9' -> (0x30 + (c - '0')) to false  // VK_0..VK_9
+                c == ' ' -> 0x20 to false                    // VK_SPACE
+                c == '\t' -> 0x09 to false                   // VK_TAB
+                c == '\n' || c == '\r' -> 0x0D to false      // VK_RETURN
+                c == '-' -> 0xBD to false                    // VK_OEM_MINUS
+                c == '_' -> 0xBD to true
+                c == '=' -> 0xBB to false                    // VK_OEM_PLUS
+                c == '+' -> 0xBB to true
+                c == '[' -> 0xDB to false                    // VK_OEM_4
+                c == '{' -> 0xDB to true
+                c == ']' -> 0xDD to false                    // VK_OEM_6
+                c == '}' -> 0xDD to true
+                c == '\\' -> 0xDC to false                   // VK_OEM_5
+                c == '|' -> 0xDC to true
+                c == ';' -> 0xBA to false                    // VK_OEM_1
+                c == ':' -> 0xBA to true
+                c == '\'' -> 0xDE to false                   // VK_OEM_7
+                c == '"' -> 0xDE to true
+                c == ',' -> 0xBC to false                    // VK_OEM_COMMA
+                c == '<' -> 0xBC to true
+                c == '.' -> 0xBE to false                    // VK_OEM_PERIOD
+                c == '>' -> 0xBE to true
+                c == '/' -> 0xBF to false                    // VK_OEM_2
+                c == '?' -> 0xBF to true
+                c == '`' -> 0xC0 to false                    // VK_OEM_3
+                c == '~' -> 0xC0 to true
+                c == '!' -> 0x31 to true                     // Shift + VK_1
+                c == '@' -> 0x32 to true
+                c == '#' -> 0x33 to true
+                c == '$' -> 0x34 to true
+                c == '%' -> 0x35 to true
+                c == '^' -> 0x36 to true
+                c == '&' -> 0x37 to true
+                c == '*' -> 0x38 to true
+                c == '(' -> 0x39 to true
+                c == ')' -> 0x30 to true
+                else -> null
+            }
         }
     }
 }
