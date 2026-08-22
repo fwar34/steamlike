@@ -148,29 +148,29 @@ class ControllerOverlayService : Service() {
         /** 默认层名匹配（未重命名的层显示预设中文名） */
         private val DEFAULT_LAYER_NAME_REGEX = Regex("Layer\\d+")
 
-        // ===== 悬浮窗配色 =====
-        /** 展开面板背景（实深色，圆角） */
-        private const val COLOR_PANEL = 0xFF1C1C1C.toInt()
+        // ===== 悬浮窗配色（半透明，尽量透出背面画面）=====
+        /** 展开面板背景（深色半透明，圆角） */
+        private const val COLOR_PANEL = 0x991C1C1C.toInt()
         /** 层按钮正常态背景 */
-        private const val COLOR_LAYER_NORMAL = 0xCC333333.toInt()
+        private const val COLOR_LAYER_NORMAL = 0x66333333.toInt()
         /** 层按钮激活态背景（绿色） */
-        private const val COLOR_LAYER_ACTIVE = 0xFF4CAF50.toInt()
+        private const val COLOR_LAYER_ACTIVE = 0xAA4CAF50.toInt()
         /** 功能按钮正常态背景 */
-        private const val COLOR_BTN_NORMAL = 0xCC444444.toInt()
+        private const val COLOR_BTN_NORMAL = 0x66444444.toInt()
         /** 功能按钮按下态背景 */
-        private const val COLOR_BTN_PRESSED = 0xCC6E6E6E.toInt()
-        /** 游戏按钮背景（主操作，深绿） */
-        private const val COLOR_BTN_GAME = 0xFF2E7D32.toInt()
+        private const val COLOR_BTN_PRESSED = 0x666E6E6E.toInt()
+        /** 游戏按钮背景（主操作，深绿半透明） */
+        private const val COLOR_BTN_GAME = 0xAA2E7D32.toInt()
         /** 游戏按钮按下态 */
-        private const val COLOR_BTN_GAME_PRESSED = 0xFF388E3C.toInt()
-        /** 关闭按钮背景（危险操作，深红） */
-        private const val COLOR_BTN_DANGER = 0xCCB71C1C.toInt()
+        private const val COLOR_BTN_GAME_PRESSED = 0xAA388E3C.toInt()
+        /** 关闭按钮背景（危险操作，深红半透明） */
+        private const val COLOR_BTN_DANGER = 0x66B71C1C.toInt()
         /** 关闭按钮按下态 */
-        private const val COLOR_BTN_DANGER_PRESSED = 0xCCD32F2F.toInt()
+        private const val COLOR_BTN_DANGER_PRESSED = 0x66D32F2F.toInt()
         /** 收起胶囊边框 */
-        private const val COLOR_COLLAPSED_STROKE = 0x66FFFFFF
+        private const val COLOR_COLLAPSED_STROKE = 0x33FFFFFF
         /** 按键映射列表项背景 */
-        private const val COLOR_MAPPING_ITEM = 0xDD222222.toInt()
+        private const val COLOR_MAPPING_ITEM = 0x77222222.toInt()
     }
 
     private var windowManager: WindowManager? = null
@@ -898,6 +898,8 @@ class ControllerOverlayService : Service() {
      * 根据实际捕获状态（isCapturing）切换，并与 captureEnabled / MainActivity 开关双向同步：
      * - 暂停 → 移除焦点窗口（恢复右滑返回手势），持久化 captureEnabled=false
      * - 恢复 → 重建焦点窗口，持久化 captureEnabled=true
+     *
+     * 切换后自动收起悬浮窗（缩到最小胶囊），避免遮挡游戏画面。
      */
     private fun toggleCaptureFromButton() {
         val enabled = !isCapturing
@@ -912,6 +914,8 @@ class ControllerOverlayService : Service() {
         AppConfigStore.save(this, cfg)
         broadcastCaptureStatus(enabled)
         updateCaptureButtonState()
+        // 切换后自动收起悬浮窗到最小，避免遮挡游戏画面
+        showCollapsedView()
         Log.i(TAG, "Capture button: $enabled")
     }
 
@@ -955,7 +959,7 @@ class ControllerOverlayService : Service() {
     }
 
     /**
-     * 拉起配置的应用（悬浮窗"游戏"按钮）
+     * 拉起配置的应用（悬浮窗"拉起应用"按钮）
      *
      * 通过 [launcherPackage]（AppConfig 配置，默认 com.winlator）拉起目标应用，
      * 例如从桌面快速回到 Winlator 游戏。
@@ -992,11 +996,22 @@ class ControllerOverlayService : Service() {
     }
 
     /**
-     * 刷新展开视图中"暂停/恢复捕获"按钮的文本
+     * 刷新展开视图中"暂停/恢复捕获"按钮的文本与状态色
+     *
+     * - 捕获中：显示"暂停捕获"，红色系（点击将暂停）
+     * - 已暂停：显示"恢复捕获"，绿色系（点击将恢复）
      */
     private fun updateCaptureButtonState() {
         captureButton?.post {
-            captureButton?.text = if (isCapturing) "暂停捕获" else "恢复捕获"
+            val capturing = isCapturing
+            captureButton?.text = if (capturing) "暂停捕获" else "恢复捕获"
+            // 状态色区分：捕获中=红色，已暂停=绿色
+            val (normal, pressed) = if (capturing) {
+                COLOR_BTN_DANGER to COLOR_BTN_DANGER_PRESSED
+            } else {
+                COLOR_BTN_GAME to COLOR_BTN_GAME_PRESSED
+            }
+            captureButton?.background = createStateListBackground(normal, pressed, 8f)
         }
         // 收起视图也同步更新（在层名后追加"⏸"标记）
         if (!isExpanded) {
@@ -1350,9 +1365,9 @@ class ControllerOverlayService : Service() {
             text = buildCollapsedText(mapper?.getActiveLayers() ?: emptyList())
             textSize = 13f
             setTextColor(0xFFFFFFFF.toInt())
-            // 圆角胶囊背景 + 细边框
+            // 圆角胶囊背景 + 细边框（半透明，透出背面画面）
             background = roundedDrawable(
-                color = 0xE6222222.toInt(),
+                color = 0x88222222.toInt(),
                 cornerRadius = dp(18),
                 strokeColor = COLOR_COLLAPSED_STROKE,
                 strokeWidth = dp(1)
@@ -1494,14 +1509,14 @@ class ControllerOverlayService : Service() {
         }
 
         // ===== 控制按钮（分组布局）=====
-        // 主操作行：游戏（绿色主按钮） + 暂停/恢复捕获
+        // 主操作行：拉起应用（绿色主按钮） + 暂停/恢复捕获
         val primaryRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, dp(6), 0, 0)
         }
         primaryRow.addView(
             createOverlayButton(
-                label = "游戏",
+                label = "拉起应用",
                 onClick = { launchGameApp() },
                 weight = 1.2f,
                 normalColor = COLOR_BTN_GAME,
@@ -1519,14 +1534,11 @@ class ControllerOverlayService : Service() {
         primaryRow.addView(captureButton!!)
         container.addView(primaryRow)
 
-        // 次操作行：清除层 + 映射 + 收起 + 关闭（关闭红色）
+        // 次操作行：映射 + 收起 + 关闭（关闭红色）
         val secondaryRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, dp(3), 0, 0)
         }
-        secondaryRow.addView(
-            createOverlayButton("清除层", { mapper?.clearAllLayers() }, weight = 1f, textSize = 11f)
-        )
         secondaryRow.addView(
             createOverlayButton("映射", { showMappingView() }, weight = 1f, textSize = 11f)
         )
@@ -1568,8 +1580,8 @@ class ControllerOverlayService : Service() {
             updateLayerText(mapper?.getActiveLayers() ?: emptyList())
             updateLayerButtonColors(mapper?.getActiveLayers() ?: emptyList())
         }
-        // 同步"暂停/恢复捕获"按钮文本（与实际捕获状态一致）
-        captureButton?.text = if (isCapturing) "暂停捕获" else "恢复捕获"
+        // 同步"暂停/恢复捕获"按钮文本与状态色（与实际捕获状态一致）
+        updateCaptureButtonState()
     }
 
     /**
