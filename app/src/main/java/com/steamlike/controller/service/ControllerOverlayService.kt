@@ -1044,18 +1044,14 @@ class ControllerOverlayService : Service() {
             }, 100)
             Log.i(TAG, "Keyboard hidden, capture resumed")
         } else {
-            // 键盘未显示 → 暂停捕获（保留窗口）并弹出键盘
+            // 键盘未显示 → 弹出键盘（保持捕获，不暂停）
             isKeyboardShowing = true
-            manualPaused = true
-            if (isCapturing) {
-                pauseCapturing()
-            }
             mainHandler.post {
                 gamepadInputView?.let { view ->
                     view.requestFocus()
                     imm.showSoftInput(view, 0)
                 }
-                Log.i(TAG, "Keyboard requested (1x1 focus window kept)")
+                Log.i(TAG, "Keyboard requested (capture kept active)")
             }
         }
     }
