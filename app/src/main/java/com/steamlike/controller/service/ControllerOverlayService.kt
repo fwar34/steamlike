@@ -402,6 +402,10 @@ class ControllerOverlayService : Service() {
                     updateMappingView()
                 }
 
+                // 按键映射动作回调（ToggleOverlay / ToggleKeyboard）
+                mapper?.onToggleOverlay = { mainHandler.post { toggleOverlayView() } }
+                mapper?.onToggleKeyboard = { mainHandler.post { toggleSystemKeyboard() } }
+
                 if (mapper?.start() == true) {
                     Log.i(TAG, "Mapper started successfully")
                     // 加载用户配置（覆盖默认WoW预设的绑定和属性）
@@ -921,6 +925,23 @@ class ControllerOverlayService : Service() {
     // ====================================================================
     // 智能暂停监控（Smart Pause Monitor）
     // ====================================================================
+
+    /**
+     * 切换安卓系统键盘显示/隐藏
+     *
+     * 使用 InputMethodManager.toggleSoftInput() 直接切换软键盘。
+     * 这是最可靠的切换方式，不依赖特定 View 的焦点状态。
+     */
+    private fun toggleSystemKeyboard() {
+        val imm = getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
+        if (imm == null) {
+            toast("无法获取输入法管理器")
+            return
+        }
+        @Suppress("DEPRECATION")
+        imm.toggleSoftInput(android.view.inputmethod.InputMethodManager.SHOW_FORCED, 0)
+        Log.i(TAG, "System keyboard toggled")
+    }
 
     /**
      * 启动智能暂停监控线程

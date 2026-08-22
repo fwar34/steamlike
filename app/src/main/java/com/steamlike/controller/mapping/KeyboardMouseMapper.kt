@@ -145,6 +145,22 @@ class KeyboardMouseMapper(
     var onLayerChanged: ((List<String>) -> Unit)? = null
 
     /**
+     * 切换悬浮窗回调
+     *
+     * 当映射到 ToggleOverlay 动作的手柄按钮按下时调用。
+     * 由 ControllerOverlayService 设置，触发悬浮窗收起/映射列表切换。
+     */
+    var onToggleOverlay: (() -> Unit)? = null
+
+    /**
+     * 切换系统键盘回调
+     *
+     * 当映射到 ToggleKeyboard 动作的手柄按钮按下时调用。
+     * 由 ControllerOverlayService 设置，触发软键盘显示/隐藏。
+     */
+    var onToggleKeyboard: (() -> Unit)? = null
+
+    /**
      * 启动映射器，注册回调
      *
      * @return true=启动成功
@@ -280,6 +296,12 @@ class KeyboardMouseMapper(
             }
             is MappedAction.MouseScrollDown -> {
                 handleMouseScroll(button, -SCROLL_DELTA)
+            }
+            is MappedAction.ToggleOverlay -> {
+                onToggleOverlay?.invoke()
+            }
+            is MappedAction.ToggleKeyboard -> {
+                onToggleKeyboard?.invoke()
             }
         }
     }

@@ -87,26 +87,6 @@ class GamepadInputView(context: Context) : View(context) {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        // 手柄 Home 键（KEYCODE_BUTTON_MODE）切换悬浮窗
-        if (event.action == KeyEvent.ACTION_DOWN
-            && event.keyCode == KeyEvent.KEYCODE_BUTTON_MODE
-        ) {
-            Log.i(TAG, "Toggle overlay: Home/Mode button")
-            onToggleOverlay?.invoke()
-            return true
-        }
-
-        // 同时支持键盘的 Ctrl+Shift+X（物理键盘场景）
-        if (event.action == KeyEvent.ACTION_DOWN
-            && event.keyCode == KeyEvent.KEYCODE_X
-            && event.isCtrlPressed && event.isShiftPressed
-            && !event.isAltPressed
-        ) {
-            Log.i(TAG, "Toggle overlay: Ctrl+Shift+X")
-            onToggleOverlay?.invoke()
-            return true
-        }
-
         val handled = onKeyEvent?.invoke(event) ?: false
         return handled || super.dispatchKeyEvent(event)
     }

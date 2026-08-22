@@ -110,6 +110,22 @@ sealed class MappedAction {
      * 每次按下发送一次滚轮下滚，无需松开。
      */
     data object MouseScrollDown : MappedAction()
+
+    /**
+     * 切换悬浮窗显示/隐藏
+     *
+     * 按下时切换悬浮窗在收起和按键映射列表之间切换。
+     * 与手柄 Home 键的内置功能相同，但可映射到任意按钮。
+     */
+    data object ToggleOverlay : MappedAction()
+
+    /**
+     * 切换安卓系统键盘显示/隐藏
+     *
+     * 按下时切换软键盘的显示状态。
+     * 在需要触摸输入的游戏场景中很有用（如输入聊天文字）。
+     */
+    data object ToggleKeyboard : MappedAction()
 }
 
 /**
@@ -167,6 +183,8 @@ data class KeyMapping(
             is MappedAction.MouseToggle -> parts.add("长按${action.button.toDisplayName()}")
             is MappedAction.MouseScrollUp -> parts.add("滚轮上滚")
             is MappedAction.MouseScrollDown -> parts.add("滚轮下滚")
+            is MappedAction.ToggleOverlay -> parts.add("切换悬浮窗")
+            is MappedAction.ToggleKeyboard -> parts.add("切换键盘")
         }
         subCommands.forEach { parts.add(keyCodeToName(it)) }
         return parts.joinToString("+")
