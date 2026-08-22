@@ -1636,21 +1636,31 @@ class ControllerOverlayService : Service() {
                         .filter { it in mappings }
                         .map { it to mappings[it]!! }
 
-                    sortedMappings.forEach { (btn, mapping) ->
-                        val item = TextView(this).apply {
-                            // 使用与按键映射设置页一致的显示名（LB/RB/L2/R2 等），而非枚举原名
-                            text = "${LayerEditActivity.buttonDisplayName(btn)} -> ${mapping.describe()}"
-                            textSize = 11f
-                            setTextColor(0xFFFFFFFF.toInt())
-                            setPadding(dp(8), dp(3), dp(8), dp(3))
-                            background = roundedDrawable(COLOR_MAPPING_ITEM, dp(6))
+                    // 每行两个按键，两列显示
+                    sortedMappings.chunked(2).forEach { rowMappings ->
+                        val rowView = LinearLayout(this).apply {
+                            orientation = LinearLayout.HORIZONTAL
                         }
-                        val params = LinearLayout.LayoutParams(
-                            LinearLayout.LayoutParams.MATCH_PARENT,
-                            LinearLayout.LayoutParams.WRAP_CONTENT
-                        )
-                        params.setMargins(0, dp(1), 0, dp(1))
-                        content.addView(item, params)
+                        rowMappings.forEachIndexed { index, (btn, mapping) ->
+                            val item = TextView(this).apply {
+                                // 使用与按键映射设置页一致的显示名（LB/RB/L2/R2 等），而非枚举原名
+                                text = "${LayerEditActivity.buttonDisplayName(btn)} -> ${mapping.describe()}"
+                                textSize = 11f
+                                setTextColor(0xFFFFFFFF.toInt())
+                                setPadding(dp(8), dp(4), dp(8), dp(4))
+                                background = roundedDrawable(COLOR_MAPPING_ITEM, dp(6))
+                                isSingleLine = true
+                                ellipsize = android.text.TextUtils.TruncateAt.END
+                            }
+                            val params = LinearLayout.LayoutParams(
+                                0,   // 宽度 0 + weight=1 → 两列均分
+                                LinearLayout.LayoutParams.WRAP_CONTENT,
+                                1f
+                            )
+                            params.setMargins(0, dp(1), if (index == 0) dp(2) else 0, dp(1))
+                            rowView.addView(item, params)
+                        }
+                        content.addView(rowView)
                     }
                 }
             }
@@ -1671,8 +1681,10 @@ class ControllerOverlayService : Service() {
             showCollapsedView()
         }
 
+        // 两列布局：固定面板宽度（约屏幕 72%），避免把悬浮窗撑得过宽
+        val panelWidth = (resources.displayMetrics.widthPixels * 0.72f).toInt()
         frame.addView(content, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT,
+            panelWidth,
             FrameLayout.LayoutParams.WRAP_CONTENT
         ))
 
