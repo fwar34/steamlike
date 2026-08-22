@@ -108,6 +108,15 @@ class SteamInput(context: Context) {
         private set
 
     /**
+     * 是否正在捕获（暂停时停止处理所有事件）
+     *
+     * false 时 dispatchKeyEvent 和 dispatchGenericMotionEvent 直接返回 false，
+     * 不处理任何手柄事件（层切换、按键映射等全部停止）。
+     */
+    @Volatile
+    var isCapturing: Boolean = true
+
+    /**
      * 已连接的手柄设备列表（按 deviceId 索引）
      */
     private val connectedControllers = ConcurrentHashMap<Int, ControllerDevice>()
@@ -330,6 +339,7 @@ class SteamInput(context: Context) {
      * @return true=已处理
      */
     fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (!isCapturing) return false
         if (!event.isFromSource(InputDevice.SOURCE_GAMEPAD) &&
             !event.isFromSource(InputDevice.SOURCE_DPAD) &&
             !event.isFromSource(InputDevice.SOURCE_JOYSTICK)
@@ -342,6 +352,55 @@ class SteamInput(context: Context) {
 
         val isPressed = event.action == KeyEvent.ACTION_DOWN
         handleButtonEvent(button, isPressed)
+        return true
+    }
+
+    /**
+     * 暂停捕获状态下处理按键（无障碍服务转发）
+     *
+     * 暂停捕获时 GamepadInputView 焦点窗口被移除，手柄事件无法再到达应用，
+     * 由无障碍服务全局接收按键后转发到此方法。
+     *
+     * 仅处理切换类动作（[MappedAction.ToggleCapture]/[MappedAction.ToggleOverlay]/
+     * [MappedAction.ToggleKeyboard]），用于在暂停状态下恢复捕获等场景。
+     * 不处理普通按键映射，避免暂停时仍向游戏注入键鼠事件。
+     *
+     * @param event 系统按键事件
+     * @return true=已处理（拦截该按键）
+     */
+    fun dispatchKeyEventWhilePaused(event: KeyEvent): Boolean {
+        Log.d(TAG, "PausedKeyEvent act=${event.action} key=${event.keyCode} src=${event.source} dev=${event.deviceId} repeat=${event.repeatCount} capturing=$isCapturing")
+        if (isCapturing) return false
+        if (!event.isFromSource(InputDevice.SOURCE_GAMEPAD) &&
+            !event.isFromSource(InputDevice.SOURCE_DPAD) &&
+            !event.isFromSource(InputDevice.SOURCE_JOYSTICK)
+        ) return false
+
+        val deviceId = event.deviceId
+        val controller = connectedControllers[deviceId]
+        Log.d(TAG, "  controller=$controller")
+        if (controller == null) return false
+        val button = ControllerInputMapper.mapKeyCode(event.keyCode, controller.controllerType)
+        Log.d(TAG, "  button=$button")
+        if (button == null) return false
+        // 仅响应首次按下；松开/重复事件直接拦截
+        if (event.repeatCount != 0 || event.action != KeyEvent.ACTION_DOWN) return true
+
+        val mapping = getEffectiveMapping(button)
+        Log.d(TAG, "  mapping=$mapping")
+        if (mapping == null) return false
+        val action = mapping.action
+        val isToggle = action is MappedAction.ToggleCapture ||
+            action is MappedAction.ToggleOverlay ||
+            action is MappedAction.ToggleKeyboard
+        Log.d(TAG, "  action=${action.javaClass.simpleName} isToggle=$isToggle")
+        if (!isToggle) {
+            return false
+        }
+
+        Log.i(TAG, "Paused key: $button -> ${action.javaClass.simpleName}")
+        // 转发到 KeyboardMouseMapper.handleMapping，触发对应 Toggle 回调（恢复捕获等）
+        onButtonMapped?.invoke(button, true, mapping)
         return true
     }
 
@@ -359,6 +418,7 @@ class SteamInput(context: Context) {
      * @return true=已处理
      */
     fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        if (!isCapturing) return false
         if (!event.isFromSource(InputDevice.SOURCE_JOYSTICK) &&
             !event.isFromSource(InputDevice.SOURCE_GAMEPAD) &&
             !event.isFromSource(InputDevice.SOURCE_DPAD)
@@ -513,14 +573,15 @@ class SteamInput(context: Context) {
         // 处理 SwitchLayer 动作（通过按键映射切换层）
         when (val action = mapping.action) {
             is MappedAction.SwitchLayer -> {
-                val targetLayer = profile.findLayer(action.layerName)
-                if (targetLayer != null) {
-                    if (isPressed) {
-                        // 激活目标层，并记录该按键触发了层切换（用于松开时停用）
-                        activateLayer(targetLayer)
-                        buttonTriggeredLayers[button] = targetLayer
+                // 暂停时不处理层切换
+                if (isCapturing) {
+                    val targetLayer = profile.findLayer(action.layerName)
+                    if (targetLayer != null) {
+                        if (isPressed) {
+                            activateLayer(targetLayer)
+                            buttonTriggeredLayers[button] = targetLayer
+                        }
                     }
-                    // 松开的处理在函数开头已处理（buttonTriggeredLayers.remove）
                 }
             }
             else -> {

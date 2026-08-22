@@ -126,6 +126,14 @@ sealed class MappedAction {
      * 在需要触摸输入的游戏场景中很有用（如输入聊天文字）。
      */
     data object ToggleKeyboard : MappedAction()
+
+    /**
+     * 切换手柄捕获状态
+     *
+     * 按下时切换 GamepadInputView 的显示/隐藏（暂停/恢复手柄事件捕获）。
+     * 暂停时系统返回手势恢复，恢复时手柄事件重新被捕获。
+     */
+    data object ToggleCapture : MappedAction()
 }
 
 /**
@@ -185,6 +193,7 @@ data class KeyMapping(
             is MappedAction.MouseScrollDown -> parts.add("滚轮下滚")
             is MappedAction.ToggleOverlay -> parts.add("切换悬浮窗")
             is MappedAction.ToggleKeyboard -> parts.add("切换键盘")
+            is MappedAction.ToggleCapture -> parts.add("切换捕获")
         }
         subCommands.forEach { parts.add(keyCodeToName(it)) }
         return parts.joinToString("+")

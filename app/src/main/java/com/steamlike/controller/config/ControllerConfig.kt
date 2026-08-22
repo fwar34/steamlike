@@ -276,6 +276,9 @@ object ControllerConfig {
             is MappedAction.ToggleKeyboard -> {
                 json.put("type", "toggleKeyboard")
             }
+            is MappedAction.ToggleCapture -> {
+                json.put("type", "toggleCapture")
+            }
         }
         return json
     }
@@ -309,6 +312,7 @@ object ControllerConfig {
             "mouseScrollDown" -> MappedAction.MouseScrollDown
             "toggleOverlay" -> MappedAction.ToggleOverlay
             "toggleKeyboard" -> MappedAction.ToggleKeyboard
+            "toggleCapture" -> MappedAction.ToggleCapture
             else -> null
         }
     }

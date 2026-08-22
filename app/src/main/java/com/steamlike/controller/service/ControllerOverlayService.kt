@@ -236,6 +236,15 @@ class ControllerOverlayService : Service() {
     @Volatile
     private var captureEnabled: Boolean = true
 
+    /**
+     * 用户手动暂停捕获标志（通过 ToggleCapture 动作或悬浮窗按钮触发）
+     *
+     * true 时智能监控不会自动恢复捕获（避免覆盖用户意图）。
+     * 用户手动恢复或 `setCaptureEnabled(true)` 调用时重置。
+     */
+    @Volatile
+    private var manualPaused: Boolean = false
+
     /** 捕获白名单包名集合（前台应用在此集合内时保持捕获） */
     @Volatile
     private var captureWhitelist: Set<String> = AppConfig.DEFAULT_WHITELIST.toSet()
@@ -267,6 +276,16 @@ class ControllerOverlayService : Service() {
      * ```
      */
     private var isOverlayPaused = false
+
+    /**
+     * 系统键盘是否正在显示
+     *
+     * 键盘显示时暂停捕获（移除 GamepadInputView），
+     * 使键盘输入能到达目标应用而非被焦点窗口消费。
+     * 键盘隐藏时恢复捕获。
+     */
+    @Volatile
+    private var isKeyboardShowing = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -402,9 +421,10 @@ class ControllerOverlayService : Service() {
                     updateMappingView()
                 }
 
-                // 按键映射动作回调（ToggleOverlay / ToggleKeyboard）
+                // 按键映射动作回调（ToggleOverlay / ToggleKeyboard / ToggleCapture）
                 mapper?.onToggleOverlay = { mainHandler.post { toggleOverlayView() } }
                 mapper?.onToggleKeyboard = { mainHandler.post { toggleSystemKeyboard() } }
+                mapper?.onToggleCapture = { mainHandler.post { toggleCaptureState() } }
 
                 if (mapper?.start() == true) {
                     Log.i(TAG, "Mapper started successfully")
@@ -723,7 +743,8 @@ class ControllerOverlayService : Service() {
         isOverlayPaused = false
         mainHandler.post {
             // 重新创建焦点输入窗口（pauseOverlay 已将 gamepadInputView 置 null）
-            if (gamepadInputView == null && mapper != null) {
+            // 仅在捕获中时重建；若捕获已暂停（isCapturing=false），保持暂停状态
+            if (gamepadInputView == null && mapper != null && isCapturing) {
                 createGamepadInputWindow()
             }
             // 重新创建悬浮窗窗口（pauseOverlay 已将 overlayView 置 null）
@@ -777,6 +798,7 @@ class ControllerOverlayService : Service() {
         val params = GamepadInputView.createLayoutParams()
         windowManager?.addView(gamepadInputView, params)
         isCapturing = true
+        steamInput?.isCapturing = true
 
         // 请求焦点以接收手柄按键事件
         gamepadInputView?.post {
@@ -790,48 +812,90 @@ class ControllerOverlayService : Service() {
     }
 
     /**
-     * 移除焦点输入窗口，释放焦点（暂停手柄捕获）
+     * 暂停手柄捕获
      *
-     * 用户需要右滑返回其他应用时调用此方法。移除后系统返回手势恢复正常。
-     * 与 [pauseOverlay] 不同，本方法只移除 GamepadInputView，保留悬浮窗 UI
-     * 和 TCP 服务器运行，方便用户快速恢复。
-     */
-    private fun removeGamepadInputWindow() {
-        gamepadInputView?.let { view ->
-            try {
-                windowManager?.removeView(view)
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to remove GamepadInputView", e)
-            }
-        }
-        gamepadInputView = null
-        isCapturing = false
-        Log.i(TAG, "GamepadInputView removed (capturing paused)")
-    }
-
-    /**
-     * 暂停手柄捕获（移除 GamepadInputView）
+     * 移除可获焦点的 GamepadInputView 窗口，恢复系统边缘滑动手势
+     * （Android 13+ 预测式返回 / Winlator 边缘右滑返回桌面）。
      *
-     * 用户点击悬浮窗"暂停捕获"按钮时调用。
-     * 保留悬浮窗 UI 和 TCP 服务器，仅停止捕获手柄事件。
+     * 注意：有焦点的 TYPE_APPLICATION_OVERLAY 窗口即使把 `isCapturing` 置 false，
+     * 仍会吃掉系统预测式返回手势，必须真正移除窗口才能恢复手势。
+     * 恢复捕获请通过悬浮窗"恢复捕获"按钮 / MainActivity 开关调用 [resumeCapturing]。
      */
     fun pauseCapturing() {
         if (!isCapturing) return
-        removeGamepadInputWindow()
-        // 同步刷新展开视图的按钮文本（如果在展开状态）
+        // 移除焦点输入窗口，恢复系统边缘滑动手势（右滑返回桌面）
+        gamepadInputView?.let { windowManager?.removeView(it) }
+        gamepadInputView = null
+        steamInput?.isCapturing = false
+        isCapturing = false
+        // 注册无障碍按键转发：暂停后焦点窗口已移除，手柄事件经无障碍服务回到应用，
+        // 使"切换捕获"键仍能触发恢复捕获
+        GamepadAccessibilityService.onPausedKeyEvent = { event ->
+            steamInput?.dispatchKeyEventWhilePaused(event) ?: false
+        }
+        if (!GamepadAccessibilityService.isConnected) {
+            toast("已暂停捕获；未开启无障碍服务，恢复请用悬浮窗按钮或主界面开关")
+        } else if (!GamepadAccessibilityService.hasKeyFiltering) {
+            toast("已暂停捕获；无障碍按键过滤未授权，恢复请用悬浮窗按钮或主界面开关，或到无障碍服务详情开启\"按键过滤\"")
+        }
         updateCaptureButtonState()
+        Log.i(TAG, "Capturing paused (focus window removed)")
+    }
+
+    fun resumeCapturing() {
+        if (isCapturing) return
+        steamInput?.isCapturing = true
+        isCapturing = true
+        manualPaused = false
+        // 恢复捕获后焦点窗口重新接收按键，清除无障碍转发
+        GamepadAccessibilityService.onPausedKeyEvent = null
+        // 重新创建被 pauseCapturing 移除的焦点输入窗口
+        if (gamepadInputView == null && !isOverlayPaused && mapper != null) {
+            createGamepadInputWindow()
+        }
+        updateCaptureButtonState()
+        Log.i(TAG, "Capturing resumed (focus window recreated)")
     }
 
     /**
-     * 恢复手柄捕获（重新创建 GamepadInputView）
+     * 切换手柄捕获状态（按键映射 ToggleCapture 动作触发）
      *
-     * 用户点击悬浮窗"恢复捕获"按钮时调用。
+     * 捕获中 → 暂停捕获（设置 manualPaused 阻止智能监控自动恢复）
+     * 已暂停 → 恢复捕获
      */
-    fun resumeCapturing() {
-        if (isCapturing) return
-        createGamepadInputWindow()
-        // 同步刷新展开视图的按钮文本
+    private fun toggleCaptureState() {
+        if (isCapturing) {
+            manualPaused = true
+            pauseCapturing()
+        } else {
+            manualPaused = false
+            resumeCapturing()
+        }
+        // 同步 MainActivity 的捕获状态显示（不持久化 captureEnabled，保持游戏内快速切换）
+        broadcastCaptureStatus(isCapturing)
+    }
+
+    /**
+     * 悬浮窗"暂停/恢复捕获"按钮点击
+     *
+     * 根据实际捕获状态（isCapturing）切换，并与 captureEnabled / MainActivity 开关双向同步：
+     * - 暂停 → 移除焦点窗口（恢复右滑返回手势），持久化 captureEnabled=false
+     * - 恢复 → 重建焦点窗口，持久化 captureEnabled=true
+     */
+    private fun toggleCaptureFromButton() {
+        val enabled = !isCapturing
+        manualPaused = !enabled
+        captureEnabled = enabled
+        if (enabled) {
+            resumeCapturing()
+        } else {
+            pauseCapturing()
+        }
+        val cfg = AppConfigStore.load(this).copy(captureEnabled = enabled)
+        AppConfigStore.save(this, cfg)
+        broadcastCaptureStatus(enabled)
         updateCaptureButtonState()
+        Log.i(TAG, "Capture button: $enabled")
     }
 
     /**
@@ -846,6 +910,7 @@ class ControllerOverlayService : Service() {
     private fun setCaptureEnabled(enabled: Boolean) {
         if (captureEnabled == enabled) return
         captureEnabled = enabled
+        manualPaused = false  // 重置手动暂停标志
         // 持久化到配置文件（保留其他运行时配置不变）
         val cfg = AppConfigStore.load(this).copy(captureEnabled = enabled)
         AppConfigStore.save(this, cfg)
@@ -854,7 +919,7 @@ class ControllerOverlayService : Service() {
             // 用户手动恢复：立即恢复捕获，不受智能监控状态影响
             mainHandler.post { resumeCapturing() }
         } else {
-            // 手动暂停：移除焦点窗口（下层应用恢复右滑返回）
+            // 手动暂停
             mainHandler.post { pauseCapturing() }
         }
         broadcastCaptureStatus(enabled)
@@ -914,7 +979,7 @@ class ControllerOverlayService : Service() {
      */
     private fun updateCaptureButtonState() {
         captureButton?.post {
-            captureButton?.text = if (captureEnabled) "暂停捕获" else "恢复捕获"
+            captureButton?.text = if (isCapturing) "暂停捕获" else "恢复捕获"
         }
         // 收起视图也同步更新（在层名后追加"⏸"标记）
         if (!isExpanded) {
@@ -929,8 +994,10 @@ class ControllerOverlayService : Service() {
     /**
      * 切换安卓系统键盘显示/隐藏
      *
-     * 使用 InputMethodManager.toggleSoftInput() 直接切换软键盘。
-     * 这是最可靠的切换方式，不依赖特定 View 的焦点状态。
+     * 弹出键盘：先弹出键盘（窗口仍有焦点时），再暂停捕获
+     * 隐藏键盘：隐藏键盘，如果是自动暂停则恢复捕获
+     *
+     * 暂停捕获状态下也可调用（直接弹出/隐藏键盘）。
      */
     private fun toggleSystemKeyboard() {
         val imm = getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
@@ -938,9 +1005,30 @@ class ControllerOverlayService : Service() {
             toast("无法获取输入法管理器")
             return
         }
-        @Suppress("DEPRECATION")
-        imm.toggleSoftInput(android.view.inputmethod.InputMethodManager.SHOW_FORCED, 0)
-        Log.i(TAG, "System keyboard toggled")
+
+        if (isKeyboardShowing) {
+            // 键盘正在显示 → 隐藏键盘
+            @Suppress("DEPRECATION")
+            imm.hideSoftInputFromWindow(overlayView?.windowToken ?: gamepadInputView?.windowToken, 0)
+            isKeyboardShowing = false
+            // 如果当前暂停中且不是手动暂停 → 恢复捕获
+            if (!isCapturing && !manualPaused) {
+                mainHandler.post { resumeCapturing() }
+            }
+            Log.i(TAG, "Keyboard hidden")
+        } else {
+            // 键盘未显示 → 弹出键盘 → 暂停捕获
+            // 先弹出键盘（此时窗口仍有焦点），再暂停捕获
+            @Suppress("DEPRECATION")
+            imm.toggleSoftInput(android.view.inputmethod.InputMethodManager.SHOW_FORCED, 0)
+            isKeyboardShowing = true
+            // 暂停捕获（让键盘输入到达目标应用）
+            if (isCapturing) {
+                manualPaused = true
+                mainHandler.post { pauseCapturing() }
+            }
+            Log.i(TAG, "Keyboard shown, capture paused")
+        }
     }
 
     /**
@@ -965,9 +1053,9 @@ class ControllerOverlayService : Service() {
         smartMonitorThread = Thread({
             while (smartMonitorRunning) {
                 try {
-                    // 手动暂停（captureEnabled=false）时监控不动作，
+                    // 手动暂停或捕获开关关闭时监控不动作，
                     // 避免自动恢复覆盖用户的暂停意图
-                    if (captureEnabled) {
+                    if (captureEnabled && !manualPaused) {
                         val fg = getForegroundPackage()
                         if (fg != null) {
                             // 仅白名单应用（如 Winlator）在前台时保持捕获。
@@ -1321,10 +1409,10 @@ class ControllerOverlayService : Service() {
                 textSize = 12f
             )
         )
-        // 暂停/恢复捕获按钮（始终显示，与 app 内开关状态双向同步）
+        // 暂停/恢复捕获按钮（始终显示，反映实际捕获状态，与 app 内开关双向同步）
         captureButton = createOverlayButton(
             label = "暂停捕获",
-            onClick = { setCaptureEnabled(!captureEnabled) },
+            onClick = { toggleCaptureFromButton() },
             weight = 1f,
             textSize = 12f
         )
@@ -1380,8 +1468,8 @@ class ControllerOverlayService : Service() {
             updateLayerText(mapper?.getActiveLayers() ?: emptyList())
             updateLayerButtonColors(mapper?.getActiveLayers() ?: emptyList())
         }
-        // 同步"暂停/恢复捕获"按钮文本（与捕获开关一致）
-        captureButton?.text = if (captureEnabled) "暂停捕获" else "恢复捕获"
+        // 同步"暂停/恢复捕获"按钮文本（与实际捕获状态一致）
+        captureButton?.text = if (isCapturing) "暂停捕获" else "恢复捕获"
     }
 
     /**
@@ -1788,6 +1876,8 @@ class ControllerOverlayService : Service() {
         super.onDestroy()
         // 停止智能暂停监控
         stopSmartMonitor()
+        // 清除无障碍按键转发回调
+        GamepadAccessibilityService.onPausedKeyEvent = null
         // 移除焦点输入窗口
         gamepadInputView?.let { windowManager?.removeView(it) }
         gamepadInputView = null

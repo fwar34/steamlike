@@ -530,9 +530,9 @@ class LayerEditActivity : AppCompatActivity() {
 
         // ===== 设置动作类型 Spinner =====
         // 0=未设置(取消映射), 1=键盘按键, 2=鼠标点击, 3=鼠标长按, 4=切换操作层,
-        // 5=滚轮上滚, 6=滚轮下滚, 7=切换悬浮窗, 8=切换键盘
+        // 5=滚轮上滚, 6=滚轮下滚, 7=切换悬浮窗, 8=切换键盘, 9=切换捕获
         val actionTypes = listOf("未设置", "键盘按键", "鼠标点击", "鼠标长按", "切换操作层",
-            "滚轮上滚", "滚轮下滚", "切换悬浮窗", "切换键盘")
+            "滚轮上滚", "滚轮下滚", "切换悬浮窗", "切换键盘", "切换捕获")
         spinnerActionType.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, actionTypes).also {
             it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         }
@@ -547,6 +547,7 @@ class LayerEditActivity : AppCompatActivity() {
             is MappedAction.MouseScrollDown -> 6
             is MappedAction.ToggleOverlay -> 7
             is MappedAction.ToggleKeyboard -> 8
+            is MappedAction.ToggleCapture -> 9
             is MappedAction.MouseMove, is MappedAction.LookAround -> 0  // 摇杆专用，显示未设置
             null -> 0  // 未映射 → 未设置
         }
@@ -591,11 +592,12 @@ class LayerEditActivity : AppCompatActivity() {
         }
         updateAddSubCommandButton(btnAddSubCommand, subCommandSpinners.size)
 
-        // 子命令区域可见性（未设置/切换操作层/滚轮/悬浮窗/键盘时隐藏）
+        // 子命令区域可见性（未设置/切换操作层/滚轮/悬浮窗/键盘/捕获时隐藏）
         layoutSubCommands.visibility =
             if (initialActionType == 0 || initialActionType == 4 ||
                 initialActionType == 5 || initialActionType == 6 ||
-                initialActionType == 7 || initialActionType == 8)
+                initialActionType == 7 || initialActionType == 8 ||
+                initialActionType == 9)
                 View.GONE else View.VISIBLE
 
         // ===== 动作类型切换监听器 =====
@@ -604,10 +606,10 @@ class LayerEditActivity : AppCompatActivity() {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 // 重新设置动作值 Spinner 的选项
                 setupActionValueSpinner(spinnerActionValue, tvActionLabel, position)
-                // 未设置/切换操作层/滚轮/悬浮窗/键盘时隐藏子命令区域
+                // 未设置/切换操作层/滚轮/悬浮窗/键盘/捕获时隐藏子命令区域
                 layoutSubCommands.visibility =
                     if (position == 0 || position == 4 || position == 5 || position == 6 ||
-                        position == 7 || position == 8)
+                        position == 7 || position == 8 || position == 9)
                         View.GONE else View.VISIBLE
             }
 
@@ -943,6 +945,10 @@ class LayerEditActivity : AppCompatActivity() {
                 label.text = "按下时显示/隐藏安卓系统键盘"
                 listOf("（切换键盘）")
             }
+            9 -> {  // 切换捕获
+                label.text = "按下时暂停/恢复手柄事件捕获"
+                listOf("（切换捕获）")
+            }
             else -> emptyList()
         }
 
@@ -976,6 +982,7 @@ class LayerEditActivity : AppCompatActivity() {
             5 -> MappedAction.MouseScrollDown  // 滚轮下滚
             6 -> MappedAction.ToggleOverlay   // 切换悬浮窗
             7 -> MappedAction.ToggleKeyboard  // 切换键盘
+            8 -> MappedAction.ToggleCapture   // 切换捕获
             else -> MappedAction.KeyboardKey(keyboardKeyOptions[0].second)
         }
     }

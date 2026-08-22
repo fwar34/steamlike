@@ -80,6 +80,18 @@ class GamepadInputView(context: Context) : View(context) {
     /** 悬浮窗切换回调（组合键触发），在主线程调用 */
     var onToggleOverlay: (() -> Unit)? = null
 
+    /**
+     * 是否正在捕获（控制映射器是否处理非切换动作）
+     *
+     * true（捕获中）：映射器处理所有动作（键盘/鼠标/切换层等）
+     * false（暂停中）：映射器仅处理切换动作（ToggleCapture/ToggleKeyboard/ToggleOverlay），
+     *     普通手柄事件仍被转发到映射器，但映射器忽略非切换动作
+     *
+     * GamepadInputView 始终可获焦点，始终转发事件到映射器。
+     * 切换逻辑由映射器内部的 isCapturing 标志控制。
+     */
+    var isCapturing: Boolean = true
+
     init {
         // 必须设置可获焦点，才能接收 KeyEvent
         isFocusable = true
@@ -87,6 +99,7 @@ class GamepadInputView(context: Context) : View(context) {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // 始终转发到映射器，由映射器根据 isCapturing 决定是否处理
         val handled = onKeyEvent?.invoke(event) ?: false
         return handled || super.dispatchKeyEvent(event)
     }

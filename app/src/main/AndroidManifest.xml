@@ -64,6 +64,20 @@
                 android:value="游戏手柄输入映射" />
         </service>
 
+        <!-- 无障碍服务：暂停捕获后仍能用手柄按键恢复捕获（需用户手动开启） -->
+        <service
+            android:name=".service.GamepadAccessibilityService"
+            android:exported="true"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:label="SteamLike手柄按键恢复">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
     </application>
 
 </manifest>

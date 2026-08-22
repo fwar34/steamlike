@@ -161,6 +161,23 @@ class KeyboardMouseMapper(
     var onToggleKeyboard: (() -> Unit)? = null
 
     /**
+     * 切换捕获状态回调
+     *
+     * 当映射到 ToggleCapture 动作的手柄按钮按下时调用。
+     * 由 ControllerOverlayService 设置，触发暂停/恢复捕获。
+     */
+    var onToggleCapture: (() -> Unit)? = null
+
+    /**
+     * 是否正在捕获（暂停时仅处理切换动作）
+     *
+     * true：处理所有映射动作
+     * false：仅处理切换动作（ToggleCapture/ToggleKeyboard/ToggleOverlay），
+     *     忽略键盘/鼠标/层切换等动作
+     */
+    var isCapturing: Boolean = true
+
+    /**
      * 启动映射器，注册回调
      *
      * @return true=启动成功
@@ -271,38 +288,30 @@ class KeyboardMouseMapper(
      */
     private fun handleMapping(button: ControllerButton, isPressed: Boolean, mapping: KeyMapping) {
         if (!isPressed) {
-            // 松开：按按下时记录的状态精确释放（与当前层映射无关）
             releaseButtonInjection(button)
             return
         }
+
         when (val action = mapping.action) {
-            is MappedAction.KeyboardKey -> {
-                handleKeyboardKey(button, true, action.keyCode, mapping.subCommands)
-            }
-            is MappedAction.MouseClick -> {
-                handleMouseClick(button, true, action.button)
-            }
-            is MappedAction.MouseToggle -> {
-                handleMouseToggle(button, true, action.button)
-            }
-            is MappedAction.SwitchLayer -> {
-                // SwitchLayer 已在 SteamInput.handleButtonEvent 中处理
-            }
-            is MappedAction.MouseMove, is MappedAction.LookAround -> {
-                // 摇杆动作，在 handleStick 中处理
-            }
-            is MappedAction.MouseScrollUp -> {
-                handleMouseScroll(button, SCROLL_DELTA)
-            }
-            is MappedAction.MouseScrollDown -> {
-                handleMouseScroll(button, -SCROLL_DELTA)
-            }
-            is MappedAction.ToggleOverlay -> {
-                onToggleOverlay?.invoke()
-            }
-            is MappedAction.ToggleKeyboard -> {
-                onToggleKeyboard?.invoke()
-            }
+            // 切换动作：始终处理
+            is MappedAction.ToggleOverlay -> { onToggleOverlay?.invoke(); return }
+            is MappedAction.ToggleKeyboard -> { onToggleKeyboard?.invoke(); return }
+            is MappedAction.ToggleCapture -> { onToggleCapture?.invoke(); return }
+            else -> {}
+        }
+
+        // 非切换动作：始终处理（暂停时也转发到 bridge，让游戏接收手柄输入）
+        when (val action = mapping.action) {
+            is MappedAction.KeyboardKey -> handleKeyboardKey(button, true, action.keyCode, mapping.subCommands)
+            is MappedAction.MouseClick -> handleMouseClick(button, true, action.button)
+            is MappedAction.MouseToggle -> handleMouseToggle(button, true, action.button)
+            is MappedAction.SwitchLayer -> {} // SteamInput 已处理
+            is MappedAction.MouseMove, is MappedAction.LookAround -> {} // handleStick 处理
+            is MappedAction.MouseScrollUp -> handleMouseScroll(button, SCROLL_DELTA)
+            is MappedAction.MouseScrollDown -> handleMouseScroll(button, -SCROLL_DELTA)
+            is MappedAction.ToggleOverlay,
+            is MappedAction.ToggleKeyboard,
+            is MappedAction.ToggleCapture -> {} // 已处理
         }
     }
 
