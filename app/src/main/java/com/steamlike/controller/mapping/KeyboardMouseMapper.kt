@@ -169,6 +169,15 @@ class KeyboardMouseMapper(
     var onToggleCapture: (() -> Unit)? = null
 
     /**
+     * 鼠标长按切换（MouseToggle）状态变化回调
+     *
+     * 当 MouseToggle 锁存状态切换时调用，传递鼠标按钮与当前是否处于"按下"状态。
+     * 由 ControllerOverlayService 设置，用于悬浮窗边框高亮提示
+     * （如右键长按锁存时改变边框颜色，释放后恢复）。
+     */
+    var onMouseToggleChanged: ((MouseButton, Boolean) -> Unit)? = null
+
+    /**
      * 是否正在捕获（历史字段，当前无实际作用）
      *
      * 早期设计中暂停捕获时由服务设置此字段，映射器据此仅处理切换动作。
@@ -448,11 +457,13 @@ class KeyboardMouseMapper(
             // 第二次按下 → 释放
             injector.sendMouseUp(mouseButton)
             toggledMouseButtons.remove(button)
+            onMouseToggleChanged?.invoke(mouseButton, false)
             Log.d(TAG, "Toggle MouseUp: $mouseButton")
         } else {
             // 第一次按下 → 按下
             injector.sendMouseDown(mouseButton)
             toggledMouseButtons[button] = mouseButton
+            onMouseToggleChanged?.invoke(mouseButton, true)
             Log.d(TAG, "Toggle MouseDown: $mouseButton")
         }
     }

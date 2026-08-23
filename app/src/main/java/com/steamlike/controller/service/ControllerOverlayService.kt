@@ -42,6 +42,7 @@ import com.steamlike.controller.config.ConfigManager
 import com.steamlike.controller.config.ControllerConfig
 import com.steamlike.controller.core.ControllerButton
 import com.steamlike.controller.core.KeyMapping
+import com.steamlike.controller.core.MouseButton
 import com.steamlike.controller.core.SteamInput
 import com.steamlike.controller.injection.BridgeInputInjector
 import com.steamlike.controller.injection.GamepadInputView
@@ -171,12 +172,20 @@ class ControllerOverlayService : Service() {
         private const val COLOR_BTN_DANGER_PRESSED = 0x66D32F2F.toInt()
         /** 收起胶囊边框 */
         private const val COLOR_COLLAPSED_STROKE = 0x33FFFFFF
+        /** 悬浮窗常驻边框（普通态，半透明白色细边） */
+        private const val COLOR_OVERLAY_BORDER_NORMAL = 0x33FFFFFF
+        /** 悬浮窗常驻边框（右键长按锁存激活态，红色高亮） */
+        private const val COLOR_OVERLAY_BORDER_ACTIVE = 0xFFFF4444.toInt()
         /** 按键映射列表项背景 */
         private const val COLOR_MAPPING_ITEM = 0x77222222.toInt()
     }
 
     private var windowManager: WindowManager? = null
     private var overlayView: View? = null
+    /**
+     * 悬浮窗常驻容器的圆角边框背景，右键长按锁存时切换边框颜色
+     */
+    private var overlayFrameBackground: GradientDrawable? = null
     private var gamepadInputView: GamepadInputView? = null
     private var statusText: TextView? = null
     private var layerText: TextView? = null
@@ -434,6 +443,13 @@ class ControllerOverlayService : Service() {
                 mapper?.onToggleOverlay = { mainHandler.post { toggleOverlayView() } }
                 mapper?.onToggleKeyboard = { mainHandler.post { toggleSystemKeyboard() } }
                 mapper?.onToggleCapture = { mainHandler.post { toggleCaptureState() } }
+
+                // 鼠标长按切换（MouseToggle）：右键锁存时悬浮窗边框红色高亮，释放恢复
+                mapper?.onMouseToggleChanged = { mouseButton, active ->
+                    if (mouseButton == MouseButton.RIGHT) {
+                        setRightToggleBorder(active)
+                    }
+                }
 
                 if (mapper?.start() == true) {
                     Log.i(TAG, "Mapper started successfully")
@@ -1320,11 +1336,32 @@ class ControllerOverlayService : Service() {
         // 常驻单窗口容器（FrameLayout）：收起/展开只切换内部子视图，
         // 不再 removeView/addView 重建窗口，避免系统窗口动画造成的闪烁
         val frame = FrameLayout(this)
+        // 常驻圆角边框：普通态半透明白色细边，右键长按锁存时切换为红色高亮
+        overlayFrameBackground = roundedDrawable(
+            color = 0x00000000,               // 填充透明，仅显示边框
+            cornerRadius = dp(16),
+            strokeColor = COLOR_OVERLAY_BORDER_NORMAL,
+            strokeWidth = dp(2)
+        )
+        frame.background = overlayFrameBackground
         overlayView = frame
         overlayParams?.let { windowManager?.addView(frame, it) }
         setupOverlayTouchListener(frame)
         // 初始显示收起胶囊
         showCollapsedView()
+    }
+
+    /**
+     * 切换悬浮窗常驻边框颜色（鼠标右键长按锁存提示）
+     *
+     * @param active true=右键长按锁存激活（红色高亮边框），false=恢复普通态
+     */
+    private fun setRightToggleBorder(active: Boolean) {
+        mainHandler.post {
+            val color = if (active) COLOR_OVERLAY_BORDER_ACTIVE else COLOR_OVERLAY_BORDER_NORMAL
+            overlayFrameBackground?.setStroke(dp(2), color)
+            Log.d(TAG, "Overlay border: ${if (active) "ACTIVE(right hold)" else "normal"}")
+        }
     }
 
     /**
