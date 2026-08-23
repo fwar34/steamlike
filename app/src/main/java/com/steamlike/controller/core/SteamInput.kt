@@ -148,6 +148,17 @@ class SteamInput(context: Context) {
     var onButtonMapped: ((button: ControllerButton, isPressed: Boolean, mapping: KeyMapping) -> Unit)? = null
 
     /**
+     * 手柄按钮按下/释放状态回调（覆盖所有按钮，与映射动作类型无关）
+     *
+     * 在 [handleButtonEvent] 中更新 [heldButtons] 后调用，
+     * 用于 UI 实时反馈（悬浮窗按键映射页 / 层编辑页按钮高亮）。
+     *
+     * @param button 手柄按钮
+     * @param isPressed true=按下, false=释放
+     */
+    var onButtonStateChanged: ((button: ControllerButton, isPressed: Boolean) -> Unit)? = null
+
+    /**
      * 摇杆映射回调
      *
      * 当摇杆移动时调用。外部根据映射类型（MouseMove/LookAround）执行不同操作。
@@ -560,6 +571,8 @@ class SteamInput(context: Context) {
     fun handleButtonEvent(button: ControllerButton, isPressed: Boolean) {
         // 更新 heldButtons
         if (isPressed) heldButtons.add(button) else heldButtons.remove(button)
+        // 通知 UI 实时反馈（悬浮窗映射页 / 层编辑页按钮高亮）
+        onButtonStateChanged?.invoke(button, isPressed)
 
         // 松开时：优先检查该按键是否曾触发过层切换，是则停用对应层
         // 这样即使激活层覆盖了该按键的映射，仍能正确停用层

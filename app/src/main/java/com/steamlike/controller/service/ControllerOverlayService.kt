@@ -178,6 +178,8 @@ class ControllerOverlayService : Service() {
         private const val COLOR_OVERLAY_BORDER_ACTIVE = 0xFFFF4444.toInt()
         /** 按键映射列表项背景 */
         private const val COLOR_MAPPING_ITEM = 0x77222222.toInt()
+        /** 按键映射列表项高亮（手柄按键按下时的反馈色） */
+        private const val COLOR_MAPPING_ACTIVE = 0xFF2196F3.toInt()
     }
 
     private var windowManager: WindowManager? = null
@@ -204,6 +206,10 @@ class ControllerOverlayService : Service() {
      */
     private var collapsedTextView: TextView? = null
     private val layerButtons = mutableMapOf<String, Button>()
+    /**
+     * 按键映射列表页的按钮 → 视图引用，手柄按键按下时高亮对应项
+     */
+    private val mappingViewItems = mutableMapOf<ControllerButton, TextView>()
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
     // 悬浮窗收起/展开/映射列表状态
@@ -423,6 +429,10 @@ class ControllerOverlayService : Service() {
                 steamInput = SteamInput(this)
                 // 将 SteamInput 实例暴露给 LayerEditActivity，供操作层设置界面读写配置
                 LayerEditActivity.steamInputRef = steamInput
+                // 手柄按钮按下/释放 → 悬浮窗按键映射页按钮高亮反馈
+                steamInput?.onButtonStateChanged = { button, pressed ->
+                    mainHandler.post { updateMappingViewHighlight(button, pressed) }
+                }
                 configManager = ConfigManager(this, steamInput!!)
 
                 mapper = KeyboardMouseMapper(
@@ -1365,6 +1375,23 @@ class ControllerOverlayService : Service() {
     }
 
     /**
+     * 更新按键映射列表页的按钮高亮（手柄按键按下/释放反馈）
+     *
+     * 仅在映射列表视图显示时生效，按下高亮对应按钮项，释放恢复。
+     *
+     * @param button 手柄按钮
+     * @param pressed true=按下高亮, false=释放恢复
+     */
+    private fun updateMappingViewHighlight(button: ControllerButton, pressed: Boolean) {
+        if (!isMappingView) return
+        val item = mappingViewItems[button] ?: return
+        mainHandler.post {
+            val bg = if (pressed) COLOR_MAPPING_ACTIVE else COLOR_MAPPING_ITEM
+            item.background = roundedDrawable(bg, dp(6))
+        }
+    }
+
+    /**
      * 显示收起状态的悬浮窗
      *
      * 收起状态显示一个小胶囊（当前激活层名），点击展开。
@@ -1372,6 +1399,7 @@ class ControllerOverlayService : Service() {
     private fun showCollapsedView() {
         val frame = overlayView as? FrameLayout ?: return
         isMappingView = false
+        mappingViewItems.clear()
         if (isExpanded && frame.childCount > 0) {
             // 展开面板先缩小淡出（离场动画），动画结束后切换到收起胶囊
             val panel = frame.getChildAt(0)
@@ -1501,6 +1529,8 @@ class ControllerOverlayService : Service() {
         val frame = overlayView as? FrameLayout ?: return
         // 移除收起胶囊（与新增面板同帧完成，无空白帧）
         frame.removeAllViews()
+        isMappingView = false
+        mappingViewItems.clear()
 
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1633,6 +1663,7 @@ class ControllerOverlayService : Service() {
         val frame = overlayView as? FrameLayout ?: return
         frame.removeAllViews()
         isMappingView = true
+        mappingViewItems.clear()
 
         val activeLayers = mapper?.getActiveLayers() ?: emptyList()
         val layerName = if (activeLayers.isEmpty()) "公共层" else activeLayers.last()
@@ -1703,6 +1734,8 @@ class ControllerOverlayService : Service() {
                                 isSingleLine = true
                                 ellipsize = android.text.TextUtils.TruncateAt.END
                             }
+                            // 保存引用，手柄按键按下时高亮对应项
+                            mappingViewItems[btn] = item
                             val params = LinearLayout.LayoutParams(
                                 0,   // 宽度 0 + weight=1 → 两列均分
                                 LinearLayout.LayoutParams.WRAP_CONTENT,

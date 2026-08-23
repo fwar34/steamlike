@@ -5,9 +5,11 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.Gravity
+import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.MenuItem
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
@@ -27,6 +29,8 @@ import com.steamlike.controller.config.AppConfigStore
 import com.steamlike.controller.config.ConfigManager
 import com.steamlike.controller.config.ControllerConfig
 import com.steamlike.controller.core.ControllerButton
+import com.steamlike.controller.core.ControllerInputMapper
+import com.steamlike.controller.core.ControllerType
 import com.steamlike.controller.service.ControllerOverlayService
 import com.steamlike.controller.core.ControllerProfile
 import com.steamlike.controller.core.KeyMapping
@@ -253,6 +257,14 @@ class LayerEditActivity : AppCompatActivity() {
     /** 当前选中的操作层 */
     private var currentLayer: OperationLayer? = null
 
+    // ===== 手柄按键视觉反馈状态 =====
+    /** 扳机按到底阈值（与 SteamInput 一致，轴值 >= 此值视为按下） */
+    private val triggerClickThreshold = 0.5f
+    /** D-Pad HAT 轴当前激活的方向集合（避免 MotionEvent 高频触发重复事件） */
+    private val hatState = mutableSetOf<ControllerButton>()
+    private var l2Pressed = false
+    private var r2Pressed = false
+
     /**
      * 当前编辑的控制器配置（本地副本）
      *
@@ -362,6 +374,114 @@ class LayerEditActivity : AppCompatActivity() {
             return true
         }
         return super.onOptionsItemSelected(item)
+    }
+
+    /**
+     * 手柄按键视觉反馈
+     *
+     * 手柄按键按下/释放时高亮映射列表中对应的按钮行，松开恢复。
+     * 事件来源过滤为 GAMEPAD/DPAD/JOYSTICK，不影响键盘/软键盘输入。
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.isFromSource(InputDevice.SOURCE_GAMEPAD) ||
+            event.isFromSource(InputDevice.SOURCE_DPAD) ||
+            event.isFromSource(InputDevice.SOURCE_JOYSTICK)
+        ) {
+            // 使用已连接手柄的类型做按键映射（PS 手柄 A/X 位置互换），未连接时用默认
+            val controllerType = steamInputRef?.controllers?.get(event.deviceId)?.controllerType
+                ?: ControllerType.XBOX_360
+            val button = ControllerInputMapper.mapKeyCode(event.keyCode, controllerType)
+            if (button != null && event.repeatCount == 0) {
+                updateMappingRowHighlight(button, event.action == KeyEvent.ACTION_DOWN)
+            }
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    /**
+     * 手柄模拟量事件（扳机 / 十字键 HAT 轴）视觉反馈
+     *
+     * L2/R2 与很多手柄的 D-Pad 通过 MotionEvent 轴值上报而非 KeyEvent，
+     * 需在此检测并同步到映射列表高亮。
+     */
+    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        if (event.isFromSource(InputDevice.SOURCE_GAMEPAD) ||
+            event.isFromSource(InputDevice.SOURCE_DPAD) ||
+            event.isFromSource(InputDevice.SOURCE_JOYSTICK)
+        ) {
+            handleDpadHatHighlight(event)
+            handleTriggerHighlight(event)
+        }
+        return super.onGenericMotionEvent(event)
+    }
+
+    /**
+     * 处理 D-Pad HAT 轴（AXIS_HAT_X / AXIS_HAT_Y）按下/释放高亮
+     */
+    private fun handleDpadHatHighlight(event: MotionEvent) {
+        val hatX = event.getAxisValue(MotionEvent.AXIS_HAT_X)
+        val hatY = event.getAxisValue(MotionEvent.AXIS_HAT_Y)
+        val upPressed = hatY < -0.5f
+        val downPressed = hatY > 0.5f
+        val leftPressed = hatX < -0.5f
+        val rightPressed = hatX > 0.5f
+        listOf(
+            ControllerButton.DPAD_UP to upPressed,
+            ControllerButton.DPAD_DOWN to downPressed,
+            ControllerButton.DPAD_LEFT to leftPressed,
+            ControllerButton.DPAD_RIGHT to rightPressed
+        ).forEach { (button, pressed) ->
+            if (pressed && !hatState.contains(button)) {
+                hatState.add(button)
+                updateMappingRowHighlight(button, true)
+            } else if (!pressed && hatState.contains(button)) {
+                hatState.remove(button)
+                updateMappingRowHighlight(button, false)
+            }
+        }
+    }
+
+    /**
+     * 处理 L2/R2 扳机轴（AXIS_LTRIGGER / AXIS_RTRIGGER）按下/释放高亮
+     */
+    private fun handleTriggerHighlight(event: MotionEvent) {
+        var l2Value = event.getAxisValue(MotionEvent.AXIS_LTRIGGER)
+        if (l2Value == 0f && event.device?.getMotionRange(MotionEvent.AXIS_BRAKE) != null) {
+            l2Value = event.getAxisValue(MotionEvent.AXIS_BRAKE)
+        }
+        if (l2Value >= triggerClickThreshold && !l2Pressed) {
+            l2Pressed = true
+            updateMappingRowHighlight(ControllerButton.LEFT_TRIGGER_CLICK, true)
+        } else if (l2Value < triggerClickThreshold && l2Pressed) {
+            l2Pressed = false
+            updateMappingRowHighlight(ControllerButton.LEFT_TRIGGER_CLICK, false)
+        }
+
+        var r2Value = event.getAxisValue(MotionEvent.AXIS_RTRIGGER)
+        if (r2Value == 0f && event.device?.getMotionRange(MotionEvent.AXIS_GAS) != null) {
+            r2Value = event.getAxisValue(MotionEvent.AXIS_GAS)
+        }
+        if (r2Value >= triggerClickThreshold && !r2Pressed) {
+            r2Pressed = true
+            updateMappingRowHighlight(ControllerButton.RIGHT_TRIGGER_CLICK, true)
+        } else if (r2Value < triggerClickThreshold && r2Pressed) {
+            r2Pressed = false
+            updateMappingRowHighlight(ControllerButton.RIGHT_TRIGGER_CLICK, false)
+        }
+    }
+
+    /**
+     * 更新按键映射列表行的按下高亮
+     *
+     * @param button 手柄按钮
+     * @param pressed true=按下高亮, false=释放恢复
+     */
+    private fun updateMappingRowHighlight(button: ControllerButton, pressed: Boolean) {
+        if (!::mappingsListView.isInitialized) return
+        val position = button.ordinal
+        val visibleIndex = position - mappingsListView.firstVisiblePosition
+        val row = mappingsListView.getChildAt(visibleIndex) ?: return
+        row.setBackgroundColor(if (pressed) 0xFF2196F3.toInt() else 0x00000000)
     }
 
     /**
