@@ -162,15 +162,6 @@ class SteamInput(context: Context) {
     var onButtonStateChanged: ((button: ControllerButton, isPressed: Boolean) -> Unit)? = null
 
     /**
-     * 任意手柄输入事件回调（用于连接活跃度检测）
-     *
-     * 每当有手柄源（GAMEPAD/DPAD/JOYSTICK）的按键或摇杆事件被处理时触发。
-     * 配合 [rescanDevices] 与悬浮窗连接状态轮询，可在 InputManager 回调不可靠的
-     * 设备上准确判断手柄是否真实在线。
-     */
-    var onControllerInput: (() -> Unit)? = null
-
-    /**
      * 摇杆映射回调
      *
      * 当摇杆移动时调用。外部根据映射类型（MouseMove/LookAround）执行不同操作。
@@ -371,9 +362,6 @@ class SteamInput(context: Context) {
             !event.isFromSource(InputDevice.SOURCE_JOYSTICK)
         ) return false
 
-        // 记录手柄输入活跃度（用于连接状态轮询判定真实在线）
-        onControllerInput?.invoke()
-
         val deviceId = event.deviceId
         val controller = connectedControllers[deviceId] ?: return false
         val button = ControllerInputMapper.mapKeyCode(event.keyCode, controller.controllerType) ?: return false
@@ -456,9 +444,6 @@ class SteamInput(context: Context) {
             !event.isFromSource(InputDevice.SOURCE_GAMEPAD) &&
             !event.isFromSource(InputDevice.SOURCE_DPAD)
         ) return false
-
-        // 记录手柄输入活跃度（用于连接状态轮询判定真实在线）
-        onControllerInput?.invoke()
 
         val deviceId = event.deviceId
         val device = event.device ?: return false

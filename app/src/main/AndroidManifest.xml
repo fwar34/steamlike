@@ -19,6 +19,10 @@
     <!-- 读取外部存储 (Android 10及以下需要) -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
+    <!-- 蓝牙连接权限: 查询手柄蓝牙 HID 连接状态, 准确检测手柄真实连接状态 (Android 12+) -->
+    <uses-permission android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
     <application
         android:name=".App"

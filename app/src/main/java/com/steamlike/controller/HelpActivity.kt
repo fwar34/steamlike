@@ -39,6 +39,9 @@ class HelpActivity : AppCompatActivity() {
         // 根布局：垂直方向，上方为固定标题，下方为可滚动内容区
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            // Android 15+ 强制 edge-to-edge：内容会绘制到状态栏下方，
+            // 开启 fitsSystemWindows 让根布局自动按状态栏高度加 padding，避免标题重叠
+            fitsSystemWindows = true
         }
         UiKit.applyDarkBackground(root, this)
 

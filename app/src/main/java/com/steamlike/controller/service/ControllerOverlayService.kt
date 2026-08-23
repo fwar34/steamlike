@@ -6,6 +6,9 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.app.PendingIntent
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothProfile
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -34,6 +37,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import com.steamlike.controller.LayerEditActivity
 import com.steamlike.controller.config.AppConfig
@@ -113,6 +117,13 @@ class ControllerOverlayService : Service() {
         const val ACTION_TOGGLE_OVERLAY = "TOGGLE_OVERLAY"
         /** 操作层按钮：短按判定为点击（跳转设置页）的时间阈值（毫秒） */
         private const val LAYER_BUTTON_TAP_MS = 300L
+        /**
+         * 蓝牙 HID Host profile 常量值（=4）
+         *
+         * [BluetoothProfile.HID_HOST] 在本项目 compileSdk 的 android.jar 中未暴露，
+         * 该值是蓝牙规范中的稳定数值，直接使用字面量，避免编译期未解析。
+         */
+        private const val HID_HOST_PROFILE = 4
         /** Intent extra: 配置文件 URI */
         const val EXTRA_CONFIG_URI = "config_uri"
         /** Intent extra: TCP监听地址，空表示监听所有接口 */
@@ -434,8 +445,6 @@ class ControllerOverlayService : Service() {
                 // 手柄连接/断开 → 更新收起悬浮窗的图标状态（🎮未连接 / ▶映射中 / ⏸暂停）
                 steamInput?.onControllerConnected = { controller ->
                     controllerConnected = true
-                    // 新设备加入视为在线，刷新活跃度时间戳避免被轮询误判为断开
-                    lastControllerInputMs = System.currentTimeMillis()
                     mainHandler.post {
                         updateCollapsedViewText(mapper?.getActiveLayers() ?: emptyList())
                     }
@@ -446,20 +455,16 @@ class ControllerOverlayService : Service() {
                         updateCollapsedViewText(mapper?.getActiveLayers() ?: emptyList())
                     }
                 }
-                // 手柄输入活跃度跟踪：任何手柄事件都刷新时间戳，供连接状态轮询判定真实在线
-                steamInput?.onControllerInput = {
-                    lastControllerInputMs = System.currentTimeMillis()
-                }
                 // 服务启动时手柄可能已经连接：onInputDeviceAdded 只在新设备插入时触发，
                 // 已连接手柄不会触发回调，这里显式初始化连接状态，避免误显示"🎮 未连接"
                 controllerConnected = steamInput?.controllers?.isNotEmpty() ?: false
-                // 已连接但尚无输入时，以当前时间为活跃度起点，避免轮询立即误判为断开
-                if (controllerConnected) lastControllerInputMs = System.currentTimeMillis()
                 // 刷新收起文本（若面板尚未创建则为空操作，面板创建时会读取最新状态）
                 mainHandler.post {
                     updateCollapsedViewText(mapper?.getActiveLayers() ?: emptyList())
                 }
-                // 启动手柄连接状态轮询（兜底 InputManager 回调不可靠的情况）
+                // 注册蓝牙 HID Host 代理，查询手柄真实连接状态（不依赖系统广播）
+                registerHidProxy()
+                // 启动手柄连接状态轮询（结合 HID Host 在线列表，兜底 InputManager 回调不可靠）
                 startControllerMonitor()
                 configManager = ConfigManager(this, steamInput!!)
 
@@ -853,21 +858,19 @@ class ControllerOverlayService : Service() {
      * 这里周期查询系统真实输入设备作为兜底，确保悬浮窗图标状态始终准确。
      */
     private var controllerMonitor: Runnable? = null
+    /** 上一次打印的连接检测摘要（用于诊断日志去重，仅在变化时打印） */
+    private var lastDetectSummary: String? = null
     /**
-     * 最近一次手柄输入事件的时间戳（毫秒）
+     * 蓝牙 HID Host profile 代理
      *
-     * 由 [SteamInput.onControllerInput] 持续更新。部分设备手柄断开（关电源/关蓝牙）后
-     * 系统仍残留输入设备条目（getDeviceIds 仍返回该设备），仅靠条目存在无法判断真实在线，
-     * 因此结合"最近是否有输入"判断：长时间无输入即视为已断开。
+     * 通过 [BluetoothAdapter.getProfileProxy] 异步获取，用于查询手机作为 HID Host
+     * 时当前连接的蓝牙手柄（如 Xbox Wireless Controller）。代理成功连接后
+     * [hidProxyReady] 置 true，轮询即可用 [BluetoothProfile.getConnectedDevices]
+     * 判断蓝牙手柄真实在线状态（该 API 不依赖系统广播，不受 MIUI 后台限制）。
      */
-    @Volatile
-    private var lastControllerInputMs: Long = 0L
-    /**
-     * 手柄无输入多久后判定为已断开（毫秒）
-     *
-     * 必须大于轮询周期，避免误判；设置合理值以在断开后尽快更新图标。
-     */
-    private val controllerIdleTimeoutMs = 8000L
+    private var hidProxy: BluetoothProfile? = null
+    /** HID Host 代理是否成功获取（false 时退化为仅设备条目判断） */
+    private var hidProxyReady: Boolean = false
 
     /**
      * 创建全屏透明焦点窗口捕获手柄事件
@@ -1302,10 +1305,11 @@ class ControllerOverlayService : Service() {
      *
      * InputManager 的 onInputDeviceAdded/Removed 回调在部分设备（如 MIUI 蓝牙断开）
      * 上不可靠，会导致悬浮窗图标状态卡死（断开仍显示暂停/映射图标）。
-     * 这里周期查询系统真实输入设备，检测到连接状态变化时刷新图标。
+     * 这里周期查询系统真实输入设备 + 蓝牙链路状态，检测到连接状态变化时刷新图标。
      */
     private fun startControllerMonitor() {
         stopControllerMonitor()
+        Log.i(TAG, "Controller monitor started")
         controllerMonitor = object : Runnable {
             override fun run() {
                 val connected = detectControllerConnected()
@@ -1330,30 +1334,169 @@ class ControllerOverlayService : Service() {
     }
 
     /**
-     * 检测是否有手柄输入设备在线（轮询真实系统状态）
+     * 检测是否有手柄输入设备在线
      *
-     * 判断分两步：
-     * 1. 系统是否仍有手柄输入设备条目（GAMEPAD/DPAD/JOYSTICK 源）——有线拔插等会被系统直接移除；
-     * 2. 结合输入活跃度：部分设备（如 MIUI）手柄关电源/关蓝牙后设备条目仍残留，
-     *    仅靠条目存在无法判断真实在线，因此要求最近 [controllerIdleTimeoutMs] 内收到过手柄输入。
+     * 判断规则（蓝牙 HID 轮询方案）：
+     * 1. 系统已无手柄输入设备条目（有线拔插等会被系统直接移除）→ 已断开；
+     * 2. 否则查询蓝牙 HID（HID_DEVICE profile）在线列表：
+     *    - 无法查询（低版本/未授权 BLUETOOTH_CONNECT）→ 退化为仅靠设备条目，判在线；
+     *    - 蓝牙手柄必须出现在 HID 在线列表才算在线（MIUI 上蓝牙手柄断电后输入设备
+     *      条目残留，但 HID 连接列表会移除，因此 HID 列表是可靠的在线信号）；
+     *    - 非蓝牙手柄（有线）不受 HID 列表影响，直接判在线。
      *
-     * 不依赖 [SteamInput.controllers]（其内部表由 InputManager 回调更新，回调可能不触发）。
+     * 这样连接但静止不动的手柄不会误判为断开（不依赖输入活跃度），
+     * 关电源/关手机蓝牙后 HID 列表移除手柄 → 立即判离线。
      *
-     * @return true=手柄在线, false=手柄已断开
+     * @return true=至少一个手柄在线, false=全部断开
      */
     private fun detectControllerConnected(): Boolean {
-        // 1. 系统是否仍有手柄输入设备条目
-        val hasGamepadDevice = android.view.InputDevice.getDeviceIds().any { deviceId ->
-            val device = android.view.InputDevice.getDevice(deviceId) ?: return@any false
-            device.sources and (
-                android.view.InputDevice.SOURCE_GAMEPAD or
-                    android.view.InputDevice.SOURCE_DPAD or
-                    android.view.InputDevice.SOURCE_JOYSTICK
-            ) != 0
+        val gamepadDevices = android.view.InputDevice.getDeviceIds()
+            .toList()
+            .mapNotNull { deviceId -> android.view.InputDevice.getDevice(deviceId) }
+            .filter { isGamepadDevice(it) }
+        if (gamepadDevices.isEmpty()) {
+            logDetectSummary("gamepads=[]")
+            return false
         }
-        if (!hasGamepadDevice) return false
-        // 2. 设备条目残留时的兜底：长时间无输入即视为已断开
-        return System.currentTimeMillis() - lastControllerInputMs < controllerIdleTimeoutMs
+        // HID Host 代理未就绪：退化为仅依赖设备条目（连接正常时图标不受影响）
+        if (!hidProxyReady) return true
+        val hidNames = queryHidHostConnectedNames()
+        val summary = "gamepads=[${gamepadDevices.joinToString { it.name ?: "?" }}] hid=$hidNames"
+        logDetectSummary(summary)
+        // 蓝牙手柄：名称匹配 HID Host 在线列表才在线（静止不动不误判、
+        // 关电源/关蓝牙立即从列表移除）；有线手柄：设备条目存在即在线
+        return gamepadDevices.any { device ->
+            if (isBluetoothGamepad(device)) {
+                device.name != null && hidNames.contains(device.name)
+            } else {
+                true
+            }
+        }
+    }
+
+    /**
+     * 打印连接检测摘要日志（仅在内容变化时打印，避免 2 秒轮询刷屏）
+     */
+    private fun logDetectSummary(summary: String) {
+        if (summary != lastDetectSummary) {
+            lastDetectSummary = summary
+            Log.i(TAG, "Controller detect: $summary")
+        }
+    }
+
+    /**
+     * 获取蓝牙适配器（统一做版本与权限检查）
+     *
+     * API 31+ 查询蓝牙状态需要 [android.Manifest.permission.BLUETOOTH_CONNECT]，
+     * 未授权或系统版本过低时返回 null。
+     *
+     * @return 蓝牙适配器；null=无法访问蓝牙
+     */
+    private fun getBluetoothAdapter(): BluetoothAdapter? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return null
+        if (checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+            != PackageManager.PERMISSION_GRANTED
+        ) return null
+        @Suppress("MissingPermission")  // 已在上方检查 BLUETOOTH_CONNECT 权限
+        return (getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
+    }
+
+    /**
+     * 注册蓝牙 HID Host profile 代理
+     *
+     * 通过 [BluetoothAdapter.getProfileProxy] 异步获取 HID_HOST 代理。该代理用于
+     * 查询手机当前连接的蓝牙手柄，不依赖系统广播（MIUI 后台广播会被 SmartPower
+     * 拦截），是可靠的连接状态信号。代理获取失败时 [hidProxyReady] 保持 false，
+     * 连接检测退化为仅依赖设备条目。
+     */
+    private fun registerHidProxy() {
+        if (hidProxyReady) return
+        val adapter = getBluetoothAdapter() ?: return
+        @Suppress("MissingPermission")  // 已在上方检查 BLUETOOTH_CONNECT 权限
+        runCatching {
+            adapter.getProfileProxy(this, object : BluetoothProfile.ServiceListener {
+                override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
+                    if (profile == HID_HOST_PROFILE) {
+                        hidProxy = proxy
+                        hidProxyReady = true
+                        Log.i(TAG, "HID Host proxy connected")
+                    }
+                }
+
+                override fun onServiceDisconnected(profile: Int) {
+                    if (profile == HID_HOST_PROFILE) {
+                        hidProxy = null
+                        hidProxyReady = false
+                        Log.i(TAG, "HID Host proxy disconnected")
+                    }
+                }
+            }, HID_HOST_PROFILE)
+        }.onFailure { Log.w(TAG, "getProfileProxy(HID_HOST) failed: ${it.message}") }
+    }
+
+    /**
+     * 注销蓝牙 HID Host profile 代理
+     */
+    private fun unregisterHidProxy() {
+        val adapter = getBluetoothAdapter()
+        val proxy = hidProxy
+        if (adapter != null && proxy != null) {
+            @Suppress("MissingPermission")  // 已在上方检查 BLUETOOTH_CONNECT 权限
+            runCatching { adapter.closeProfileProxy(HID_HOST_PROFILE, proxy) }
+        }
+        hidProxy = null
+        hidProxyReady = false
+    }
+
+    /**
+     * 查询 HID Host 当前连接的蓝牙设备名集合
+     *
+     * @return 已连接蓝牙设备名（优先 name，无 name 用 MAC 地址）集合
+     */
+    private fun queryHidHostConnectedNames(): Set<String> {
+        val proxy = hidProxy ?: return emptySet()
+        @Suppress("MissingPermission")  // 已在上方检查 BLUETOOTH_CONNECT 权限
+        return runCatching {
+            proxy.connectedDevices.mapNotNull { it.name ?: it.address }.toSet()
+        }.getOrDefault(emptySet())
+    }
+
+    /**
+     * 判断游戏手柄输入设备是否为蓝牙连接的手柄
+     *
+     * 蓝牙手柄在系统已配对蓝牙设备列表（bondedDevices）中有对应条目，通过设备名或
+     * MAC 地址匹配判断。用于区分有线手柄与蓝牙手柄：有线手柄不在配对列表中。
+     *
+     * @param device 系统输入设备
+     * @return true=蓝牙手柄, false=非蓝牙（有线/USB）或无法判断
+     */
+    private fun isBluetoothGamepad(device: android.view.InputDevice): Boolean {
+        val adapter = getBluetoothAdapter() ?: return false
+        val name = device.name ?: return false
+        @Suppress("MissingPermission")  // 已在上方检查 BLUETOOTH_CONNECT 权限
+        return adapter.bondedDevices.any { it.name == name || it.address == name }
+    }
+
+    /**
+     * 判断输入设备是否为真实游戏手柄
+     *
+     * 判定条件：
+     * 1. 具备游戏手柄源（SOURCE_GAMEPAD 摇杆/ABXY 键 或 SOURCE_JOYSTICK 摇杆）；
+     * 2. 且为外接设备（蓝牙/USB 手柄 [InputDevice.isExternal] 为 true）。
+     *
+     * 注意：不能仅靠源标志判断——系统内置按键设备（如电源键、gpio-keys、虚拟
+     * 键盘）也可能声明 DPAD/GAMEPAD 源，但它们非外接，会被 [InputDevice.isExternal]
+     * 排除，避免把"无手柄"误判为"有手柄在线"。
+     *
+     * @param device 系统输入设备
+     * @return true=真实外接游戏手柄
+     */
+    private fun isGamepadDevice(device: android.view.InputDevice): Boolean {
+        if (!device.isExternal) return false
+        return device.sources and (
+            android.view.InputDevice.SOURCE_GAMEPAD or
+                android.view.InputDevice.SOURCE_JOYSTICK
+        ) != 0
     }
 
     /**
@@ -2238,6 +2381,8 @@ class ControllerOverlayService : Service() {
         stopSmartMonitor()
         // 停止手柄连接状态轮询
         stopControllerMonitor()
+        // 注销蓝牙 HID Host 代理
+        unregisterHidProxy()
         // 清除无障碍按键转发回调
         GamepadAccessibilityService.onPausedKeyEvent = null
         // 移除焦点输入窗口

@@ -145,6 +145,9 @@ class MainActivity : AppCompatActivity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             UiKit.applyDarkBackground(this, this@MainActivity)
+            // Android 15+ 强制 edge-to-edge：内容会绘制到状态栏下方，
+            // 开启 fitsSystemWindows 让根布局自动按状态栏高度加 padding，避免标题重叠
+            fitsSystemWindows = true
         }
 
         // ===== 固定头部（不随页面滚动，样式与使用说明页一致）=====
@@ -558,6 +561,9 @@ class MainActivity : AppCompatActivity() {
                 0, getSharedPreferences(SCROLL_PREFS, MODE_PRIVATE).getInt(KEY_SCROLL_Y, 0)
             )
         }
+
+        // 请求蓝牙连接权限（Android 12+）：准确检测手柄真实连接状态
+        requestBluetoothPermission()
     }
 
     // ====================================================================
@@ -1075,9 +1081,30 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * 请求蓝牙连接权限（Android 12+，API 31+）
+     *
+     * 用于查询手柄蓝牙 HID Host 连接状态，准确检测手柄真实连接状态：手柄关电源/关蓝牙时
+     * 及时把悬浮窗图标更新为"未连接"（MIUI 上输入设备条目可能残留，无法仅靠条目判断）。
+     *
+     * 用户拒绝时功能降级：悬浮窗仅依赖系统输入设备条目判断连接状态，
+     * 不影响手柄映射等核心功能。
+     */
+    private fun requestBluetoothPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        if (checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+            == PackageManager.PERMISSION_GRANTED) return
+        requestPermissions(
+            arrayOf(android.Manifest.permission.BLUETOOTH_CONNECT),
+            REQUEST_BLUETOOTH_CONNECT
+        )
+    }
+
     companion object {
         /** 请求 WRITE_EXTERNAL_STORAGE 权限的请求码 (仅 Android 9 及以下使用) */
         private const val REQUEST_WRITE_STORAGE = 1001
+        /** 请求 BLUETOOTH_CONNECT 权限的请求码 (Android 12+ 检测手柄蓝牙连接状态) */
+        private const val REQUEST_BLUETOOTH_CONNECT = 1002
         private const val TAG = "SteamLikeUI"
         /** 主界面滚动位置持久化 */
         private const val SCROLL_PREFS = "main_scroll"
