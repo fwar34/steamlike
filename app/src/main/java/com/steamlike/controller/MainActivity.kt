@@ -30,7 +30,6 @@ import com.steamlike.controller.config.AppConfig
 import com.steamlike.controller.config.AppConfigStore
 import com.steamlike.controller.config.ConfigManager
 import com.steamlike.controller.config.ControllerConfig
-import com.steamlike.controller.core.ControllerButton
 import com.steamlike.controller.core.ControllerProfile
 import com.steamlike.controller.core.GlobalSettings
 import com.steamlike.controller.service.ControllerOverlayService
@@ -45,7 +44,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var overlayButton: Button
     private lateinit var configStatusText: TextView
     private lateinit var connectionStatusText: TextView
-    private lateinit var usageTextView: TextView
     /** 智能暂停开关 */
     private lateinit var smartPauseSwitch: Switch
     /** 捕获白名单输入框 */
@@ -357,6 +355,16 @@ class MainActivity : AppCompatActivity() {
             },
             style = UiKit.Style.PRIMARY
         ))
+        configCard.addView(UiKit.spacer(this, 6))
+
+        // 使用说明按钮（跳转到独立的 HelpActivity 帮助文档页面）
+        configCard.addView(UiKit.button(
+            this,
+            "📖 使用说明",
+            onClick = {
+                startActivity(Intent(this@MainActivity, HelpActivity::class.java))
+            }
+        ))
         container.addView(configCard)
 
         // ===== 右摇杆优化设置卡片 =====
@@ -520,11 +528,6 @@ class MainActivity : AppCompatActivity() {
             }
         ))
         container.addView(debugCard)
-
-        // 使用说明（动态根据当前 profile 生成操作层切换说明）
-        container.addView(UiKit.spacer(this, 10))
-        usageTextView = UiKit.caption(this, "", 0xFF888888.toInt(), 11f)
-        container.addView(usageTextView)
 
         scroll.addView(container)
         setContentView(scroll)
@@ -829,56 +832,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * 更新使用说明文本
-     *
-     * 操作层切换说明根据当前 profile 的 triggerButton 动态生成。
-     * 使用逐行拼接（而非 trimIndent），避免内嵌多行变量破坏缩进对齐。
-     */
-    private fun updateUsageText() {
-        // 动态生成操作层切换说明
-        val layerSwitchLines = buildLayerSwitchLines()
-
-        usageTextView.text = buildString {
-            append("📖 使用说明\n\n")
-            append("【第一步】Android 端\n")
-            append("1. 授予悬浮窗权限\n")
-            append("2. 点击「启动手柄映射」\n")
-            append("3. 切到 Winlator 运行 WoW\n\n")
-            append("【第二步】Windows 端\n")
-            append("1. 点「导出 Windows 客户端」，从 Download/AControler\n")
-            append("   取出 inputbridge_client.exe 与 control.bat\n")
-            append("2. 复制到 Winlator 的 C 盘\n")
-            append("3. 运行 control.bat start（或直接运行 exe）\n")
-            append("4. 保持窗口打开，切回游戏\n\n")
-            append("架构：Android（焦点窗口 + TCP:27015）\n")
-            append("      ←→ Windows（SendInput 注入）\n\n")
-            append("【操作层切换】（按住触发键激活，松开回公共层）\n")
-            append(layerSwitchLines)
-            append("\n\n")
-            append("【配置管理】\n")
-            append("· 操作层设置：可视化编辑按键映射 / 层名 / 触发键\n")
-            append("· 导出 / 导入：JSON 完整备份（含运行时设置）\n")
-            append("· 重置配置：恢复默认 WoW 预设\n")
-            append("· 游戏 EXE 路径：导出后 control.bat 先启动客户端，成功后再自动启动游戏\n\n")
-            append("【智能暂停】\n")
-            append("· 开启后自动检测前台应用：白名单（如 Winlator）在前台时保持手柄捕获，\n")
-            append("  切到其他应用自动暂停捕获，右滑返回恢复正常（需授权\"使用情况访问\"）\n\n")
-            append("【暂停捕获】\n")
-            append("· 暂停会移除手柄焦点窗口，因此侧滑返回手势恢复正常\n")
-            append("· 代价：暂停后手柄事件无法到达手机，\"切换捕获\"手柄键无法恢复，\n")
-            append("  需用悬浮窗「恢复捕获」按钮或 App 内「手柄捕获」开关恢复\n\n")
-            append("【切换键盘】\n")
-            append("· 弹出软键盘时保持捕获（不暂停）：输入内容经 IME 转发到 Windows 注入游戏\n")
-            append("· 键盘绑定手柄焦点窗口；点击键盘隐藏按钮或返回键后自动恢复\n\n")
-            append("【悬浮窗】\n")
-            append("· 收起胶囊显示当前层，点击展开面板，可拖动\n")
-            append("· 「游戏」拉起 Winlator；「暂停/恢复」切换捕获（与 App 内开关同步）\n")
-            append("· 层按钮按住激活、松开回公共层；「清除层」清空激活层\n")
-            append("· 「关闭」停止服务\n")
-        }
-    }
-
-    /**
      * 获取当前生效的 ControllerProfile
      *
      * 数据源优先级:
@@ -927,82 +880,6 @@ class MainActivity : AppCompatActivity() {
         }
         layout.addView(edit)
         return Pair(layout, edit)
-    }
-
-    /**
-     * 根据当前 profile 的 layers.triggerButton 动态构建操作层切换说明
-     *
-     * 已设置 triggerButton 的层显示为 "按住 <按键名> → 激活 <层名>"
-     * 未设置 triggerButton 的层显示为 "<层名>: 未设置触发键"
-     *
-     * @return 多行字符串，每行一个操作层
-     */
-    private fun buildLayerSwitchLines(): String {
-        val profile = getCurrentProfile()
-        // 先计算所有已设置触发键的最大显示宽度，确保 → 箭头对齐
-        val triggerNames = profile.layers.mapNotNull { it.triggerButton?.let { b -> buttonDisplayName(b) } }
-        val maxDisplayWidth = if (triggerNames.isEmpty()) 0 else triggerNames.maxOf { displayWidth(it) }
-        val lines = profile.layers.map { layer ->
-            val triggerName = layer.triggerButton?.let { padToDisplayWidth(buttonDisplayName(it), maxDisplayWidth) }
-            if (triggerName != null) {
-                "  按住 $triggerName → 激活 ${layer.name}"
-            } else {
-                "  ${layer.name}: 未设置触发键（可在操作层设置中配置）"
-            }
-        }
-        return lines.joinToString("\n")
-    }
-
-    /**
-     * 计算字符串显示宽度（中文字符/全角字符算 2，西文字符/半角算 1）
-     *
-     * 用于按显示宽度对齐文本，避免中英文混合时不对齐。
-     * 宽度规则与默认字体渲染一致：汉字/全角（含全角空格 U+3000）占 1em=2 单位，
-     * 西文字母数字/半角空格/方向箭头（↑↓←→ 在默认字体为半角）占 0.5em=1 单位。
-     */
-    private fun displayWidth(s: String): Int = s.sumOf { c ->
-        val code = c.code
-        if (code in 0x2E80..0x9FFF || code in 0xFF00..0xFFEF) 2 else 1
-    }
-
-    /**
-     * 按显示宽度精确填充字符串到目标宽度
-     *
-     * 用**全角空格（U+3000，1em=2 单位）**补偶数余量、**半角空格（0.5em=1 单位）**补奇数余量，
-     * 两者相加精确等于 [targetWidth] - 当前宽度，确保 → 箭头列严格对齐。
-     */
-    private fun padToDisplayWidth(s: String, targetWidth: Int): String {
-        val pad = targetWidth - displayWidth(s)
-        if (pad <= 0) return s
-        val fullWidthSpaces = pad / 2
-        val halfWidthSpaces = pad % 2
-        return s + "\u3000".repeat(fullWidthSpaces) + " ".repeat(halfWidthSpaces)
-    }
-
-    /**
-     * 将 ControllerButton 转换为可读名称
-     *
-     * 与 LayerEditActivity.buttonDisplayName 保持一致。
-     */
-    private fun buttonDisplayName(button: ControllerButton): String = when (button) {
-        ControllerButton.A -> "A"
-        ControllerButton.B -> "B"
-        ControllerButton.X -> "X"
-        ControllerButton.Y -> "Y"
-        ControllerButton.LEFT_SHOULDER -> "LB"
-        ControllerButton.RIGHT_SHOULDER -> "RB"
-        ControllerButton.LEFT_TRIGGER_CLICK -> "L2"
-        ControllerButton.RIGHT_TRIGGER_CLICK -> "R2"
-        ControllerButton.LEFT_STICK_CLICK -> "L3"
-        ControllerButton.RIGHT_STICK_CLICK -> "R3"
-        ControllerButton.MENU -> "Menu"
-        ControllerButton.OPTIONS -> "Options"
-        ControllerButton.GUIDE -> "Guide"
-        ControllerButton.DPAD_UP -> "D-Pad ↑"
-        ControllerButton.DPAD_DOWN -> "D-Pad ↓"
-        ControllerButton.DPAD_LEFT -> "D-Pad ←"
-        ControllerButton.DPAD_RIGHT -> "D-Pad →"
-        ControllerButton.TOUCHPAD_CLICK -> "Touchpad"
     }
 
     // ====================================================================
@@ -1267,7 +1144,6 @@ class MainActivity : AppCompatActivity() {
         updateUI()
         updateConfigStatus()
         updateUsageStatsStatus()
-        updateUsageText()
 
         // Debug: 自动跳转测试页面
         // 通过 `adb shell am start -n com.steamlike.controller/.MainActivity --ez auto_open_test true` 触发

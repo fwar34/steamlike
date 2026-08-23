@@ -48,6 +48,13 @@
             android:exported="false"
             android:parentActivityName=".MainActivity" />
 
+        <!-- 使用说明 Activity（内部使用，不对外暴露） -->
+        <activity
+            android:name=".HelpActivity"
+            android:label="使用说明"
+            android:exported="false"
+            android:parentActivityName=".MainActivity" />
+
         <!-- 手柄按键测试 Activity（调试用） -->
         <activity
             android:name=".GamepadTestActivity"

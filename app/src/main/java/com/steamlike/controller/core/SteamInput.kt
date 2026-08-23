@@ -93,10 +93,13 @@ class SteamInput(context: Context) {
         private set
 
     /**
-     * 当前激活的操作层列表
+     * 当前激活的操作层列表（按激活顺序排列）
+     *
+     * 层激活由公共层（或任意层）中的 [MappedAction.SwitchLayer] 映射驱动：
+     * - 按下切层键 → 激活目标层；多个层可同时激活，按激活顺序叠加（后激活的优先级更高）
+     * - 松开切层键 → 停用对应层（回到公共层）
      *
      * 使用 [CopyOnWriteArrayList] 保证遍历安全。
-     * 通常只有一个层激活（按住触发键时），松开后清空。
      */
     private val activeLayers = CopyOnWriteArrayList<OperationLayer>()
 
@@ -157,6 +160,15 @@ class SteamInput(context: Context) {
      * @param isPressed true=按下, false=释放
      */
     var onButtonStateChanged: ((button: ControllerButton, isPressed: Boolean) -> Unit)? = null
+
+    /**
+     * 任意手柄输入事件回调（用于连接活跃度检测）
+     *
+     * 每当有手柄源（GAMEPAD/DPAD/JOYSTICK）的按键或摇杆事件被处理时触发。
+     * 配合 [rescanDevices] 与悬浮窗连接状态轮询，可在 InputManager 回调不可靠的
+     * 设备上准确判断手柄是否真实在线。
+     */
+    var onControllerInput: (() -> Unit)? = null
 
     /**
      * 摇杆映射回调
@@ -359,6 +371,9 @@ class SteamInput(context: Context) {
             !event.isFromSource(InputDevice.SOURCE_JOYSTICK)
         ) return false
 
+        // 记录手柄输入活跃度（用于连接状态轮询判定真实在线）
+        onControllerInput?.invoke()
+
         val deviceId = event.deviceId
         val controller = connectedControllers[deviceId] ?: return false
         val button = ControllerInputMapper.mapKeyCode(event.keyCode, controller.controllerType) ?: return false
@@ -389,9 +404,9 @@ class SteamInput(context: Context) {
     fun dispatchKeyEventWhilePaused(event: KeyEvent): Boolean {
         Log.d(TAG, "PausedKeyEvent act=${event.action} key=${event.keyCode} src=${event.source} dev=${event.deviceId} repeat=${event.repeatCount} capturing=$isCapturing")
         if (isCapturing) return false
-        if (!event.isFromSource(InputDevice.SOURCE_GAMEPAD) &&
-            !event.isFromSource(InputDevice.SOURCE_DPAD) &&
-            !event.isFromSource(InputDevice.SOURCE_JOYSTICK)
+        if (!event.isFromSource(InputDevice.SOURCE_JOYSTICK) &&
+            !event.isFromSource(InputDevice.SOURCE_GAMEPAD) &&
+            !event.isFromSource(InputDevice.SOURCE_DPAD)
         ) return false
 
         val deviceId = event.deviceId
@@ -441,6 +456,9 @@ class SteamInput(context: Context) {
             !event.isFromSource(InputDevice.SOURCE_GAMEPAD) &&
             !event.isFromSource(InputDevice.SOURCE_DPAD)
         ) return false
+
+        // 记录手柄输入活跃度（用于连接状态轮询判定真实在线）
+        onControllerInput?.invoke()
 
         val deviceId = event.deviceId
         val device = event.device ?: return false

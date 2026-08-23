@@ -241,6 +241,9 @@ class LayerEditActivity : AppCompatActivity() {
     /** 按键映射列表 */
     private lateinit var mappingsListView: ListView
 
+    /** 当前层映射摘要（显示层名 + 已映射按键数量） */
+    private lateinit var mappingSummaryText: TextView
+
     /** 编辑层名称按钮 */
     private lateinit var editLayerNameButton: Button
 
@@ -317,6 +320,7 @@ class LayerEditActivity : AppCompatActivity() {
         // 初始化 UI 元素
         layerSpinner = findViewById(R.id.spinner_layer)
         mappingsListView = findViewById(R.id.list_mappings)
+        mappingSummaryText = findViewById(R.id.text_mapping_summary)
         editLayerNameButton = findViewById(R.id.btn_edit_layer_name)
         editTriggerButton = findViewById(R.id.btn_edit_trigger)
         saveButton = findViewById(R.id.btn_save)
@@ -566,10 +570,14 @@ class LayerEditActivity : AppCompatActivity() {
     }
 
     /**
-     * 刷新按键映射列表
+     * 刷新按键映射列表与当前层摘要
      *
      * 遍历所有 [ControllerButton] 枚举值，显示每个按键的映射情况。
      * 未设置映射的按键显示 "[未设置]"。
+     *
+     * 同时更新映射摘要行，包含：
+     * - 当前层名称 + 已映射按键数量
+     * - 切入键：公共层中哪个按键（SwitchLayer 映射）会激活当前层
      */
     private fun refreshMappingsList() {
         val layer = currentLayer ?: return
@@ -579,6 +587,20 @@ class LayerEditActivity : AppCompatActivity() {
             val mapping = layer.buttonMappings[button]
             val desc = mapping?.describe() ?: "[未设置]"
             "${buttonDisplayName(button)} → $desc"
+        }
+
+        // 更新当前层映射摘要（层名 + 已映射数量 + 公共层切入键）
+        if (::mappingSummaryText.isInitialized) {
+            val mappedCount = layer.buttonMappings.values.count { it != null }
+            // 公共层中切到当前操作层的按键（SwitchLayer 映射）
+            val triggerKeys = this.profile.commonLayer.buttonMappings
+                .filterValues { mapping ->
+                    (mapping.action as? MappedAction.SwitchLayer)?.layerName == layer.name
+                }
+                .map { buttonDisplayName(it.key) }
+            val triggerText = if (triggerKeys.isEmpty()) "无" else triggerKeys.joinToString("/")
+            mappingSummaryText.text =
+                "当前层「${layer.name}」已映射 $mappedCount 个按键 · 切入键: $triggerText"
         }
 
         // 使用 ArrayAdapter 绑定数据到 ListView

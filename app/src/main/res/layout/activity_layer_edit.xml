@@ -89,7 +89,19 @@
         android:textSize="16sp"
         android:textColor="#FFDDDDDD"
         android:paddingTop="8dp"
-        android:paddingBottom="8dp" />
+        android:paddingBottom="4dp" />
+
+    <!--
+      当前层映射摘要
+      显示当前操作层的名称与已映射按键数量，便于快速了解该层配置。
+    -->
+    <TextView
+        android:id="@+id/text_mapping_summary"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="12sp"
+        android:textColor="#FF8BC34A"
+        android:paddingBottom="6dp" />
 
     <!--
       按键映射列表

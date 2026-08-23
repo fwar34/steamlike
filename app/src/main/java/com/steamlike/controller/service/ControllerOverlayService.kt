@@ -197,12 +197,10 @@ class ControllerOverlayService : Service() {
      */
     private var captureButton: Button? = null
     /**
-     * 收起状态下显示当前激活层名的 TextView 引用
+     * 收起状态下显示当前激活层名与状态图标的 TextView 引用
      *
-     * 用于操作层切换时动态更新悬浮窗文本（替代原静态 🎮 图标）。
-     * - 无激活层时显示"公共层"
-     * - 多个激活层时显示最上层（最后激活的）名称
-     * - 捕获暂停时追加"⏸"标记
+     * 用于操作层切换 / 捕获状态 / 手柄连接状态变化时动态更新悬浮窗文本。
+     * 显示规则见 [buildCollapsedText]（三态图标：🎮未连接 / ▶映射中 / ⏸暂停）。
      */
     private var collapsedTextView: TextView? = null
     private val layerButtons = mutableMapOf<String, Button>()
@@ -433,6 +431,36 @@ class ControllerOverlayService : Service() {
                 steamInput?.onButtonStateChanged = { button, pressed ->
                     mainHandler.post { updateMappingViewHighlight(button, pressed) }
                 }
+                // 手柄连接/断开 → 更新收起悬浮窗的图标状态（🎮未连接 / ▶映射中 / ⏸暂停）
+                steamInput?.onControllerConnected = { controller ->
+                    controllerConnected = true
+                    // 新设备加入视为在线，刷新活跃度时间戳避免被轮询误判为断开
+                    lastControllerInputMs = System.currentTimeMillis()
+                    mainHandler.post {
+                        updateCollapsedViewText(mapper?.getActiveLayers() ?: emptyList())
+                    }
+                }
+                steamInput?.onControllerDisconnected = { controller ->
+                    controllerConnected = steamInput?.controllers?.isNotEmpty() ?: false
+                    mainHandler.post {
+                        updateCollapsedViewText(mapper?.getActiveLayers() ?: emptyList())
+                    }
+                }
+                // 手柄输入活跃度跟踪：任何手柄事件都刷新时间戳，供连接状态轮询判定真实在线
+                steamInput?.onControllerInput = {
+                    lastControllerInputMs = System.currentTimeMillis()
+                }
+                // 服务启动时手柄可能已经连接：onInputDeviceAdded 只在新设备插入时触发，
+                // 已连接手柄不会触发回调，这里显式初始化连接状态，避免误显示"🎮 未连接"
+                controllerConnected = steamInput?.controllers?.isNotEmpty() ?: false
+                // 已连接但尚无输入时，以当前时间为活跃度起点，避免轮询立即误判为断开
+                if (controllerConnected) lastControllerInputMs = System.currentTimeMillis()
+                // 刷新收起文本（若面板尚未创建则为空操作，面板创建时会读取最新状态）
+                mainHandler.post {
+                    updateCollapsedViewText(mapper?.getActiveLayers() ?: emptyList())
+                }
+                // 启动手柄连接状态轮询（兜底 InputManager 回调不可靠的情况）
+                startControllerMonitor()
                 configManager = ConfigManager(this, steamInput!!)
 
                 mapper = KeyboardMouseMapper(
@@ -805,6 +833,43 @@ class ControllerOverlayService : Service() {
     private var isCapturing: Boolean = false
 
     /**
+     * 手柄连接状态
+     *
+     * - true: 至少有一个手柄已连接，正在(或可)映射
+     * - false: 无手柄连接，收起悬浮窗显示"🎮 未连接"提示
+     *
+     * 由 [SteamInput.onControllerConnected] / [SteamInput.onControllerDisconnected]
+     * 回调驱动，用于更新收起悬浮窗的图标状态。
+     */
+    @Volatile
+    private var controllerConnected: Boolean = false
+
+    /** 手柄连接状态轮询周期（毫秒） */
+    private val controllerMonitorIntervalMs = 2000L
+    /**
+     * 手柄连接状态轮询任务
+     *
+     * InputManager 的 onInputDeviceAdded/Removed 回调在部分设备（如 MIUI）上不可靠，
+     * 这里周期查询系统真实输入设备作为兜底，确保悬浮窗图标状态始终准确。
+     */
+    private var controllerMonitor: Runnable? = null
+    /**
+     * 最近一次手柄输入事件的时间戳（毫秒）
+     *
+     * 由 [SteamInput.onControllerInput] 持续更新。部分设备手柄断开（关电源/关蓝牙）后
+     * 系统仍残留输入设备条目（getDeviceIds 仍返回该设备），仅靠条目存在无法判断真实在线，
+     * 因此结合"最近是否有输入"判断：长时间无输入即视为已断开。
+     */
+    @Volatile
+    private var lastControllerInputMs: Long = 0L
+    /**
+     * 手柄无输入多久后判定为已断开（毫秒）
+     *
+     * 必须大于轮询周期，避免误判；设置合理值以在断开后尽快更新图标。
+     */
+    private val controllerIdleTimeoutMs = 8000L
+
+    /**
      * 创建全屏透明焦点窗口捕获手柄事件
      *
      * - 1x1 像素: 不覆盖屏幕，避免遮挡其他应用 UI
@@ -1041,7 +1106,7 @@ class ControllerOverlayService : Service() {
             }
             captureButton?.background = createStateListBackground(normal, pressed, 8f)
         }
-        // 收起视图也同步更新（在层名后追加"⏸"标记）
+        // 收起视图也同步更新（刷新状态图标：🎮未连接 / ▶映射中 / ⏸暂停）
         if (!isExpanded) {
             updateCollapsedViewText(mapper?.getActiveLayers() ?: emptyList())
         }
@@ -1230,6 +1295,65 @@ class ControllerOverlayService : Service() {
         }, "SteamLike-SmartMonitor").apply { isDaemon = true }
         smartMonitorThread?.start()
         Log.i(TAG, "Smart monitor started, whitelist=$captureWhitelist")
+    }
+
+    /**
+     * 启动手柄连接状态轮询
+     *
+     * InputManager 的 onInputDeviceAdded/Removed 回调在部分设备（如 MIUI 蓝牙断开）
+     * 上不可靠，会导致悬浮窗图标状态卡死（断开仍显示暂停/映射图标）。
+     * 这里周期查询系统真实输入设备，检测到连接状态变化时刷新图标。
+     */
+    private fun startControllerMonitor() {
+        stopControllerMonitor()
+        controllerMonitor = object : Runnable {
+            override fun run() {
+                val connected = detectControllerConnected()
+                // 仅状态变化时刷新 UI，避免高频重复设置文本
+                if (connected != controllerConnected) {
+                    controllerConnected = connected
+                    updateCollapsedViewText(mapper?.getActiveLayers() ?: emptyList())
+                    Log.i(TAG, "Controller monitor: connected=$connected")
+                }
+                mainHandler.postDelayed(this, controllerMonitorIntervalMs)
+            }
+        }
+        mainHandler.post(controllerMonitor!!)
+    }
+
+    /**
+     * 停止手柄连接状态轮询
+     */
+    private fun stopControllerMonitor() {
+        controllerMonitor?.let { mainHandler.removeCallbacks(it) }
+        controllerMonitor = null
+    }
+
+    /**
+     * 检测是否有手柄输入设备在线（轮询真实系统状态）
+     *
+     * 判断分两步：
+     * 1. 系统是否仍有手柄输入设备条目（GAMEPAD/DPAD/JOYSTICK 源）——有线拔插等会被系统直接移除；
+     * 2. 结合输入活跃度：部分设备（如 MIUI）手柄关电源/关蓝牙后设备条目仍残留，
+     *    仅靠条目存在无法判断真实在线，因此要求最近 [controllerIdleTimeoutMs] 内收到过手柄输入。
+     *
+     * 不依赖 [SteamInput.controllers]（其内部表由 InputManager 回调更新，回调可能不触发）。
+     *
+     * @return true=手柄在线, false=手柄已断开
+     */
+    private fun detectControllerConnected(): Boolean {
+        // 1. 系统是否仍有手柄输入设备条目
+        val hasGamepadDevice = android.view.InputDevice.getDeviceIds().any { deviceId ->
+            val device = android.view.InputDevice.getDevice(deviceId) ?: return@any false
+            device.sources and (
+                android.view.InputDevice.SOURCE_GAMEPAD or
+                    android.view.InputDevice.SOURCE_DPAD or
+                    android.view.InputDevice.SOURCE_JOYSTICK
+            ) != 0
+        }
+        if (!hasGamepadDevice) return false
+        // 2. 设备条目残留时的兜底：长时间无输入即视为已断开
+        return System.currentTimeMillis() - lastControllerInputMs < controllerIdleTimeoutMs
     }
 
     /**
@@ -1484,8 +1608,14 @@ class ControllerOverlayService : Service() {
     }
 
     /**
-     * 根据激活层列表构建收起悬浮窗的显示文本
+     * 根据当前状态构建收起悬浮窗的显示文本（含状态图标）
      *
+     * 三种状态图标（优先级从高到低）:
+     * 1. 手柄未连接: 显示"🎮 未连接"，提示需先连接手柄
+     * 2. 捕获暂停: 层名后追加"⏸"（暂停图标），提醒手柄映射未工作
+     * 3. 映射中(捕获中): 层名后追加"▶"（播放图标），表示手柄映射生效
+     *
+     * 层名规则:
      * - 空列表（无激活层）: 显示"公共层"
      * - 单个激活层: 显示该层名
      * - 多个激活层: 显示最上层名（最后激活的）
@@ -1494,6 +1624,10 @@ class ControllerOverlayService : Service() {
      * @return 显示文本
      */
     private fun buildCollapsedText(activeLayers: List<String>): String {
+        // 手柄未连接时优先提示，避免用户误以为映射未生效是配置问题
+        if (!controllerConnected) {
+            return "🎮 未连接"
+        }
         // 优先显示中文/自定义显示名，未匹配到则用内部名
         val displayMap = getLayerDisplayNames().toMap()
         val layerName = if (activeLayers.isEmpty()) {
@@ -1501,8 +1635,8 @@ class ControllerOverlayService : Service() {
         } else {
             displayMap[activeLayers.last()] ?: activeLayers.last()
         }
-        // 捕获暂停时追加 ⏸ 标记，提醒用户手柄映射未工作
-        return if (isCapturing) layerName else "$layerName ⏸"
+        // 捕获暂停 → ⏸；映射中 → ▶（图标与捕获状态一一对应）
+        return if (isCapturing) "$layerName ▶" else "$layerName ⏸"
     }
 
     /**
@@ -2102,6 +2236,8 @@ class ControllerOverlayService : Service() {
         super.onDestroy()
         // 停止智能暂停监控
         stopSmartMonitor()
+        // 停止手柄连接状态轮询
+        stopControllerMonitor()
         // 清除无障碍按键转发回调
         GamepadAccessibilityService.onPausedKeyEvent = null
         // 移除焦点输入窗口
