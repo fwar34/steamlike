@@ -33,6 +33,7 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
@@ -1811,8 +1812,7 @@ class ControllerOverlayService : Service() {
 
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            // 圆角深色面板
-            background = roundedDrawable(COLOR_PANEL, dp(14))
+            // 圆角深色面板背景由外层滚动容器统一提供（见 wrapPanelInScroll），此处保持透明
             setPadding(dp(12), dp(10), dp(12), dp(10))
         }
 
@@ -1913,10 +1913,8 @@ class ControllerOverlayService : Service() {
         container.addView(hintText)
 
         // 添加到常驻容器（frame 已有拖动/点击监听）
-        frame.addView(container, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT
-        ))
+        // 横屏等屏幕高度不足时面板会超高，用可滚动容器包裹，保证底部按钮（映射/收起/关闭）可达
+        frame.addView(wrapPanelInScroll(container))
         // 收起→展开：淡入缩放动画
         animateOverlayIn(container)
         isExpanded = true
@@ -1948,7 +1946,7 @@ class ControllerOverlayService : Service() {
         // 内容面板
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = roundedDrawable(COLOR_PANEL, dp(14))
+            // 圆角深色面板背景由外层滚动容器统一提供（见 wrapPanelInScroll），此处保持透明
             setPadding(dp(12), dp(10), dp(12), dp(10))
         }
 
@@ -2044,13 +2042,79 @@ class ControllerOverlayService : Service() {
 
         // 两列布局：固定面板宽度（约屏幕 72%），避免把悬浮窗撑得过宽
         val panelWidth = (resources.displayMetrics.widthPixels * 0.72f).toInt()
-        frame.addView(content, FrameLayout.LayoutParams(
-            panelWidth,
-            FrameLayout.LayoutParams.WRAP_CONTENT
-        ))
+        frame.addView(wrapPanelInScroll(content).apply {
+            (layoutParams as FrameLayout.LayoutParams).width = panelWidth
+        })
 
         if (animate) {
             animateOverlayIn(content)
+        }
+    }
+
+    /**
+     * 获取当前屏幕高度（像素）
+     *
+     * API 30+ 使用 [WindowManager.currentWindowMetrics]（返回完整屏幕含系统栏区域，
+     * 与悬浮窗 FLAG_LAYOUT_IN_SCREEN 的布局范围一致）；低版本回退到 DisplayMetrics。
+     *
+     * @return 屏幕高度（像素）
+     */
+    private fun screenHeightPx(): Int {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            windowManager?.currentWindowMetrics?.bounds?.height()
+                ?: resources.displayMetrics.heightPixels
+        } else {
+            @Suppress("DEPRECATION")
+            resources.displayMetrics.heightPixels
+        }
+    }
+
+    /**
+     * 将面板内容包裹进可滚动容器并限制最大高度
+     *
+     * 横屏（或小屏）时屏幕可用高度较小，展开面板（层按钮 + 控制按钮 + 快捷键提示）
+     * 可能超出屏幕底部，导致底部的"映射/收起/关闭"按钮不可见。用 ScrollView 包裹，
+     * 内容超高时限制高度可滚动，保证全部按钮可达。
+     *
+     * 圆角处理：面板圆角背景由 ScrollView 提供并配合 [android.view.View.setClipToOutline]，
+     * 内容超高滚动时内容在圆角边界内被裁剪，四角始终保持圆角（不会因 ScrollView 矩形
+     * 边界把面板裁成方形）。
+     *
+     * 高度处理：初始按上限布局防止撑出屏幕，布局后若内容未超高（如竖屏）则恢复贴合
+     * 内容高度，避免面板下方出现空白。
+     *
+     * @param content 面板内容视图（背景应为透明，圆角由本方法统一提供）
+     * @param maxHeight 期望的最大高度（像素）；null 时按当前屏幕高度自动计算
+     * @return 包裹后的 ScrollView
+     */
+    private fun wrapPanelInScroll(content: View, maxHeight: Int? = null): ScrollView {
+        val topOffset = overlayParams?.y ?: 0
+        val limit = maxHeight ?: (screenHeightPx() - topOffset - dp(8)).coerceAtLeast(dp(100))
+        return ScrollView(this).apply {
+            // 隐藏滚动条：避免右侧竖条破坏悬浮窗圆角外观，滚动仍可用（直接滑动）
+            isVerticalScrollBarEnabled = false
+            isHorizontalScrollBarEnabled = false
+            // 圆角面板背景（固定于容器边界，不随内容滚动）+ 按轮廓裁剪内容保持圆角
+            background = roundedDrawable(COLOR_PANEL, dp(14))
+            clipToOutline = true
+            addView(content, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ))
+            // 初始按上限布局：内容超高时在容器内滚动，不把窗口撑出屏幕
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                limit
+            )
+            // 布局完成后若内容未超高，恢复贴合内容高度，避免面板下方空白
+            post {
+                if (content.height > 0 && content.height <= limit) {
+                    layoutParams = FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.WRAP_CONTENT,
+                        FrameLayout.LayoutParams.WRAP_CONTENT
+                    )
+                }
+            }
         }
     }
 
@@ -2070,6 +2134,9 @@ class ControllerOverlayService : Service() {
         var hasMoved = false
 
         view.setOnTouchListener { _, event ->
+            // 展开/映射面板状态：不拦截触摸，交由内部 ScrollView 处理内容滚动与按钮点击
+            // （横屏等屏幕高度不足时面板可滚动，底部的"映射/收起/关闭"按钮才能触达）
+            if (isExpanded || isMappingView) return@setOnTouchListener false
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     initialX = overlayParams?.x ?: 0
