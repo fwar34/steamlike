@@ -110,6 +110,8 @@ class ControllerOverlayService : Service() {
         const val EXTRA_CAPTURE_ENABLED = "capture_enabled"
         /** 切换悬浮窗视图（通知栏按钮触发） */
         const val ACTION_TOGGLE_OVERLAY = "TOGGLE_OVERLAY"
+        /** 操作层按钮：短按判定为点击（跳转设置页）的时间阈值（毫秒） */
+        private const val LAYER_BUTTON_TAP_MS = 300L
         /** Intent extra: 配置文件 URI */
         const val EXTRA_CONFIG_URI = "config_uri"
         /** Intent extra: TCP监听地址，空表示监听所有接口 */
@@ -1763,12 +1765,20 @@ class ControllerOverlayService : Service() {
             background = roundedDrawable(COLOR_LAYER_NORMAL, dp(8))
             setPadding(0, 0, 0, 0)
             // 按住激活层，松开停用层（松开即回到公共层）
+            // 短按（点击）→ 跳转到该操作层设置页面
             setOnTouchListener { _, event ->
                 when (event.action) {
                     MotionEvent.ACTION_DOWN -> {
                         mapper?.activateLayer(name)
                     }
-                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    MotionEvent.ACTION_UP -> {
+                        mapper?.deactivateLayer(name)
+                        // 短按视为点击，跳转到对应的操作层设置页
+                        if (event.eventTime - event.downTime < LAYER_BUTTON_TAP_MS) {
+                            openLayerSettings(name)
+                        }
+                    }
+                    MotionEvent.ACTION_CANCEL -> {
                         mapper?.deactivateLayer(name)
                     }
                 }
@@ -1781,6 +1791,27 @@ class ControllerOverlayService : Service() {
         }
         layerButtons[name] = btn
         return btn
+    }
+
+    /**
+     * 打开对应操作层的设置页面（LayerEditActivity）
+     *
+     * 通过 EXTRA_LAYER_NAME 指定初始选中的操作层。
+     * 进入编辑页时悬浮窗缩到最小（收起胶囊），避免展开面板遮挡编辑页；
+     * LayerEditActivity 不再暂停悬浮窗，返回后悬浮窗保持收起状态。
+     */
+    private fun openLayerSettings(layerName: String) {
+        try {
+            // 先收起悬浮窗（展开面板 → 收起胶囊），避免覆盖编辑页面
+            showCollapsedView()
+            startActivity(Intent(this, LayerEditActivity::class.java).apply {
+                putExtra(LayerEditActivity.EXTRA_LAYER_NAME, layerName)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            })
+            Log.i(TAG, "Open layer settings: $layerName")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to open layer settings: $layerName", e)
+        }
     }
 
     /**
