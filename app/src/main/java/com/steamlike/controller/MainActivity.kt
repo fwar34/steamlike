@@ -141,28 +141,51 @@ class MainActivity : AppCompatActivity() {
         // 加载当前运行时配置（随配置文件持久化）
         val appCfg = AppConfigStore.load(this)
 
-        val scroll = ScrollView(this).apply {
+        // 根布局：垂直方向，深色背景，上方为固定标题，下方为可滚动内容区
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             UiKit.applyDarkBackground(this, this@MainActivity)
+        }
+
+        // ===== 固定头部（不随页面滚动，样式与使用说明页一致）=====
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(
+                UiKit.dp(this@MainActivity, 20),
+                UiKit.dp(this@MainActivity, 20),
+                UiKit.dp(this@MainActivity, 20),
+                UiKit.dp(this@MainActivity, 8)
+            )
+        }
+        header.addView(UiKit.bigTitle(this, "SteamLike 手柄控制器"))
+        header.addView(UiKit.caption(
+            this,
+            "WoW 乌龟服 1.18.1 · 手柄 → 键鼠桥接（Winlator）",
+            0xFF888888.toInt(), 13f
+        ))
+        root.addView(header)
+
+        val scroll = ScrollView(this).apply {
+            // 背景色由 root 统一设置，ScrollView 自身无需重复设置
         }
         mainScroll = scroll
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(
                 UiKit.dp(this@MainActivity, 20),
-                UiKit.dp(this@MainActivity, 24),
+                UiKit.dp(this@MainActivity, 8),
                 UiKit.dp(this@MainActivity, 20),
                 UiKit.dp(this@MainActivity, 32)
             )
         }
-
-        // ===== 头部 =====
-        container.addView(UiKit.bigTitle(this, "SteamLike 手柄控制器"))
-        container.addView(UiKit.caption(
-            this,
-            "WoW 乌龟服 1.18.1 · 手柄 → 键鼠桥接（Winlator）",
-            0xFF888888.toInt(), 13f
+        scroll.addView(container)
+        // 内容区占满剩余高度，可独立滚动
+        root.addView(scroll, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            0,
+            1f
         ))
-        container.addView(UiKit.spacer(this, 8))
+        setContentView(root)
 
         // ===== 运行状态卡片 =====
         val statusCard = UiKit.card(this)
@@ -528,9 +551,6 @@ class MainActivity : AppCompatActivity() {
             }
         ))
         container.addView(debugCard)
-
-        scroll.addView(container)
-        setContentView(scroll)
 
         // 恢复上次退出的滚动位置（上划退出/进程重建后回到原位置）
         mainScroll.post {

@@ -36,24 +36,39 @@ class HelpActivity : AppCompatActivity() {
      * 构建使用说明页面 UI（深色卡片风格，可滚动）
      */
     private fun buildUi() {
-        // 根布局：可滚动容器
+        // 根布局：垂直方向，上方为固定标题，下方为可滚动内容区
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        UiKit.applyDarkBackground(root, this)
+
+        // ===== 固定头部（不随页面滚动）=====
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(UiKit.dp(this@HelpActivity, 16), UiKit.dp(this@HelpActivity, 16),
+                UiKit.dp(this@HelpActivity, 16), UiKit.dp(this@HelpActivity, 6))
+        }
+        header.addView(UiKit.bigTitle(this, "📖 使用说明"))
+        header.addView(UiKit.spacer(this, 4))
+        header.addView(UiKit.caption(this, "SteamLike Controller 使用指南（随版本持续更新）", 0xFF888888.toInt(), 11f))
+        root.addView(header)
+
+        // 可滚动内容区
         val scroll = ScrollView(this).apply {
             isFillViewport = true
         }
-        UiKit.applyDarkBackground(scroll, this)
-
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(UiKit.dp(this@HelpActivity, 16), UiKit.dp(this@HelpActivity, 16),
+            setPadding(UiKit.dp(this@HelpActivity, 16), UiKit.dp(this@HelpActivity, 8),
                 UiKit.dp(this@HelpActivity, 16), UiKit.dp(this@HelpActivity, 24))
         }
         scroll.addView(container)
-
-        // 页面标题
-        container.addView(UiKit.bigTitle(this, "📖 使用说明"))
-        container.addView(UiKit.spacer(this, 4))
-        container.addView(UiKit.caption(this, "SteamLike Controller 使用指南（随版本持续更新）", 0xFF888888.toInt(), 11f))
-        container.addView(UiKit.spacer(this, 14))
+        // 内容区占满剩余高度，可独立滚动
+        root.addView(scroll, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            0,
+            1f
+        ))
 
         // ===== 一、架构概览 =====
         container.addView(makeCard("架构概览",
@@ -139,7 +154,7 @@ class HelpActivity : AppCompatActivity() {
                 + "· 重置配置：恢复默认 WoW 预设\n"
                 + "· 游戏 EXE 路径：导出后 control.bat 先启动客户端，成功后再自动启动游戏"))
 
-        setContentView(scroll)
+        setContentView(root)
     }
 
     /**
