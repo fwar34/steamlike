@@ -166,6 +166,12 @@ class MainActivity : AppCompatActivity() {
             "WoW 乌龟服 1.18.1 · 手柄 → 键鼠桥接（Winlator）",
             0xFF888888.toInt(), 13f
         ))
+        // 版本号：与 build.gradle.kts 的 versionName 保持同步（修改版本时递增最后一位小版本号）
+        header.addView(UiKit.caption(
+            this,
+            "版本 v${BuildConfig.VERSION_NAME}",
+            0xFF7A8CFF.toInt(), 12f
+        ))
         root.addView(header)
 
         val scroll = ScrollView(this).apply {

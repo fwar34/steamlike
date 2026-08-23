@@ -11,7 +11,7 @@ android {
         minSdk = 24
         targetSdk = 37
         versionCode = 1
-        versionName = "1.0"
+        versionName = "0.0.1"
     }
 
     buildTypes {
@@ -19,6 +19,11 @@ android {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
+    }
+
+    // 生成 BuildConfig（用于在界面显示 versionName）
+    buildFeatures {
+        buildConfig = true
     }
 
     compileOptions {
