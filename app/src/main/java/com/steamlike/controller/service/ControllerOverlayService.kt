@@ -1655,7 +1655,11 @@ class ControllerOverlayService : Service() {
         val item = mappingViewItems[button] ?: return
         mainHandler.post {
             val bg = if (pressed) COLOR_MAPPING_ACTIVE else COLOR_MAPPING_ITEM
-            item.background = roundedDrawable(bg, dp(6))
+            // 复用已有 drawable 仅改颜色：避免每次按下新建 Drawable 并替换 background，
+            // 引发整窗硬件重绘造成"整个闪屏"
+            (item.background as? GradientDrawable)?.setColor(bg) ?: run {
+                item.background = roundedDrawable(bg, dp(6))
+            }
         }
     }
 
@@ -1679,6 +1683,12 @@ class ControllerOverlayService : Service() {
                 .setInterpolator(AccelerateInterpolator())
                 .withEndAction { showCollapsedNow(frame) }
                 .start()
+            // 常驻边框同步淡出，避免收起过程中白色边框突兀闪现
+            frame.animate()
+                .alpha(0f)
+                .setDuration(200)
+                .setInterpolator(AccelerateInterpolator())
+                .start()
         } else {
             showCollapsedNow(frame)
         }
@@ -1694,6 +1704,8 @@ class ControllerOverlayService : Service() {
 
         // 移除旧子视图（与新增同帧完成，无空白帧）
         frame.removeAllViews()
+        // 恢复常驻边框不透明度（收起动画期间被淡出为 0）
+        frame.alpha = 1f
 
         // 创建收起视图（圆角胶囊：显示当前激活层名，点击展开）
         val collapsed = TextView(this).apply {
@@ -1737,6 +1749,8 @@ class ControllerOverlayService : Service() {
      * @param view 刚添加的新视图
      */
     private fun animateOverlayIn(view: View) {
+        // 常驻边框（frame 背景）与面板一起淡入：否则面板淡入时白色边框瞬间弹到全尺寸造成闪屏
+        overlayView?.alpha = 0f
         view.alpha = 0f
         view.scaleX = 0.8f
         view.scaleY = 0.8f
@@ -1749,6 +1763,11 @@ class ControllerOverlayService : Service() {
             .setDuration(420)
             .setInterpolator(DecelerateInterpolator())
             .start()
+        overlayView?.animate()
+            ?.alpha(1f)
+            ?.setDuration(420)
+            ?.setInterpolator(DecelerateInterpolator())
+            ?.start()
     }
 
     /**
@@ -2360,7 +2379,9 @@ class ControllerOverlayService : Service() {
      */
     private fun updateMappingView() {
         if (!isMappingView) return
-        showMappingView(animate = false)
+        // 使用动画重建：层切换导致映射内容变化时若瞬间整体替换，
+        // WRAP_CONTENT 窗口会瞬间缩放、白色边框弹出，表现为整屏闪屏
+        showMappingView(animate = true)
     }
 
     /**
