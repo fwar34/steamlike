@@ -26,6 +26,7 @@ import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
+import android.view.WindowInsets
 import android.view.WindowManager
 import android.view.animation.AccelerateInterpolator
 import android.view.animation.DecelerateInterpolator
@@ -1683,11 +1684,15 @@ class ControllerOverlayService : Service() {
                 .setInterpolator(AccelerateInterpolator())
                 .withEndAction { showCollapsedNow(frame) }
                 .start()
-            // 常驻边框同步淡出，避免收起过程中白色边框突兀闪现
+            // 常驻边框同步淡出，避免收起过程中白色边框突兀闪现；
+            // 动画结束后强制恢复不透明度：否则边框动画终值(alpha=0)会覆盖
+            // showCollapsedNow 中的 frame.alpha=1f，导致整窗透明不可见
+            // （表现为"点击后悬浮窗消失，重启映射也不出现"）
             frame.animate()
                 .alpha(0f)
                 .setDuration(200)
                 .setInterpolator(AccelerateInterpolator())
+                .withEndAction { frame.alpha = 1f }
                 .start()
         } else {
             showCollapsedNow(frame)
@@ -1702,6 +1707,8 @@ class ControllerOverlayService : Service() {
     private fun showCollapsedNow(frame: FrameLayout) {
         if (isOverlayPaused) return  // 悬浮窗暂停中不重建
 
+        // 取消仍在运行的边框淡出动画，避免其终值(alpha=0)覆盖下面的恢复
+        frame.animate().cancel()
         // 移除旧子视图（与新增同帧完成，无空白帧）
         frame.removeAllViews()
         // 恢复常驻边框不透明度（收起动画期间被淡出为 0）
@@ -2018,6 +2025,11 @@ class ControllerOverlayService : Service() {
                     sortedMappings.chunked(2).forEach { rowMappings ->
                         val rowView = LinearLayout(this).apply {
                             orientation = LinearLayout.HORIZONTAL
+                            // 行宽填满面板：两列映射项均分宽度，消除面板右侧大片空白
+                            layoutParams = LinearLayout.LayoutParams(
+                                LinearLayout.LayoutParams.MATCH_PARENT,
+                                LinearLayout.LayoutParams.WRAP_CONTENT
+                            )
                         }
                         rowMappings.forEachIndexed { index, (btn, mapping) ->
                             val item = TextView(this).apply {
@@ -2066,6 +2078,11 @@ class ControllerOverlayService : Service() {
         val panel = wrapPanelInScroll(content).apply {
             (layoutParams as FrameLayout.LayoutParams).width = panelWidth
         }
+        // 内容宽度填满面板：两列映射项均分宽度，消除"右侧大片空白"
+        content.layoutParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        )
         frame.addView(panel)
 
         if (animate) {
@@ -2093,6 +2110,27 @@ class ControllerOverlayService : Service() {
     }
 
     /**
+     * 获取底部系统栏高度（导航条/手势条，像素）
+     *
+     * 悬浮窗使用 FLAG_LAYOUT_IN_SCREEN 会布局到全屏（含系统栏之下），
+     * 面板底部若延伸进系统栏区域会被导航条遮挡，表现为"下面两个角是直角
+     * （被系统栏裁平）+ 内容滚动不到底部"。计算面板最大高度时需扣除该值。
+     */
+    private fun bottomSystemInsetPx(): Int {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // 显示级 inset（不依赖视图）：currentWindowMetrics.windowInsets
+            // 直接给当前显示的系统栏 insets，比 view.rootWindowInsets 可靠
+            val insets = windowManager?.currentWindowMetrics?.windowInsets
+            val bottom = insets?.getInsets(WindowInsets.Type.navigationBars())?.bottom ?: 0
+            if (bottom > 0) return bottom
+        }
+        // 兜底：部分设备悬浮窗(FLAG_LAYOUT_IN_SCREEN)拿不到窗口 inset
+        // （rootWindowInsets/currentWindowMetrics.windowInsets 均为 0），
+        // 但面板仍会布局到系统栏之下被遮挡。按常见导航条/手势条高度估算。
+        return (resources.displayMetrics.density * 16f).toInt()
+    }
+
+    /**
      * 将面板内容包裹进可滚动容器并限制最大高度
      *
      * 横屏（或小屏）时屏幕可用高度较小，展开面板（层按钮 + 控制按钮 + 快捷键提示）
@@ -2112,7 +2150,15 @@ class ControllerOverlayService : Service() {
      */
     private fun wrapPanelInScroll(content: View, maxHeight: Int? = null): ScrollView {
         val topOffset = overlayParams?.y ?: 0
-        val limit = maxHeight ?: (screenHeightPx() - topOffset - dp(8)).coerceAtLeast(dp(100))
+        // 可用高度须扣除底部系统栏（导航条/手势条）高度，否则面板底部会被系统栏遮挡，
+        // 表现为"下面两个角是直角 + 内容滚动不到底部"
+        val bottomInset = bottomSystemInsetPx()
+        val limit = maxHeight
+            ?: (screenHeightPx() - topOffset - bottomInset - dp(12)).coerceAtLeast(dp(100))
+        Log.i(
+            TAG,
+            "wrapPanelInScroll: screen=${screenHeightPx()} y=$topOffset navInset=$bottomInset limit=$limit"
+        )
         return ScrollView(this).apply {
             // 隐藏滚动条：避免右侧竖条破坏悬浮窗圆角外观，滚动仍可用（直接滑动）
             isVerticalScrollBarEnabled = false
@@ -2124,20 +2170,49 @@ class ControllerOverlayService : Service() {
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT
             ))
-            // 初始按上限布局：内容超高时在容器内滚动，不把窗口撑出屏幕
-            layoutParams = FrameLayout.LayoutParams(
+            // 面板相对常驻边框内缩 2dp：面板填充不再覆盖边框，
+            // 避免"面板圆角凸出边框圆角"（两圆角不再嵌套重叠）
+            val baseParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 limit
             )
-            // 布局完成后若内容未超高，恢复贴合内容高度，避免面板下方空白
-            post {
-                if (content.height > 0 && content.height <= limit) {
-                    layoutParams = FrameLayout.LayoutParams(
-                        FrameLayout.LayoutParams.WRAP_CONTENT,
-                        FrameLayout.LayoutParams.WRAP_CONTENT
-                    )
+            baseParams.setMargins(dp(2), dp(2), dp(2), dp(2))
+            layoutParams = baseParams
+            // 布局后按实际内容高度调整：未超高回贴 WRAP_CONTENT（避免竖屏下方空白），
+            // 超高保持限高可滚动。多帧校验：窗口首轮布局未完成时内容高度可能尚未测量
+            // （height=0）或被低估，若误判为"未超高"会切成 WRAP_CONTENT，面板被内容
+            // 撑出屏幕导致底部圆角不可见（直角）且滚动不到底。
+            post(object : Runnable {
+                override fun run() {
+                    val h = content.height
+                    if (h <= 0) {
+                        post(this)  // 内容尚未测量，下一帧再判
+                        return
+                    }
+                    Log.i(TAG, "wrapPanelInScroll: content.height=$h limit=$limit")
+                    val width = (layoutParams as? FrameLayout.LayoutParams)
+                        ?.width ?: FrameLayout.LayoutParams.WRAP_CONTENT
+                    if (h <= limit) {
+                        val lp = FrameLayout.LayoutParams(
+                            width,
+                            FrameLayout.LayoutParams.WRAP_CONTENT
+                        )
+                        lp.setMargins(dp(2), dp(2), dp(2), dp(2))
+                        layoutParams = lp
+                    } else {
+                        // 内容超高（可滚动）：补足底部内边距，让最后一行能滚出圆角区
+                        val need = dp(16)
+                        if (content.paddingBottom < need) {
+                            content.setPadding(
+                                content.paddingLeft,
+                                content.paddingTop,
+                                content.paddingRight,
+                                need
+                            )
+                        }
+                    }
                 }
-            }
+            })
         }
     }
 
