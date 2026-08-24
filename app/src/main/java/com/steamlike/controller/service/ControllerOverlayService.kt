@@ -1914,9 +1914,11 @@ class ControllerOverlayService : Service() {
 
         // 添加到常驻容器（frame 已有拖动/点击监听）
         // 横屏等屏幕高度不足时面板会超高，用可滚动容器包裹，保证底部按钮（映射/收起/关闭）可达
-        frame.addView(wrapPanelInScroll(container))
-        // 收起→展开：淡入缩放动画
-        animateOverlayIn(container)
+        // 动画作用于整个面板（含圆角背景的滚动容器），避免"背景先弹出、内容后淡入"造成闪屏
+        val panel = wrapPanelInScroll(container)
+        frame.addView(panel)
+        // 收起→展开：淡入缩放动画（作用于面板整体）
+        animateOverlayIn(panel)
         isExpanded = true
 
         // 刷新当前状态（展开后显示最新状态）
@@ -2042,12 +2044,14 @@ class ControllerOverlayService : Service() {
 
         // 两列布局：固定面板宽度（约屏幕 72%），避免把悬浮窗撑得过宽
         val panelWidth = (resources.displayMetrics.widthPixels * 0.72f).toInt()
-        frame.addView(wrapPanelInScroll(content).apply {
+        val panel = wrapPanelInScroll(content).apply {
             (layoutParams as FrameLayout.LayoutParams).width = panelWidth
-        })
+        }
+        frame.addView(panel)
 
         if (animate) {
-            animateOverlayIn(content)
+            // 动画作用于面板整体（含背景），避免背景先弹出、内容后淡入造成闪屏
+            animateOverlayIn(panel)
         }
     }
 
