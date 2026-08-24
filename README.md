@@ -31,6 +31,7 @@
 - [入口点](#入口点)
 - [线程模型](#线程模型)
 - [模块说明](#模块说明)
+- [类图 (PlantUML)](#类图-plantuml)
 - [数据结构](#数据结构)
 - [Android API 说明](#android-api-说明)
 - [测试目录](#测试目录)
@@ -1610,6 +1611,360 @@ private fun dispatchLoop() {
 | [BridgeInputInjector.kt](app/src/main/java/com/steamlike/controller/injection/BridgeInputInjector.kt) | 桥接注入器实现，Android KeyCode → Windows VK Code |
 | [InputBridgeServer.kt](app/src/main/java/com/steamlike/controller/injection/InputBridgeServer.kt) | TCP 服务器，端口 27015，8 字节定长包协议 |
 | [GamepadInputView.kt](app/src/main/java/com/steamlike/controller/injection/GamepadInputView.kt) | 全屏透明焦点窗口，捕获系统 KeyEvent/MotionEvent |
+
+---
+
+## 类图 (PlantUML)
+
+> 以下类图使用 [PlantUML](https://plantuml.com/) 语法描述核心类的结构与依赖关系，与源码一一对应。
+> 渲染方法：安装 PlantUML 插件（VS Code / IDEA / Typora）或访问 [PlantUML 在线服务器](https://www.plantuml.com/plantuml) 粘贴 `@startuml` 与 `@enduml` 之间的内容。
+
+### 1. 核心数据结构（[MappingTypes.kt](app/src/main/java/com/steamlike/controller/core/MappingTypes.kt) / [ControllerTypes.kt](app/src/main/java/com/steamlike/controller/core/ControllerTypes.kt)）
+
+`ControllerProfile` 是完整配置（公共层 + 10 操作层 + 全局设置）；`KeyMapping` 由主动作 + 子命令组成；`MappedAction` 为密封类，枚举全部映射动作类型。
+
+```plantuml
+@startuml
+title 核心数据结构
+skinparam classAttributeIconSize 0
+skinparam classFontSize 13
+skinparam classAttributeFontSize 11
+
+class ControllerProfile {
+  + commonLayer : OperationLayer
+  + layers : List<OperationLayer>
+  + globalSettings : GlobalSettings
+  + allLayers : List<OperationLayer>
+  + findLayer(name) : OperationLayer?
+  + findLayerByTrigger(button) : OperationLayer?
+  + {static} MAX_LAYERS = 10
+  + {static} createDefault() : ControllerProfile
+}
+
+class OperationLayer {
+  + name : String
+  + triggerButton : ControllerButton?
+  + buttonMappings : MutableMap<ControllerButton, KeyMapping>
+  + getMapping(button) : KeyMapping?
+}
+
+class KeyMapping {
+  + action : MappedAction
+  + subCommands : List<Int>
+  + describe() : String
+  + {static} MAX_SUB_COMMANDS = 3
+  + {static} keyCodeToName(keyCode) : String
+}
+
+class GlobalSettings {
+  + deadzone : Float
+  + lookSensitivity : Float
+  + cursorSpeed : Float
+  + lookSmoothing : Float
+  + lookAcceleration : Float
+}
+
+abstract class "MappedAction (sealed)" as MappedAction
+class KeyboardKey { + keyCode : Int }
+class MouseClick { + button : MouseButton }
+class SwitchLayer { + layerName : String }
+class MouseToggle { + button : MouseButton }
+class MouseMove
+class LookAround
+class MouseScrollUp
+class MouseScrollDown
+class ToggleOverlay
+class ToggleKeyboard
+class ToggleCapture
+
+enum ControllerButton {
+  A, B, X, Y
+  LEFT_SHOULDER, RIGHT_SHOULDER
+  LEFT_TRIGGER_CLICK, RIGHT_TRIGGER_CLICK
+  LEFT_STICK_CLICK, RIGHT_STICK_CLICK
+  MENU, OPTIONS, GUIDE
+  DPAD_UP, DPAD_DOWN, DPAD_LEFT, DPAD_RIGHT
+  TOUCHPAD_CLICK
+}
+
+ControllerProfile *-- "1" OperationLayer : commonLayer
+ControllerProfile *-- "0..10" OperationLayer : layers
+ControllerProfile *-- "1" GlobalSettings
+OperationLayer *-- "0..*" KeyMapping : buttonMappings
+OperationLayer --> ControllerButton : triggerButton
+KeyMapping *-- "1" MappedAction : action
+MappedAction <|-- KeyboardKey
+MappedAction <|-- MouseClick
+MappedAction <|-- SwitchLayer
+MappedAction <|-- MouseToggle
+MappedAction <|-- MouseMove
+MappedAction <|-- LookAround
+MappedAction <|-- MouseScrollUp
+MappedAction <|-- MouseScrollDown
+MappedAction <|-- ToggleOverlay
+MappedAction <|-- ToggleKeyboard
+MappedAction <|-- ToggleCapture
+@enduml
+```
+
+### 2. 输入系统核心（[SteamInput.kt](app/src/main/java/com/steamlike/controller/core/SteamInput.kt) / [KeyboardMouseMapper.kt](app/src/main/java/com/steamlike/controller/mapping/KeyboardMouseMapper.kt) / injection/）
+
+`SteamInput` 负责设备监听、层激活与按键查询；`KeyboardMouseMapper` 负责注入回调（子命令、右摇杆 125Hz 发送循环）；`InputInjector` 接口由 `BridgeInputInjector` 实现（Android → TCP → Windows）。
+
+```plantuml
+@startuml
+title 输入系统核心
+skinparam classAttributeIconSize 0
+skinparam classFontSize 13
+skinparam classAttributeFontSize 11
+
+class SteamInput {
+  + profile : ControllerProfile
+  + activeLayerName : String
+  + isCapturing : Boolean
+  + controllers : Map<Int, ControllerDevice>
+  - activeLayers : CopyOnWriteArrayList<OperationLayer>
+  - heldButtons : CopyOnWriteArraySet<ControllerButton>
+  - buttonTriggeredLayers : MutableMap<ControllerButton, OperationLayer>
+  + onControllerConnected : ((ControllerDevice) -> Unit)?
+  + onControllerDisconnected : ((ControllerDevice) -> Unit)?
+  + onButtonMapped : ((ControllerButton, Boolean, KeyMapping) -> Unit)?
+  + onButtonStateChanged : ((ControllerButton, Boolean) -> Unit)?
+  + onStickMapped : ((ControllerStick, Float, Float) -> Unit)?
+  + onLayerChanged : ((String) -> Unit)?
+  + loadProfile(newProfile)
+  + activateLayer(name)
+  + deactivateLayer(name)
+  + deactivateAllLayers()
+  + getActiveLayers() : List<OperationLayer>
+  + isLayerActive(name) : Boolean
+  + getEffectiveMapping(button) : KeyMapping?
+  + dispatchKeyEvent(event) : Boolean
+  + dispatchGenericMotionEvent(event) : Boolean
+  + handleButtonEvent(button, isPressed)
+  + vibrate(deviceId, durationMs, amplitude)
+  + destroy()
+}
+
+class KeyboardMouseMapper {
+  - pressedMainKeys : MutableMap<ControllerButton, Int>
+  - pressedSubKeys : MutableMap<ControllerButton, List<Int>>
+  - pressedMouseButtons : MutableMap<ControllerButton, MouseButton>
+  - leftStickPressedKeys : MutableSet<Int>
+  - toggledMouseButtons : MutableMap<ControllerButton, MouseButton>
+  - latestLookX / latestLookY : Float  (右摇杆位置)
+  - lookThread : Thread  (125Hz 自校正发送循环)
+  + start() : Boolean
+  + stop()
+  + onKeyEvent(event) : Boolean
+  + onGenericMotionEvent(event) : Boolean
+  + getActiveLayers() : List<String>
+  + activateLayer(name)
+  + deactivateLayer(name)
+  + clearAllLayers()
+}
+
+interface InputInjector {
+  + isAvailable() : Boolean
+  + sendKeyDown(keyCode)
+  + sendKeyUp(keyCode)
+  + sendMouseDown(button)
+  + sendMouseUp(button)
+  + sendMouseMove(dx, dy)
+  + sendMouseScroll(delta)
+  + releaseAll()
+  + destroy()
+}
+
+class BridgeInputInjector {
+  - pressedKeys : MutableSet<Int>
+  - pressedButtons : MutableSet<MouseButton>
+  - mouseRemainderX / mouseRemainderY : Float  (亚像素累积)
+  + androidKeyCodeToWindowsVK(code) : Int
+}
+
+class InputBridgeServer {
+  + {static} DEFAULT_PORT = 27015
+  + {static} PACKET_SIZE = 8
+  + {static} MSG_KEY_EVENT = 0x01 .. MSG_PING = 0x06
+  - clients : CopyOnWriteArrayList<ClientConnection>
+  - messageQueue : ConcurrentLinkedQueue<ByteArray>
+  + start() : Boolean
+  + stop()
+  + sendKeyEvent(vkCode, isDown)
+  + sendMouseButton(buttonId, isDown)
+  + sendMouseMove(dx, dy)
+  + sendMouseScroll(delta)
+  + sendReleaseAll()
+  + sendPing()
+}
+
+class ControllerDevice {
+  + deviceId : Int
+  + name : String
+  + controllerType : ControllerType
+  + supportsVibration : Boolean
+  + hasLeftStick / hasRightStick : Boolean
+  + hasAnalogTriggers : Boolean
+  + hasDpad : Boolean
+  + {static} fromInputDevice(device) : ControllerDevice?
+}
+
+object ControllerInputMapper {
+  + mapKeyCode(keyCode, type) : ControllerButton?
+  + getStickValue(event, stick, device) : Vector2
+  + getTriggerValue(event, trigger, device) : Float
+}
+
+class GamepadInputView {
+  + dispatchKeyEvent(event) : Boolean
+  + dispatchGenericMotionEvent(event) : Boolean
+}
+
+SteamInput --> ControllerProfile
+SteamInput *-- "0..*" OperationLayer : activeLayers
+SteamInput *-- "0..*" ControllerDevice : connectedControllers
+SteamInput --> ControllerInputMapper
+KeyboardMouseMapper --> SteamInput
+KeyboardMouseMapper --> InputInjector
+BridgeInputInjector ..|> InputInjector
+BridgeInputInjector --> InputBridgeServer
+GamepadInputView --> KeyboardMouseMapper : 事件转发
+@enduml
+```
+
+### 3. 配置与序列化（config/）
+
+[ControllerConfig.kt](app/src/main/java/com/steamlike/controller/config/ControllerConfig.kt) 负责 version=2 JSON 序列化；`ConfigManager` 负责文件 IO（内部存储 + SAF）；`AppConfig` / `AppConfigStore` 管理运行时设置。
+
+```plantuml
+@startuml
+title 配置与序列化
+skinparam classAttributeIconSize 0
+skinparam classFontSize 13
+skinparam classAttributeFontSize 11
+
+object ControllerConfig {
+  + {static} CONFIG_VERSION = 2
+  + {static} fromJson(json) : ControllerProfile
+  + {static} toJson(profile, indent, appConfig) : String
+  + {static} appConfigFromJsonString(json) : AppConfig
+}
+
+class ConfigManager {
+  + {static} CONFIG_FILE_NAME = "steamlike_config.json"
+  + loadFromInternal() : ControllerProfile
+  + saveToInternal(profile)
+  + saveToUri(uri)
+  + loadFromUri(uri) : Boolean
+  + resetToDefault()
+  + hasConfigFile() : Boolean
+  + getConfigFileSize() : Long
+}
+
+class AppConfig {
+  + serverHost : String
+  + serverPort : Int
+  + smartPauseEnabled : Boolean
+  + captureWhitelist : List<String>
+  + captureEnabled : Boolean
+  + launcherPackage : String
+  + gameExePath : String
+  + {static} parseWhitelist(raw) : List<String>
+}
+
+object AppConfigStore {
+  + load(context) : AppConfig
+  + save(context, appConfig)
+}
+
+ConfigManager --> ControllerConfig
+ConfigManager --> SteamInput
+ConfigManager --> AppConfigStore
+AppConfigStore --> AppConfig
+@enduml
+```
+
+### 4. UI 与服务（service/ + 入口 Activity）
+
+[ControllerOverlayService.kt](app/src/main/java/com/steamlike/controller/service/ControllerOverlayService.kt) 是前台服务与总协调者，持有所有核心模块并管理双窗口；`MainActivity` / `LayerEditActivity` / `HelpActivity` / `GamepadTestActivity` 为入口界面。
+
+```plantuml
+@startuml
+title UI 与服务
+skinparam classAttributeIconSize 0
+skinparam classFontSize 13
+skinparam classAttributeFontSize 11
+
+class ControllerOverlayService {
+  + {static} ACTION_STOP / EXPORT_CONFIG / IMPORT_CONFIG / RESET_CONFIG
+  + {static} ACTION_PAUSE_OVERLAY / RESUME_OVERLAY / SET_CAPTURE / TOGGLE_OVERLAY
+  + {static} ACTION_CLIENT_STATUS / CAPTURE_STATUS
+  - steamInput : SteamInput?
+  - mapper : KeyboardMouseMapper?
+  - bridgeServer : InputBridgeServer?
+  - configManager : ConfigManager?
+  - gamepadInputView : GamepadInputView?
+  - overlayView : FrameLayout?
+  + onCreate() / onStartCommand() / onDestroy()
+  - createOverlay()
+  - createGamepadInputWindow()
+  - showCollapsedView() / showExpandedView() / showMappingView()
+  - startMapper()
+  - loadUserConfig()
+  - toggleCaptureFromButton()
+  - launchGameApp()
+}
+
+class GamepadInputView {
+  + dispatchKeyEvent(event) : Boolean
+  + dispatchGenericMotionEvent(event) : Boolean
+}
+
+class MainActivity {
+  + onCreate()
+  - 请求悬浮窗 / 蓝牙权限
+  - 启动 / 停止 ControllerOverlayService
+  - 配置导入 / 导出 / 重置 UI
+  - 导出 Windows 客户端 (MediaStore)
+  - 监听客户端连接广播
+}
+
+class LayerEditActivity {
+  + {static} steamInputRef : SteamInput?
+  + {static} EXTRA_LAYER_NAME
+  + onCreate()
+  - 编辑操作层 / 按键映射 / 子命令
+  - 暂停 / 恢复悬浮窗 (ACTION_PAUSE/RESUME_OVERLAY)
+}
+
+class HelpActivity {
+  + 使用说明页面
+}
+
+class GamepadTestActivity {
+  + 手柄按键测试
+}
+
+object UiKit {
+  + bigTitle() / caption() / card() / dp()
+}
+
+object WoWActionSets {
+  + LAYER_NAMES : List<Pair<String, String>>
+}
+
+ControllerOverlayService *-- SteamInput
+ControllerOverlayService *-- KeyboardMouseMapper
+ControllerOverlayService *-- InputBridgeServer
+ControllerOverlayService *-- ConfigManager
+ControllerOverlayService *-- GamepadInputView
+GamepadInputView --> KeyboardMouseMapper : 事件转发
+LayerEditActivity --> SteamInput : 静态引用 steamInputRef
+MainActivity ..> ControllerOverlayService : startForegroundService / Intent
+ControllerOverlayService ..> MainActivity : 广播状态
+@enduml
+```
 
 ---
 
