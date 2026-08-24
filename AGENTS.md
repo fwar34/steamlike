@@ -53,7 +53,7 @@ Unit tests are pure JVM (no device needed). Test files are under `app/src/test/`
 
 ## Key architecture facts
 
-- **Layer switching is driven by `SwitchLayer` mappings in the public layer**, not by `OperationLayer.triggerButton`. The `triggerButton` field is UI-only.
+- **Layer switching is driven by `SwitchLayer` mappings in the public layer**. `OperationLayer` has no `triggerButton` field; the layer-edit page's「切入按键」button reads/writes the public layer's `SwitchLayer` mapping for that layer.
 - **Key resolution order**: active layers (in activation order) → public layer fallback.
 - **`ControllerOverlayService`** is the central orchestrator: creates `SteamInput`, `BridgeInputInjector`, `InputBridgeServer`, `KeyboardMouseMapper`, and the overlay views.
 - **`LayerEditActivity.steamInputRef`** is a static reference set by the service — the settings UI depends on the service running.
@@ -69,6 +69,6 @@ Unit tests are pure JVM (no device needed). Test files are under `app/src/test/`
 - **Aliyun + Tencent mirrors**: `settings.gradle.kts` uses Aliyun mirrors; `gradle-wrapper.properties` uses Tencent mirror for Gradle 9.5.0. These may need changing outside China.
 - **No instrumented tests**: only JUnit 4 unit tests exist. There are no `androidTest/` files.
 - **GCC is optional**: the APK builds without GCC. The bundled exe in assets is used as fallback.
-- **`val` immutability on `OperationLayer`**: `name` and `triggerButton` are `val`. Use `copy()` to modify them (see `LayerEditActivity`).
+- **`val` immutability on `OperationLayer`**: `name` is `val`. Use `copy()` to modify it (see `LayerEditActivity`).
 - **Single-process Windows client**: uses named mutex `Global\SteamLikeInputBridgeClient`.
 - **IME double-input guard**: only `CONTROL_KEY_CODES` (ENTER/TAB/DPAD/ESCAPE/PAGE_UP/PAGE_DOWN/MOVE_HOME/MOVE_END) go through the key-event channel (`onImeKey`); printable chars are injected only via the text channel (`commitText`/`setComposingText`). Forwarding printables in `sendKeyEvent` too would double-inject because `BaseInputConnection(view, false)`'s fallback also dispatches characters to the view.

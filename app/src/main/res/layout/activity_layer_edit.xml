@@ -69,14 +69,14 @@
             android:textColor="#FFFFFFFF"
             android:background="@drawable/bg_button" />
 
-        <!-- 编辑当前操作层触发按键（Common 层禁用） -->
+        <!-- 编辑当前操作层切入按键（公共层 SwitchLayer 映射，Common 层禁用） -->
         <Button
             android:id="@+id/btn_edit_trigger"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:layout_marginStart="4dp"
-            android:text="触发按键"
+            android:text="切入按键"
             android:textColor="#FFFFFFFF"
             android:background="@drawable/bg_button" />
     </LinearLayout>

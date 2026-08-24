@@ -29,15 +29,7 @@ class OperationLayerTest {
     fun `创建空层`() {
         val layer = OperationLayer("Test")
         assertEquals("Test", layer.name)
-        assertNull(layer.triggerButton)
         assertTrue(layer.buttonMappings.isEmpty())
-    }
-
-    @Test
-    fun `创建带触发键的层`() {
-        val layer = OperationLayer("Layer1", ControllerButton.DPAD_UP)
-        assertEquals("Layer1", layer.name)
-        assertEquals(ControllerButton.DPAD_UP, layer.triggerButton)
     }
 
     @Test
@@ -73,19 +65,23 @@ class OperationLayerTest {
     }
 
     @Test
-    fun `createDefault触发键正确分配`() {
+    fun `createDefault公共层切入按键正确分配`() {
         val profile = ControllerProfile.createDefault()
-        assertEquals(ControllerButton.DPAD_UP, profile.layers[0].triggerButton)
-        assertEquals(ControllerButton.DPAD_DOWN, profile.layers[1].triggerButton)
-        assertEquals(ControllerButton.DPAD_LEFT, profile.layers[2].triggerButton)
-        assertEquals(ControllerButton.DPAD_RIGHT, profile.layers[3].triggerButton)
-        assertEquals(ControllerButton.LEFT_SHOULDER, profile.layers[4].triggerButton)
-        assertEquals(ControllerButton.RIGHT_SHOULDER, profile.layers[5].triggerButton)
-        assertEquals(ControllerButton.LEFT_STICK_CLICK, profile.layers[6].triggerButton)
-        // Layer8 触发键为 Touchpad（R3 保留为 LookAround 视角控制，不作为层切换键）
-        assertEquals(ControllerButton.TOUCHPAD_CLICK, profile.layers[7].triggerButton)
-        assertEquals(ControllerButton.LEFT_TRIGGER_CLICK, profile.layers[8].triggerButton)
-        assertEquals(ControllerButton.RIGHT_TRIGGER_CLICK, profile.layers[9].triggerButton)
+        val common = profile.commonLayer
+        fun switchInLayer(button: ControllerButton): String? =
+            (common.getMapping(button)?.action as? MappedAction.SwitchLayer)?.layerName
+
+        assertEquals("Layer1", switchInLayer(ControllerButton.DPAD_UP))
+        assertEquals("Layer2", switchInLayer(ControllerButton.DPAD_DOWN))
+        assertEquals("Layer3", switchInLayer(ControllerButton.DPAD_LEFT))
+        assertEquals("Layer4", switchInLayer(ControllerButton.DPAD_RIGHT))
+        assertEquals("Layer5", switchInLayer(ControllerButton.LEFT_SHOULDER))
+        assertEquals("Layer6", switchInLayer(ControllerButton.RIGHT_SHOULDER))
+        assertEquals("Layer7", switchInLayer(ControllerButton.LEFT_STICK_CLICK))
+        // Layer8 切入键为 Touchpad（R3 保留为 LookAround 视角控制，不作为层切换键）
+        assertEquals("Layer8", switchInLayer(ControllerButton.TOUCHPAD_CLICK))
+        assertEquals("Layer9", switchInLayer(ControllerButton.LEFT_TRIGGER_CLICK))
+        assertEquals("Layer10", switchInLayer(ControllerButton.RIGHT_TRIGGER_CLICK))
     }
 
     @Test
@@ -106,19 +102,27 @@ class OperationLayerTest {
     }
 
     @Test
-    fun `findLayerByTrigger按触发键查找`() {
+    fun `findLayerBySwitchIn公共层按切入键查找`() {
         val profile = ControllerProfile.createDefault()
-        val layer = profile.findLayerByTrigger(ControllerButton.DPAD_UP)
-        assertNotNull(layer)
-        assertEquals("Layer1", layer!!.name)
+        // 公共层中查找指向 Layer1 的切入按键（SwitchLayer 映射）
+        val switchInButton = profile.commonLayer.buttonMappings.entries
+            .firstOrNull { (button, mapping) ->
+                (mapping.action as? MappedAction.SwitchLayer)?.layerName == "Layer1"
+            }
+            ?.key
+        assertEquals(ControllerButton.DPAD_UP, switchInButton)
     }
 
     @Test
-    fun `findLayerByTrigger公共层返回null`() {
+    fun `findLayerBySwitchIn公共层无映射返回null`() {
         val profile = ControllerProfile.createDefault()
-        // 公共层没有触发键，不会被 findLayerByTrigger 返回
-        val layer = profile.findLayerByTrigger(ControllerButton.GUIDE)
-        assertNull(layer)
+        // 公共层中无指向不存在层的切入按键
+        val switchInButton = profile.commonLayer.buttonMappings.entries
+            .firstOrNull { (button, mapping) ->
+                (mapping.action as? MappedAction.SwitchLayer)?.layerName == "NotExist"
+            }
+            ?.key
+        assertNull(switchInButton)
     }
 
     // ===== 全局设置测试 =====
@@ -144,7 +148,7 @@ class OperationLayerTest {
         common.buttonMappings[ControllerButton.A] =
             KeyMapping(MappedAction.KeyboardKey(KC_A))
 
-        val layer1 = OperationLayer("Layer1", ControllerButton.DPAD_UP)
+        val layer1 = OperationLayer("Layer1")
         layer1.buttonMappings[ControllerButton.A] =
             KeyMapping(MappedAction.KeyboardKey(KC_B))
 
@@ -159,7 +163,7 @@ class OperationLayerTest {
         common.buttonMappings[ControllerButton.A] =
             KeyMapping(MappedAction.KeyboardKey(KC_A))
 
-        val layer1 = OperationLayer("Layer1", ControllerButton.DPAD_UP)
+        val layer1 = OperationLayer("Layer1")
         // Layer1 没有A的映射
 
         // 模拟查询: 激活Layer1时查A，Layer1没有则回退Common（公共层必有映射，结果非空）
@@ -170,7 +174,7 @@ class OperationLayerTest {
     @Test
     fun `层回退查询 - 都没映射返回null`() {
         val common = OperationLayer("Common")
-        val layer1 = OperationLayer("Layer1", ControllerButton.DPAD_UP)
+        val layer1 = OperationLayer("Layer1")
 
         val mapping = layer1.getMapping(ControllerButton.A) ?: common.getMapping(ControllerButton.A)
         assertNull(mapping)

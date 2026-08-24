@@ -25,7 +25,7 @@ import java.util.concurrent.CopyOnWriteArraySet
  * - 所有操作层查询不到的按键回退到此层
  *
  * ### 操作层 (Layer1-Layer10)
- * - 最多 10 个，每个有独立的 [OperationLayer.triggerButton]（仅用于 UI 显示/说明）
+ * - 最多 10 个，每个有独立的按键映射表
  * - 实际层切换由 **公共层的 [MappedAction.SwitchLayer] 映射** 驱动：
  *   按下触发键（如 D-Pad ↑）→ 激活对应层；松开 → 回到公共层
  * - 激活时按键查询优先使用本层映射

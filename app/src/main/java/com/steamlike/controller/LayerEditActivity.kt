@@ -575,9 +575,7 @@ class LayerEditActivity : AppCompatActivity() {
      * 遍历所有 [ControllerButton] 枚举值，显示每个按键的映射情况。
      * 未设置映射的按键显示 "[未设置]"。
      *
-     * 同时更新映射摘要行，包含：
-     * - 当前层名称 + 已映射按键数量
-     * - 切入键：公共层中哪个按键（SwitchLayer 映射）会激活当前层
+     * 同时更新映射摘要行（当前层名称 + 已映射按键数量）。
      */
     private fun refreshMappingsList() {
         val layer = currentLayer ?: return
@@ -589,18 +587,11 @@ class LayerEditActivity : AppCompatActivity() {
             "${buttonDisplayName(button)} → $desc"
         }
 
-        // 更新当前层映射摘要（层名 + 已映射数量 + 公共层切入键）
+        // 更新当前层映射摘要（层名 + 已映射数量）
         if (::mappingSummaryText.isInitialized) {
-            val mappedCount = layer.buttonMappings.values.count { it != null }
-            // 公共层中切到当前操作层的按键（SwitchLayer 映射）
-            val triggerKeys = this.profile.commonLayer.buttonMappings
-                .filterValues { mapping ->
-                    (mapping.action as? MappedAction.SwitchLayer)?.layerName == layer.name
-                }
-                .map { buttonDisplayName(it.key) }
-            val triggerText = if (triggerKeys.isEmpty()) "无" else triggerKeys.joinToString("/")
+            val mappedCount = layer.buttonMappings.values.count()
             mappingSummaryText.text =
-                "当前层「${layer.name}」已映射 $mappedCount 个按键 · 切入键: $triggerText"
+                "当前层「${layer.name}」已映射 $mappedCount 个按键"
         }
 
         // 使用 ArrayAdapter 绑定数据到 ListView
@@ -609,10 +600,29 @@ class LayerEditActivity : AppCompatActivity() {
     }
 
     /**
+     * 计算切入当前层的按键
+     *
+     * 即公共层（Common）中配置了「切换到当前层」（[MappedAction.SwitchLayer]）
+     * 的手柄按键。这是实际驱动层切换的按键，也是「切入按键」按钮的数据来源。
+     *
+     * @return 公共层中切到当前层的按键列表（可为空）
+     */
+    private fun switchInButtons(): List<ControllerButton> {
+        val layer = currentLayer ?: return emptyList()
+        val profile = this.profile
+        return profile.commonLayer.buttonMappings
+            .filterValues { mapping ->
+                (mapping.action as? MappedAction.SwitchLayer)?.layerName == layer.name
+            }
+            .keys
+            .toList()
+    }
+
+    /**
      * 更新层信息按钮的显示文字和状态
      *
      * - 编辑名称按钮: 显示当前层名称
-     * - 编辑触发按键按钮: 显示当前触发按键（Common 层禁用）
+     * - 切入按键按钮: 显示公共层中切到当前层的按键（Common 层禁用）
      */
     private fun updateLayerInfoButtons() {
         val layer = currentLayer
@@ -620,16 +630,15 @@ class LayerEditActivity : AppCompatActivity() {
 
         if (layer == null) {
             editLayerNameButton.text = "层名称"
-            editTriggerButton.text = "触发按键"
+            editTriggerButton.text = "切入按键"
             editTriggerButton.isEnabled = false
         } else {
             editLayerNameButton.text = "名称: ${layer.name}"
-            editTriggerButton.text = if (layer.triggerButton != null) {
-                "触发: ${buttonDisplayName(layer.triggerButton)}"
-            } else {
-                "触发: 无"
-            }
-            // 公共层（Common）始终激活，不能设置触发按键
+            // 切入按键 = 公共层中切到本层的 SwitchLayer 按键
+            val triggerText = switchInButtons()
+                .joinToString("/") { buttonDisplayName(it) }
+            editTriggerButton.text = if (triggerText.isEmpty()) "切入: 无" else "切入: $triggerText"
+            // 公共层（Common）始终激活，不能设置切入按键
             val isCommon = (layer === profile?.commonLayer)
             editTriggerButton.isEnabled = !isCommon
         }
@@ -834,7 +843,7 @@ class LayerEditActivity : AppCompatActivity() {
                 val newName = editText.text.toString().trim()
                 if (newName.isNotEmpty()) {
                     // 重建操作层（name 是 val，需要 copy）
-                    applyLayerInfoChange(name = newName, triggerButton = layer.triggerButton)
+                    applyLayerNameChange(name = newName)
                 } else {
                     Toast.makeText(this, "名称不能为空", Toast.LENGTH_SHORT).show()
                 }
@@ -855,20 +864,25 @@ class LayerEditActivity : AppCompatActivity() {
     }
 
     /**
-     * 显示触发按键编辑对话框
+     * 显示切入按键编辑对话框
      *
-     * 使用 Spinner 选择触发按键，支持"无"（清除触发按键）。
-     * 公共层（Common）不允许设置触发按键。
+     * 选择公共层（Common）中用于切换到当前层的按键。选择后写入公共层的
+     * [MappedAction.SwitchLayer] 映射，与设置页/悬浮窗中实际的层切换行为一致。
+     * 支持选择"无"（清除当前层的切入映射）。
+     * 公共层（Common）不允许设置（始终激活，无需切入）。
      */
     private fun showTriggerButtonEditDialog() {
         val layer = currentLayer ?: return
         val profile = this.profile
 
-        // 公共层不能设置触发按键（始终激活，无需触发）
+        // 公共层不能设置切入按键（始终激活，无需切入）
         if (layer === profile.commonLayer) {
-            Toast.makeText(this, "公共层不能设置触发按键", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "公共层不能设置切入按键", Toast.LENGTH_SHORT).show()
             return
         }
+
+        // 当前切入本层的按键（公共层 SwitchLayer 映射）
+        val currentKeys = switchInButtons()
 
         // 构建按键选项: "无" + 所有 ControllerButton 的显示名称
         val buttonOptions = listOf("无") + ControllerButton.values().map { buttonDisplayName(it) }
@@ -880,24 +894,87 @@ class LayerEditActivity : AppCompatActivity() {
             ).also {
                 it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
             }
-            // 设置当前选中项
-            val currentPos = if (layer.triggerButton != null) {
-                1 + ControllerButton.values().indexOf(layer.triggerButton)
-            } else 0
+            // 当前选中第一个切入键（无 = 0）
+            val currentPos = if (currentKeys.isEmpty()) 0
+            else 1 + ControllerButton.values().indexOf(currentKeys.first())
             setSelection(currentPos)
         }
 
         AlertDialog.Builder(this)
-            .setTitle("选择触发按键")
-            .setMessage("按住此按键激活该操作层，松开回到公共层")
+            .setTitle("选择切入按键")
+            .setMessage("在公共层中，按住此按键激活「${layer.name}」，松开回到公共层")
             .setView(spinner)
             .setPositiveButton("确定") { _, _ ->
                 val pos = spinner.selectedItemPosition
-                val newTrigger = if (pos == 0) null else ControllerButton.values()[pos - 1]
-                applyLayerInfoChange(name = layer.name, triggerButton = newTrigger)
+                val chosen = if (pos == 0) null else ControllerButton.values()[pos - 1]
+                setLayerSwitchInKey(layer, chosen)
             }
             .setNegativeButton("取消", null)
             .show()
+    }
+
+    /**
+     * 设置切入当前层的按键（写入公共层的 SwitchLayer 映射）
+     *
+     * 若选中的按键在公共层中已映射为其他内容（非切换到本层），
+     * 会弹出确认框避免误覆盖已有映射。
+     *
+     * @param layer 当前操作层
+     * @param chosen 新的切入按键（null = 清除切入映射）
+     */
+    private fun setLayerSwitchInKey(layer: OperationLayer, chosen: ControllerButton?) {
+        val common = this.profile.commonLayer
+        val oldName = layer.name
+
+        // 若选中的按键已映射为其他内容（非切到本层），先确认再覆盖
+        if (chosen != null) {
+            val existing = common.buttonMappings[chosen]
+            val isSwitchToThis = (existing?.action as? MappedAction.SwitchLayer)?.layerName == oldName
+            if (existing != null && !isSwitchToThis) {
+                AlertDialog.Builder(this)
+                    .setTitle("覆盖映射")
+                    .setMessage(
+                        "公共层按键「${buttonDisplayName(chosen)}」当前映射为" +
+                            "「${existing.describe()}」，确定改为切换到「$oldName」吗？"
+                    )
+                    .setPositiveButton("确定") { _, _ -> doSetLayerSwitchInKey(layer, chosen) }
+                    .setNegativeButton("取消", null)
+                    .show()
+                return
+            }
+        }
+
+        doSetLayerSwitchInKey(layer, chosen)
+    }
+
+    /**
+     * 实际写入切入按键（跳过确认）
+     *
+     * 先清除公共层中所有指向当前层的旧 SwitchLayer 映射，再写入新按键的映射；
+     * 选择"无"时仅清除，不新增。
+     *
+     * @param layer 当前操作层
+     * @param chosen 新的切入按键（null = 清除切入映射）
+     */
+    private fun doSetLayerSwitchInKey(layer: OperationLayer, chosen: ControllerButton?) {
+        val profile = this.profile
+        val common = profile.commonLayer
+        val layerName = layer.name
+
+        // 清除公共层中所有切到本层的旧映射（保留被选中的按键，稍后统一写入）
+        common.buttonMappings.entries.removeAll { (button, mapping) ->
+            button != chosen && (mapping.action as? MappedAction.SwitchLayer)?.layerName == layerName
+        }
+
+        // 写入新的切入映射
+        if (chosen != null) {
+            common.buttonMappings[chosen] = KeyMapping(MappedAction.SwitchLayer(layerName))
+        }
+
+        saveProfile(showToast = true)
+        refreshMappingsList()
+        updateLayerInfoButtons()
+        Log.i(TAG, "Layer switch-in key set: layer=$layerName key=$chosen")
     }
 
     // ====================================================================
@@ -905,31 +982,33 @@ class LayerEditActivity : AppCompatActivity() {
     // ====================================================================
 
     /**
-     * 应用操作层信息变更（名称和触发按键）
+     * 应用操作层名称变更
      *
-     * 由于 [OperationLayer.name] 和 [OperationLayer.triggerButton] 是 `val`（不可变），
-     * 需要使用 `copy()` 创建新的 OperationLayer，并重建 [ControllerProfile]。
+     * 由于 [OperationLayer.name] 是 `val`（不可变），需要使用 `copy()` 创建新的
+     * OperationLayer，并重建 [ControllerProfile]。
      *
      * ## 重建逻辑
-     * - 公共层: 替换 `profile.commonLayer`，触发按键强制为 null
+     * - 公共层: 替换 `profile.commonLayer`
      * - 操作层: 在 `profile.layers` 列表中替换对应项
      *
+     * ## 层名同步
+     * 层名变化时，同步更新所有层（含公共层）中引用旧层名的 SwitchLayer 映射，
+     * 否则重命名后切层映射会找不到目标层。
+     *
      * @param name 新的层名称
-     * @param triggerButton 新的触发按键（null = 无触发按键）
      */
-    private fun applyLayerInfoChange(name: String, triggerButton: ControllerButton?) {
+    private fun applyLayerNameChange(name: String) {
         val oldLayer = currentLayer ?: return
         val oldName = oldLayer.name
         val profile = this.profile
 
         // 创建新的操作层（copy 保持 buttonMappings 引用不变）
-        val newLayer = oldLayer.copy(name = name, triggerButton = triggerButton)
+        val newLayer = oldLayer.copy(name = name)
 
         // 重建 ControllerProfile
         val newProfile: ControllerProfile
         if (oldLayer === profile.commonLayer) {
-            // 公共层: 触发按键强制为 null（始终激活）
-            newProfile = profile.copy(commonLayer = newLayer.copy(triggerButton = null))
+            newProfile = profile.copy(commonLayer = newLayer)
         } else {
             // 操作层: 在列表中替换
             val newLayers = profile.layers.map { if (it === oldLayer) newLayer else it }
@@ -978,7 +1057,7 @@ class LayerEditActivity : AppCompatActivity() {
         refreshMappingsList()
         updateLayerInfoButtons()
 
-        Log.i(TAG, "Layer info updated: name=$name, trigger=$triggerButton")
+        Log.i(TAG, "Layer name updated: $oldName -> $name")
         Toast.makeText(this, "层信息已保存", Toast.LENGTH_SHORT).show()
     }
 

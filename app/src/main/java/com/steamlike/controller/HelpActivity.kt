@@ -18,7 +18,7 @@ import java.io.File
  * 独立的帮助文档页面，与 MainActivity 使用同一套深色卡片 UI 风格（[UiKit]）。
  * 内容根据最新实现维护：
  * - 架构：Android 焦点窗口 + IME 键盘 → TCP(27015) → Windows SendInput 注入
- * - 操作层切换由公共层中的 SwitchLayer 映射驱动（triggerButton 仅 UI 字段）
+ * - 操作层切换由公共层中的 SwitchLayer 映射驱动（层编辑页的「切入按键」即读写该映射）
  * - 悬浮窗三态图标（🎮未连接 / ▶映射中 / ⏸暂停）
  * - 层按钮短按跳转设置页、右键锁存边框高亮、按键按下高亮反馈等新特性
  *
@@ -111,7 +111,7 @@ class HelpActivity : AppCompatActivity() {
                 + "【切层方式】\n"
                 + "· 在公共层给某手柄键配置「切层」动作，按下即激活对应操作层\n"
                 + "· 再次按下/配置切换回公共层的映射，可回到公共层\n"
-                + "· 层编辑页的「触发按键」只是 UI 标记，实际切换由 SwitchLayer 映射驱动"))
+                + "· 层编辑页的「切入按键」按钮可设置/修改切到该层的按键（写入公共层 SwitchLayer 映射）"))
 
         // ===== 五、操作层设置 =====
         container.addView(makeCard("操作层设置",

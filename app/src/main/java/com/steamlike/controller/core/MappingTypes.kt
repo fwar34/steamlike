@@ -286,22 +286,20 @@ data class KeyMapping(
  * 本层没有的按键回退到公共层（[ControllerProfile.commonLayer]）。
  *
  * ## 层类型
- * - **公共层** (commonLayer): 名称为 "Common"，始终激活，[triggerButton] 为 null
- * - **操作层 1-10**: [triggerButton] 仅用于 UI 显示/使用说明，不参与运行时激活
+ * - **公共层** (commonLayer): 名称为 "Common"，始终激活
+ * - **操作层 1-10**
  *
  * ## 触发按键机制
- * 层切换由 **公共层的 [MappedAction.SwitchLayer] 映射** 驱动，而不是 triggerButton 字段：
+ * 层切换由 **公共层的 [MappedAction.SwitchLayer] 映射** 驱动：
  * 在公共层把某个手柄按键绑定为 `SwitchLayer("Layer1")`，按下该键激活 Layer1、松开回到公共层。
  * 例如: 公共层 `DPAD_UP → SwitchLayer("Layer1")`，按住 D-Pad 上 → 激活 Layer1，松开 → 回 Common。
- * 层的 [triggerButton] 字段仅保留展示用途（设置界面/使用说明读取）。
+ * 层编辑页的「切入按键」按钮即用于读写公共层中的这条 SwitchLayer 映射。
  *
  * @param name 层名称（如 "Common"、"Layer1"、"战斗"）
- * @param triggerButton 触发按键（公共层为 null）
  * @param buttonMappings 按键映射表（ControllerButton → KeyMapping）
  */
 data class OperationLayer(
     val name: String,
-    val triggerButton: ControllerButton? = null,
     val buttonMappings: MutableMap<ControllerButton, KeyMapping> = mutableMapOf()
 ) {
     /**
@@ -354,15 +352,6 @@ data class ControllerProfile(
     fun findLayer(name: String): OperationLayer? =
         allLayers.firstOrNull { it.name == name }
 
-    /**
-     * 按触发按键查找操作层
-     *
-     * @param button 手柄按键
-     * @return 对应的操作层；公共层和未配置的返回 null
-     */
-    fun findLayerByTrigger(button: ControllerButton): OperationLayer? =
-        layers.firstOrNull { it.triggerButton == button }
-
     companion object {
         /** 操作层最大数量 */
         const val MAX_LAYERS = 10
@@ -386,13 +375,13 @@ data class ControllerProfile(
          * - L2 → Layer9
          * - R2 → Layer10
          *
-         * 操作层的 [OperationLayer.triggerButton] 仅用于显示，不再用于自动激活。
+         * 操作层无默认按键映射；切换由 Common 层的 SwitchLayer 映射完成。
          */
         fun createDefault(): ControllerProfile {
-            // Common 层层切换按键映射（保留显示用的 triggerButton 与之一致）
+            // Common 层层切换按键映射
             // 注意：RIGHT_STICK_CLICK (R3) 保留为 LookAround 视角控制，不作为层切换键
             // Layer8 的触发键改为 TOUCHPAD_CLICK，避免覆盖 R3 的 LookAround 映射
-            val triggerButtons = listOf(
+            val switchKeys = listOf(
                 ControllerButton.DPAD_UP to "Layer1",
                 ControllerButton.DPAD_DOWN to "Layer2",
                 ControllerButton.DPAD_LEFT to "Layer3",
@@ -415,18 +404,15 @@ data class ControllerProfile(
             common.buttonMappings[ControllerButton.OPTIONS] = KeyMapping(MappedAction.KeyboardKey(41))  // KEYCODE_M
             common.buttonMappings[ControllerButton.RIGHT_STICK_CLICK] = KeyMapping(MappedAction.LookAround)
             // 层切换按键映射（按住激活对应层，松开回公共层）
-            triggerButtons.forEach { (button, layerName) ->
+            switchKeys.forEach { (button, layerName) ->
                 common.buttonMappings[button] = KeyMapping(MappedAction.SwitchLayer(layerName))
             }
             // 右摇杆默认视角控制
             // 摇杆映射不在 buttonMappings 中，而是通过 ControllerStick 单独处理
 
-            // 操作层：triggerButton 仅用于 UI 显示，实际切换由 Common 层的 SwitchLayer 映射完成
-            val layers = (1..MAX_LAYERS).mapIndexed { index, i ->
-                OperationLayer(
-                    name = "Layer$i",
-                    triggerButton = triggerButtons[index].first
-                )
+            // 操作层：无默认按键映射，层切换由 Common 层的 SwitchLayer 映射完成
+            val layers = (1..MAX_LAYERS).map { i ->
+                OperationLayer(name = "Layer$i")
             }
 
             return ControllerProfile(

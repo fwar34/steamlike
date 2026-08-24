@@ -34,7 +34,6 @@ import org.json.JSONObject
  *   "layers": [
  *     {
  *       "name": "Layer1",
- *       "triggerButton": "DPAD_UP",
  *       "buttonMappings": {
  *         "A": { "action": { "type": "keyboard", "keyCode": 57 }, "subCommands": [7] }
  *       }
@@ -142,11 +141,11 @@ object ControllerConfig {
             ?: GlobalSettings()
 
         val commonLayerJson = json.getJSONObject("commonLayer")
-        val commonLayer = parseLayer(commonLayerJson, isCommon = true)
+        val commonLayer = parseLayer(commonLayerJson)
 
         val layersArray = json.optJSONArray("layers") ?: JSONArray()
         val layers = (0 until layersArray.length()).map { i ->
-            parseLayer(layersArray.getJSONObject(i), isCommon = false)
+            parseLayer(layersArray.getJSONObject(i))
         }
 
         return ControllerProfile(
@@ -181,9 +180,6 @@ object ControllerConfig {
     private fun layerToJson(layer: OperationLayer): JSONObject {
         val json = JSONObject()
         json.put("name", layer.name)
-        if (layer.triggerButton != null) {
-            json.put("triggerButton", layer.triggerButton.name)
-        }
         val mappings = JSONObject()
         layer.buttonMappings.forEach { (button, mapping) ->
             mappings.put(button.name, mappingToJson(mapping))
@@ -192,12 +188,8 @@ object ControllerConfig {
         return json
     }
 
-    private fun parseLayer(json: JSONObject, isCommon: Boolean): OperationLayer {
+    private fun parseLayer(json: JSONObject): OperationLayer {
         val name = json.getString("name")
-        val triggerButtonStr = json.optString("triggerButton", null)
-        val triggerButton = if (triggerButtonStr != null && triggerButtonStr.isNotEmpty()) {
-            runCatching { ControllerButton.valueOf(triggerButtonStr) }.getOrNull()
-        } else null
 
         val mappings = mutableMapOf<ControllerButton, KeyMapping>()
         val mappingsJson = json.optJSONObject("buttonMappings") ?: JSONObject()
@@ -214,7 +206,6 @@ object ControllerConfig {
 
         return OperationLayer(
             name = name,
-            triggerButton = if (isCommon) null else triggerButton,
             buttonMappings = mappings
         )
     }

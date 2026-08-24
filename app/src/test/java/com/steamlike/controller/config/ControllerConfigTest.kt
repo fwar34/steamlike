@@ -39,7 +39,7 @@ class ControllerConfigTest {
                 )
             },
             layers = listOf(
-                OperationLayer("Layer1", ControllerButton.DPAD_UP).apply {
+                OperationLayer("Layer1").apply {
                     buttonMappings[ControllerButton.A] = KeyMapping(
                         MappedAction.KeyboardKey(30),  // KEYCODE_B = 30
                         listOf(7, 8)  // 子命令
@@ -137,14 +137,18 @@ class ControllerConfigTest {
     }
 
     @Test
-    fun `默认配置触发键保留`() {
+    fun `默认配置切入按键保留`() {
         val original = ControllerProfile.createDefault()
 
         val json = ControllerConfig.toJson(original, 0)
         val parsed = ControllerConfig.fromJson(json)
 
-        assertEquals(ControllerButton.DPAD_UP, parsed.layers[0].triggerButton)
-        assertEquals(ControllerButton.RIGHT_TRIGGER_CLICK, parsed.layers[9].triggerButton)
+        // 切入按键存储在公共层的 SwitchLayer 映射中，序列化后应保留
+        fun switchInLayer(button: ControllerButton): String? =
+            (parsed.commonLayer.getMapping(button)?.action as? MappedAction.SwitchLayer)?.layerName
+
+        assertEquals("Layer1", switchInLayer(ControllerButton.DPAD_UP))
+        assertEquals("Layer10", switchInLayer(ControllerButton.RIGHT_TRIGGER_CLICK))
     }
 
     // ===== 全局设置测试 =====
