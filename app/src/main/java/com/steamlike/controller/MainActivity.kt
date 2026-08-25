@@ -3,6 +3,7 @@ package com.steamlike.controller
 import android.app.ActivityManager
 import android.app.AppOpsManager
 import android.content.BroadcastReceiver
+import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
@@ -973,20 +974,53 @@ class MainActivity : AppCompatActivity() {
             results.add("$displayName: ${if (success) "OK" else "FAIL"} (${bytes.size} bytes)")
         }
 
+        // 额外导出 config.json（含 wowPath），Windows 客户端启动时读取并据此拉起游戏进程
+        val configJson = "{\n\t\"wowPath\":${jsonStringValue(gameExe)}\n}"
+        val configBytes = configJson.toByteArray(Charsets.UTF_8)
+        val configSuccess = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            exportViaMediaStore(configBytes, "config.json")
+        } else {
+            exportViaLegacyFile(configBytes, "config.json")
+        }
+        results.add("config.json: ${if (configSuccess) "OK" else "FAIL"} (${configBytes.size} bytes)")
+
         // 汇总提示
         val allSuccess = results.all { it.contains("OK") }
         val msg = if (allSuccess) {
-            "已导出 ${exportFiles.size} 个文件到 Download/$exportDirName 目录:\n" +
+            "已导出 ${exportFiles.size + 1} 个文件到 Download/$exportDirName 目录:\n" +
             results.joinToString("\n") { "  $it" } + "\n" +
             if (gameExe.isBlank()) {
-                "请将文件复制到 Winlator 的 C 盘后运行 control.bat start"
+                "config.json 的 wowPath 为空，Windows 客户端启动时会报错退出。\n请先在“选择游戏 EXE 路径”设置游戏路径后重新导出。"
             } else {
-                "游戏路径已写入 control.bat 和 control.ps1：$gameExe"
+                "游戏路径已写入 config.json 与 control.bat/control.ps1：$gameExe"
             }
         } else {
             "导出部分失败:\n" + results.joinToString("\n") { "  $it" }
         }
         toastLog(msg, long = true)
+    }
+
+    /**
+     * JSON 字符串值（带引号与转义），用于生成 config.json 中的路径字段
+     *
+     * Windows 路径中的反斜杠 `\` 会转义为 `\\`，双引号转义为 `\"`，
+     * 保证生成的 config.json 是合法 JSON。
+     */
+    private fun jsonStringValue(s: String): String = buildString {
+        append('"')
+        for (c in s) {
+            when (c) {
+                '\\' -> append("\\\\")
+                '"' -> append("\\\"")
+                '\n' -> append("\\n")
+                '\r' -> append("\\r")
+                '\t' -> append("\\t")
+                '\b' -> append("\\b")
+                '\u000C' -> append("\\f")
+                else -> append(c)
+            }
+        }
+        append('"')
     }
 
     /**
@@ -1004,31 +1038,14 @@ class MainActivity : AppCompatActivity() {
             // 带尾斜杠的目录路径（MediaStore RELATIVE_PATH 规范格式为 "Download/AControler/"）
             val relativePath = "${Environment.DIRECTORY_DOWNLOADS}/$exportDirName/"
 
-            // 强制覆盖：删除已存在的同名文件（兼容带/不带尾斜杠的 RELATIVE_PATH）
-            resolver.query(
-                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
-                arrayOf(MediaStore.MediaColumns._ID),
-                "${MediaStore.MediaColumns.DISPLAY_NAME}=? AND (" +
-                    "${MediaStore.MediaColumns.RELATIVE_PATH}=? OR " +
-                    "${MediaStore.MediaColumns.RELATIVE_PATH}=?)",
-                arrayOf(displayName, relativePath, relativePath.trimEnd('/')),
-                null
-            )?.use { cursor ->
-                while (cursor.moveToNext()) {
-                    val id = cursor.getLong(0)
-                    resolver.delete(
-                        ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, id),
-                        null, null
-                    )
-                }
-            }
+            // 强制覆盖：先删除 AControler 目录下所有同名旧记录，再插入新文件
+            deleteMediaStoreDownload(resolver, displayName)
 
             val values = android.content.ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
                 put(MediaStore.MediaColumns.MIME_TYPE, "application/octet-stream")
                 // 指定写入 Downloads/AControler 子目录
-                put(MediaStore.MediaColumns.RELATIVE_PATH,
-                    "${Environment.DIRECTORY_DOWNLOADS}/$exportDirName/")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
             }
             val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
             val uri = resolver.insert(collection, values) ?: run {
@@ -1047,6 +1064,38 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             Log.e(TAG, "Export $displayName failed", e)
             false
+        }
+    }
+
+    /**
+     * 删除 Download/AControler 目录下指定文件名的所有 MediaStore 记录
+     *
+     * 用 `LIKE 'Download/AControler%'` 匹配路径，避免因 RELATIVE_PATH 带/不带尾斜杠、
+     * 大小写等差异导致漏删，从而出现同名重复文件（旧文件没被覆盖）。
+     * 循环删除直到查询无残留，防止结果集快照与删除交错遗漏。
+     */
+    private fun deleteMediaStoreDownload(resolver: ContentResolver, displayName: String) {
+        val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
+        while (true) {
+            var found = false
+            resolver.query(
+                collection,
+                arrayOf(MediaStore.MediaColumns._ID),
+                "${MediaStore.MediaColumns.DISPLAY_NAME}=? AND " +
+                    "${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?",
+                arrayOf(displayName, "Download/$exportDirName%"),
+                null
+            )?.use { cursor ->
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(0)
+                    resolver.delete(
+                        ContentUris.withAppendedId(collection, id),
+                        null, null
+                    )
+                    found = true
+                }
+            }
+            if (!found) break
         }
     }
 

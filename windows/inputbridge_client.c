@@ -364,6 +364,110 @@ static BOOL WINAPI ConsoleHandler(DWORD signal) {
     return TRUE;
 }
 
+/* ===== config.json 读取与游戏启动 ===== */
+
+/*
+ * 获取当前可执行文件所在目录（不含尾部反斜杠）。
+ * 用于定位与 exe 同目录的 config.json。
+ */
+static void GetExeDir(char* dir, size_t dirSize) {
+    char exePath[MAX_PATH];
+    DWORD len = GetModuleFileNameA(NULL, exePath, MAX_PATH);
+    if (len == 0 || len >= MAX_PATH) { dir[0] = '\0'; return; }
+    char* slash = strrchr(exePath, '\\');
+    if (!slash) slash = strrchr(exePath, '/');
+    size_t n = slash ? (size_t)(slash - exePath) : 0;
+    if (n >= dirSize) n = dirSize - 1;
+    memcpy(dir, exePath, n);
+    dir[n] = '\0';
+}
+
+/*
+ * 从固定结构的 JSON 中提取 "wowPath" 字段的字符串值（含反转义）。
+ *
+ * 兼容格式: {"wowPath":"C:\\WoW\\Wow.exe"}（键值间可有空白）。
+ * 读取成功返回 1，文件缺失/解析失败返回 0。
+ */
+static int LoadWowPathFromConfig(const char* filePath, char* out, size_t outSize) {
+    FILE* f = fopen(filePath, "rb");
+    if (!f) return 0;
+    fseek(f, 0, SEEK_END);
+    long len = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (len <= 0 || len > 65536) { fclose(f); return 0; }
+    char* buf = (char*)malloc((size_t)len + 1);
+    if (!buf) { fclose(f); return 0; }
+    size_t n = fread(buf, 1, (size_t)len, f);
+    buf[n] = '\0';
+    fclose(f);
+
+    const char* key = strstr(buf, "\"wowPath\"");
+    if (!key) { free(buf); return 0; }
+    const char* colon = strchr(key + 9, ':');
+    if (!colon) { free(buf); return 0; }
+    const char* q1 = strchr(colon + 1, '"');
+    if (!q1) { free(buf); return 0; }
+
+    const char* p = q1 + 1;
+    char* dst = out;
+    size_t used = 0;
+    while (*p && used + 1 < outSize) {
+        if (*p == '"') break; /* 字符串结束 */
+        if (*p == '\\' && (p[1] == '\\' || p[1] == '"' || p[1] == '/' ||
+                           p[1] == 'n' || p[1] == 't' || p[1] == 'r' || p[1] == 'b' || p[1] == 'f')) {
+            switch (p[1]) {
+                case 'n': *dst++ = '\n'; break;
+                case 't': *dst++ = '\t'; break;
+                case 'r': *dst++ = '\r'; break;
+                case 'b': *dst++ = '\b'; break;
+                case 'f': *dst++ = '\f'; break;
+                default:  *dst++ = p[1]; break; /* \\ \" \/ 取原字符 */
+            }
+            p += 2; used++;
+        } else {
+            *dst++ = *p++; used++;
+        }
+    }
+    *dst = '\0';
+    free(buf);
+    return 1;
+}
+
+/*
+ * 启动游戏进程（不等待），工作目录设为游戏 exe 所在目录。
+ */
+static void LaunchGameProcess(const char* exePath) {
+    char cmd[MAX_PATH * 2];
+    char workDir[MAX_PATH] = "";
+    const char* slash = strrchr(exePath, '\\');
+    if (!slash) slash = strrchr(exePath, '/');
+    if (slash) {
+        size_t d = (size_t)(slash - exePath);
+        if (d >= MAX_PATH) d = MAX_PATH - 1;
+        memcpy(workDir, exePath, d);
+        workDir[d] = '\0';
+    }
+
+    /* 命令行带引号包裹，兼容路径含空格 */
+    snprintf(cmd, sizeof(cmd), "\"%s\"", exePath);
+
+    STARTUPINFOA si;
+    PROCESS_INFORMATION pi;
+    ZeroMemory(&si, sizeof(si));
+    si.cb = sizeof(si);
+    ZeroMemory(&pi, sizeof(pi));
+
+    if (CreateProcessA(NULL, cmd, NULL, NULL, FALSE,
+                       NORMAL_PRIORITY_CLASS, NULL,
+                       workDir[0] ? workDir : NULL, &si, &pi)) {
+        printf("[INFO] 游戏已启动: %s\n", exePath);
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+    } else {
+        printf("[ERROR] 启动游戏失败: %s (错误码=%lu)\n", exePath, GetLastError());
+    }
+}
+
 /* ===== 主函数 ===== */
 
 int main(int argc, char* argv[]) {
@@ -387,6 +491,32 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     printf("[INFO] Single instance lock acquired.\n");
+
+    /* 读取 config.json 中的 wowPath 并启动游戏进程（缺失/为空则报错退出） */
+    {
+        char configPath[MAX_PATH];
+        char wowPath[MAX_PATH] = "";
+        char exeDir[MAX_PATH];
+
+        /* 优先读取 exe 所在目录的 config.json，其次当前工作目录 */
+        GetExeDir(exeDir, sizeof(exeDir));
+        if (exeDir[0]) {
+            snprintf(configPath, sizeof(configPath), "%s\\config.json", exeDir);
+            LoadWowPathFromConfig(configPath, wowPath, sizeof(wowPath));
+        }
+        if (wowPath[0] == '\0') {
+            LoadWowPathFromConfig("config.json", wowPath, sizeof(wowPath));
+        }
+
+        if (wowPath[0] == '\0') {
+            printf("[ERROR] 未在 config.json 中找到有效的 wowPath 配置。\n");
+            printf("[ERROR] 请先在手机 App 主界面选择游戏 EXE 路径并重新导出 Windows 客户端。\n");
+            if (hMutex) CloseHandle(hMutex);
+            return 1;
+        }
+        printf("[INFO] 读取 wowPath = %s\n", wowPath);
+        LaunchGameProcess(wowPath);
+    }
 
     /* 初始化Winsock */
     WSADATA wsaData;
