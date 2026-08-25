@@ -51,11 +51,13 @@
             android:paddingHorizontal="10dp" />
     </LinearLayout>
 
-    <!-- ===== 层信息行（名称 + 触发按键） ===== -->
+    <!-- ===== 层信息行（名称 + 切入按键） ===== -->
+    <!-- baselineAligned=false: 文字换行成两行时，Button 会因文本基线对齐被下推导致错位/底部拥挤 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
+        android:baselineAligned="false"
         android:paddingBottom="8dp">
 
         <!-- 编辑当前操作层名称 -->
