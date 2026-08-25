@@ -221,6 +221,9 @@ class ControllerOverlayService : Service() {
      * 按键映射列表页的按钮 → 视图引用，手柄按键按下时高亮对应项
      */
     private val mappingViewItems = mutableMapOf<ControllerButton, TextView>()
+    // 映射列表页子视图引用：切层时原地更新（不重建整个窗口），避免整屏闪屏
+    private var mappingTitleView: TextView? = null
+    private var mappingItemsLayout: LinearLayout? = null
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
     // 悬浮窗收起/展开/映射列表状态
@@ -1967,6 +1970,8 @@ class ControllerOverlayService : Service() {
         frame.removeAllViews()
         isMappingView = true
         mappingViewItems.clear()
+        mappingTitleView = null
+        mappingItemsLayout = null
 
         val activeLayers = mapper?.getActiveLayers() ?: emptyList()
         val layerName = if (activeLayers.isEmpty()) "公共层" else activeLayers.last()
@@ -1978,85 +1983,23 @@ class ControllerOverlayService : Service() {
             setPadding(dp(12), dp(10), dp(12), dp(10))
         }
 
-        // 标题
-        content.addView(TextView(this).apply {
+        // 标题（第一行层信息）——切层时仅高亮此行为反馈，不再整页动效
+        val title = TextView(this).apply {
             text = "映射 - $layerName"
             textSize = 13f
             setTextColor(0xFFCCCCCC.toInt())
             setPadding(0, 0, 0, dp(4))
-        })
-
-        // 获取映射列表
-        val profile = steamInput?.profile
-        if (profile == null) {
-            content.addView(TextView(this).apply {
-                text = "无配置"
-                textSize = 11f
-                setTextColor(0xFF888888.toInt())
-            })
-        } else {
-            val targetLayer = if (activeLayers.isNotEmpty()) {
-                profile.findLayer(activeLayers.last())
-            } else {
-                profile.commonLayer
-            }
-
-            if (targetLayer != null) {
-                val mappings = mutableMapOf<ControllerButton, KeyMapping>()
-                profile.commonLayer.buttonMappings.forEach { (btn, mapping) ->
-                    mappings[btn] = mapping
-                }
-                targetLayer.buttonMappings.forEach { (btn, mapping) ->
-                    mappings[btn] = mapping
-                }
-
-                if (mappings.isEmpty()) {
-                    content.addView(TextView(this).apply {
-                        text = "无映射"
-                        textSize = 11f
-                        setTextColor(0xFF888888.toInt())
-                    })
-                } else {
-                    val sortedMappings = ControllerButton.entries
-                        .filter { it in mappings }
-                        .map { it to mappings[it]!! }
-
-                    // 每行两个按键，两列显示
-                    sortedMappings.chunked(2).forEach { rowMappings ->
-                        val rowView = LinearLayout(this).apply {
-                            orientation = LinearLayout.HORIZONTAL
-                            // 行宽填满面板：两列映射项均分宽度，消除面板右侧大片空白
-                            layoutParams = LinearLayout.LayoutParams(
-                                LinearLayout.LayoutParams.MATCH_PARENT,
-                                LinearLayout.LayoutParams.WRAP_CONTENT
-                            )
-                        }
-                        rowMappings.forEachIndexed { index, (btn, mapping) ->
-                            val item = TextView(this).apply {
-                                // 使用与按键映射设置页一致的显示名（LB/RB/L2/R2 等），而非枚举原名
-                                text = "${LayerEditActivity.buttonDisplayName(btn)} -> ${mapping.describe()}"
-                                textSize = 11f
-                                setTextColor(0xFFFFFFFF.toInt())
-                                setPadding(dp(8), dp(4), dp(8), dp(4))
-                                background = roundedDrawable(COLOR_MAPPING_ITEM, dp(6))
-                                isSingleLine = true
-                                ellipsize = android.text.TextUtils.TruncateAt.END
-                            }
-                            // 保存引用，手柄按键按下时高亮对应项
-                            mappingViewItems[btn] = item
-                            val params = LinearLayout.LayoutParams(
-                                0,   // 宽度 0 + weight=1 → 两列均分
-                                LinearLayout.LayoutParams.WRAP_CONTENT,
-                                1f
-                            )
-                            params.setMargins(0, dp(1), if (index == 0) dp(2) else 0, dp(1))
-                            rowView.addView(item, params)
-                        }
-                        content.addView(rowView)
-                    }
-                }
-            }
         }
+        content.addView(title)
+        mappingTitleView = title
+
+        // 映射项容器（切层时只重建这一块，不重建整个窗口）
+        val itemsLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        content.addView(itemsLayout)
+        mappingItemsLayout = itemsLayout
+        rebuildMappingItems(itemsLayout)
 
         // 提示文本
         content.addView(TextView(this).apply {
@@ -2089,6 +2032,98 @@ class ControllerOverlayService : Service() {
             // 动画作用于面板整体（含背景），避免背景先弹出、内容后淡入造成闪屏
             animateOverlayIn(panel)
         }
+    }
+
+    /**
+     * 重建映射项列表（标题下方的内容）
+     *
+     * 用于映射列表页初次构建与切层时原地刷新。只替换映射项容器内的子视图，
+     * 不触碰窗口/面板本身，避免 WRAP_CONTENT 窗口缩放与白色边框弹出的整屏闪屏。
+     *
+     * @param container 映射项容器（LinearLayout.VERTICAL）
+     */
+    private fun rebuildMappingItems(container: LinearLayout) {
+        container.removeAllViews()
+        mappingViewItems.clear()
+
+        val profile = steamInput?.profile ?: return
+        val activeLayers = mapper?.getActiveLayers() ?: emptyList()
+        val targetLayer = if (activeLayers.isNotEmpty()) {
+            profile.findLayer(activeLayers.last())
+        } else {
+            profile.commonLayer
+        } ?: return
+
+        // 公共层兜底 + 当前层映射（键冲突时当前层覆盖公共层）
+        val mappings = mutableMapOf<ControllerButton, KeyMapping>()
+        profile.commonLayer.buttonMappings.forEach { (btn, mapping) ->
+            mappings[btn] = mapping
+        }
+        targetLayer.buttonMappings.forEach { (btn, mapping) ->
+            mappings[btn] = mapping
+        }
+
+        if (mappings.isEmpty()) {
+            container.addView(TextView(this).apply {
+                text = "无映射"
+                textSize = 11f
+                setTextColor(0xFF888888.toInt())
+            })
+            return
+        }
+
+        val sortedMappings = ControllerButton.entries
+            .filter { it in mappings }
+            .map { it to mappings[it]!! }
+
+        // 每行两个按键，两列显示
+        sortedMappings.chunked(2).forEach { rowMappings ->
+            val rowView = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                // 行宽填满面板：两列映射项均分宽度，消除面板右侧大片空白
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            }
+            rowMappings.forEachIndexed { index, (btn, mapping) ->
+                val item = TextView(this).apply {
+                    // 使用与按键映射设置页一致的显示名（LB/RB/L2/R2 等），而非枚举原名
+                    text = "${LayerEditActivity.buttonDisplayName(btn)} -> ${mapping.describe()}"
+                    textSize = 11f
+                    setTextColor(0xFFFFFFFF.toInt())
+                    setPadding(dp(8), dp(4), dp(8), dp(4))
+                    background = roundedDrawable(COLOR_MAPPING_ITEM, dp(6))
+                    isSingleLine = true
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                }
+                // 保存引用，手柄按键按下时高亮对应项
+                mappingViewItems[btn] = item
+                val params = LinearLayout.LayoutParams(
+                    0,   // 宽度 0 + weight=1 → 两列均分
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    1f
+                )
+                params.setMargins(0, dp(1), if (index == 0) dp(2) else 0, dp(1))
+                rowView.addView(item, params)
+            }
+            container.addView(rowView)
+        }
+    }
+
+    /**
+     * 切层反馈：高亮第一行层信息背景 1 秒后恢复（替代原来的整页淡入/缩放动效）
+     */
+    private fun highlightLayerTitle(title: TextView) {
+        val radius = dp(6)
+        // 高亮态：半透明蓝底 + 轻微内边距，让色块贴合文字更清晰
+        title.background = roundedDrawable(0x802196F3.toInt(), radius)
+        title.setPadding(dp(6), dp(2), dp(6), dp(2))
+        title.postDelayed({
+            // 恢复为透明背景与原内边距（0,0,0,4dp）
+            title.background = roundedDrawable(0x00000000, radius)
+            title.setPadding(0, 0, 0, dp(4))
+        }, 1000L)
     }
 
     /**
@@ -2450,13 +2485,23 @@ class ControllerOverlayService : Service() {
     /**
      * 更新按键映射列表视图（层切换时自动刷新）
      *
-     * 仅在映射列表视图显示时生效，重新构建映射内容。
+     * 仅在映射列表视图显示时生效。切层时只做两件事：
+     * 1. 原地刷新映射项容器（不重建整个窗口，避免 WRAP_CONTENT 缩放闪屏）
+     * 2. 高亮第一行层信息背景 1 秒作为切层反馈（替代原来的整页淡入/缩放动效）
      */
     private fun updateMappingView() {
         if (!isMappingView) return
-        // 使用动画重建：层切换导致映射内容变化时若瞬间整体替换，
-        // WRAP_CONTENT 窗口会瞬间缩放、白色边框弹出，表现为整屏闪屏
-        showMappingView(animate = true)
+        val title = mappingTitleView ?: return
+        val itemsLayout = mappingItemsLayout ?: return
+
+        // 更新第一行层信息文本，并高亮 1s 作为切层反馈
+        val activeLayers = mapper?.getActiveLayers() ?: emptyList()
+        val layerName = if (activeLayers.isEmpty()) "公共层" else activeLayers.last()
+        title.text = "映射 - $layerName"
+        highlightLayerTitle(title)
+
+        // 原地重建映射项，窗口尺寸不变
+        rebuildMappingItems(itemsLayout)
     }
 
     /**
