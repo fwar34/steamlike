@@ -145,6 +145,14 @@ class KeyboardMouseMapper(
     var onLayerChanged: ((List<String>) -> Unit)? = null
 
     /**
+     * 操作集切换回调
+     *
+     * 当通过 [switchActionSet] 切换操作集时调用，传递新操作集名称。
+     * 由 ControllerOverlayService 设置，用于更新悬浮窗显示当前操作集。
+     */
+    var onActionSetChanged: ((String) -> Unit)? = null
+
+    /**
      * 切换悬浮窗回调
      *
      * 当映射到 ToggleOverlay 动作的手柄按钮按下时调用。
@@ -204,6 +212,10 @@ class KeyboardMouseMapper(
             Log.i(TAG, "Active layer: $layerName")
             // 通知外部监听器，传递当前所有激活层名称列表
             onLayerChanged?.invoke(getActiveLayers())
+        }
+        steamInput.onActionSetChanged = { actionSetName ->
+            Log.i(TAG, "Action set: $actionSetName")
+            onActionSetChanged?.invoke(actionSetName)
         }
         // 启动右摇杆固定频率发送循环
         startLookLoop()
@@ -280,6 +292,18 @@ class KeyboardMouseMapper(
      * @param name 操作层名称
      */
     fun deactivateLayer(name: String) = steamInput.deactivateLayer(name)
+
+    /**
+     * 切换操作集（整体切换其下所有操作层）
+     *
+     * @param name 目标操作集名称
+     */
+    fun switchActionSet(name: String) = steamInput.switchActionSet(name)
+
+    /**
+     * 当前操作集名称
+     */
+    fun getActiveActionSetName(): String = steamInput.getActiveActionSetName()
 
     /**
      * 处理按键映射

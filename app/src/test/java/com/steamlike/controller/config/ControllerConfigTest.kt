@@ -1,5 +1,6 @@
 package com.steamlike.controller.config
 
+import com.steamlike.controller.core.ActionSet
 import com.steamlike.controller.core.ControllerButton
 import com.steamlike.controller.core.ControllerProfile
 import com.steamlike.controller.core.GlobalSettings
@@ -21,15 +22,31 @@ import org.junit.Test
  * - 各种动作类型序列化
  * - 子命令序列化
  * - 默认配置序列化
+ * - 操作集（多操作集/当前操作集名/版本迁移）
  * - 错误处理
  */
 class ControllerConfigTest {
+
+    // ===== 辅助构造 =====
+
+    /**
+     * 构造单操作集配置（模拟旧 commonLayer/layers 的易用性）
+     */
+    private fun profile(
+        commonLayer: OperationLayer,
+        layers: List<OperationLayer>,
+        globalSettings: GlobalSettings = GlobalSettings(),
+        actionSetName: String = ControllerProfile.DEFAULT_ACTION_SET_NAME
+    ): ControllerProfile = ControllerProfile(
+        actionSets = listOf(ActionSet(name = actionSetName, commonLayer = commonLayer, layers = layers)),
+        globalSettings = globalSettings
+    )
 
     // ===== 往返测试 =====
 
     @Test
     fun `往返测试 - 简单配置`() {
-        val original = ControllerProfile(
+        val original = profile(
             commonLayer = OperationLayer("Common").apply {
                 buttonMappings[ControllerButton.A] = KeyMapping(
                     MappedAction.KeyboardKey(29)  // KEYCODE_A = 29
@@ -60,7 +77,7 @@ class ControllerConfigTest {
 
     @Test
     fun `往返测试 - 键盘按键带子命令`() {
-        val original = ControllerProfile(
+        val original = profile(
             commonLayer = OperationLayer("Common").apply {
                 buttonMappings[ControllerButton.X] = KeyMapping(
                     MappedAction.KeyboardKey(57),  // KEYCODE_ALT_LEFT = 57
@@ -82,7 +99,7 @@ class ControllerConfigTest {
 
     @Test
     fun `往返测试 - 切换层动作`() {
-        val original = ControllerProfile(
+        val original = profile(
             commonLayer = OperationLayer("Common").apply {
                 buttonMappings[ControllerButton.LEFT_SHOULDER] = KeyMapping(
                     MappedAction.SwitchLayer("Layer5")
@@ -102,7 +119,7 @@ class ControllerConfigTest {
 
     @Test
     fun `往返测试 - 视角控制动作`() {
-        val original = ControllerProfile(
+        val original = profile(
             commonLayer = OperationLayer("Common").apply {
                 buttonMappings[ControllerButton.RIGHT_STICK_CLICK] = KeyMapping(
                     MappedAction.LookAround
@@ -130,6 +147,8 @@ class ControllerConfigTest {
 
         assertEquals(original.layers.size, parsed.layers.size)
         assertEquals("Common", parsed.commonLayer.name)
+        assertEquals(ControllerProfile.DEFAULT_ACTION_SET_NAME, parsed.activeActionSetName)
+        assertEquals(1, parsed.actionSets.size)
         // 验证所有10个层都在
         for (i in 1..10) {
             assertNotNull(parsed.findLayer("Layer$i"))
@@ -151,11 +170,110 @@ class ControllerConfigTest {
         assertEquals("Layer10", switchInLayer(ControllerButton.RIGHT_TRIGGER_CLICK))
     }
 
+    // ===== 操作集测试 =====
+
+    @Test
+    fun `多操作集往返`() {
+        // 两个操作集：默认 + 治疗
+        val original = ControllerProfile(
+            actionSets = listOf(
+                ActionSet(
+                    name = "默认",
+                    commonLayer = OperationLayer("Common").apply {
+                        buttonMappings[ControllerButton.A] = KeyMapping(MappedAction.KeyboardKey(29))
+                    },
+                    layers = listOf(OperationLayer("Layer1"))
+                ),
+                ActionSet(
+                    name = "治疗",
+                    commonLayer = OperationLayer("Common").apply {
+                        buttonMappings[ControllerButton.A] = KeyMapping(MappedAction.KeyboardKey(30))
+                        buttonMappings[ControllerButton.B] = KeyMapping(MappedAction.MouseClick(MouseButton.LEFT))
+                    },
+                    layers = listOf(OperationLayer("Layer1"), OperationLayer("Layer2"))
+                )
+            ),
+            activeActionSetName = "治疗"
+        )
+
+        val json = ControllerConfig.toJson(original, 2)
+        val parsed = ControllerConfig.fromJson(json)
+
+        assertEquals(2, parsed.actionSets.size)
+        // 当前操作集名保留
+        assertEquals("治疗", parsed.activeActionSetName)
+        assertEquals("治疗", parsed.activeActionSet.name)
+        // 每个操作集内层独立
+        assertEquals(1, parsed.findActionSet("默认")!!.layers.size)
+        assertEquals(2, parsed.findActionSet("治疗")!!.layers.size)
+        // 当前操作集的按键映射来自「治疗」
+        assertEquals(30, (parsed.commonLayer.getMapping(ControllerButton.A)?.action as MappedAction.KeyboardKey).keyCode)
+        // 切换到「默认」后映射不同
+        val defaultParsed = parsed.copy(activeActionSetName = "默认")
+        assertEquals(29, (defaultParsed.commonLayer.getMapping(ControllerButton.A)?.action as MappedAction.KeyboardKey).keyCode)
+    }
+
+    @Test
+    fun `当前操作集名不存在时回退到第一个`() {
+        val original = ControllerProfile(
+            actionSets = listOf(
+                ActionSet(name = "默认", commonLayer = OperationLayer("Common"), layers = emptyList()),
+                ActionSet(name = "治疗", commonLayer = OperationLayer("Common"), layers = emptyList())
+            ),
+            activeActionSetName = "不存在的操作集"
+        )
+
+        val json = ControllerConfig.toJson(original, 0)
+        val parsed = ControllerConfig.fromJson(json)
+
+        // activeActionSet 回退到第一个
+        assertEquals("默认", parsed.activeActionSet.name)
+    }
+
+    @Test
+    fun `version2 旧格式自动迁移为默认操作集`() {
+        // 旧格式：顶层 commonLayer/layers，无 actionSets
+        val json = """
+        {
+            "version": 2,
+            "commonLayer": {
+                "name": "Common",
+                "buttonMappings": {
+                    "A": {"action": {"type": "keyboard", "keyCode": 29}, "subCommands": []}
+                }
+            },
+            "layers": [
+                {"name": "Layer1", "buttonMappings": {}}
+            ]
+        }
+        """.trimIndent()
+        val parsed = ControllerConfig.fromJson(json)
+
+        assertEquals(1, parsed.actionSets.size)
+        assertEquals(ControllerProfile.DEFAULT_ACTION_SET_NAME, parsed.activeActionSetName)
+        // 迁移后数据完整
+        assertEquals(1, parsed.layers.size)
+        assertNotNull(parsed.commonLayer.getMapping(ControllerButton.A))
+    }
+
+    @Test
+    fun `actionSets 为空时回退默认操作集`() {
+        val json = """{"version":3,"actionSets":[],"activeActionSet":"默认"}"""
+        val parsed = ControllerConfig.fromJson(json)
+
+        assertEquals(1, parsed.actionSets.size)
+        assertEquals(ControllerProfile.DEFAULT_ACTION_SET_NAME, parsed.actionSets.first().name)
+        // 默认操作集含 10 个操作层
+        for (i in 1..10) {
+            assertNotNull(parsed.findLayer("Layer$i"))
+        }
+    }
+
     // ===== 全局设置测试 =====
 
     @Test
     fun `全局设置往返`() {
-        val original = ControllerProfile(
+        val original = profile(
             commonLayer = OperationLayer("Common"),
             layers = emptyList(),
             globalSettings = GlobalSettings(deadzone = 0.25f, lookSensitivity = 3.5f, cursorSpeed = 2.0f)

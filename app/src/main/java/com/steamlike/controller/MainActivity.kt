@@ -382,7 +382,7 @@ class MainActivity : AppCompatActivity() {
         // 操作层设置按钮（不启动手柄映射服务；LayerEditActivity 直接读写配置文件）
         configCard.addView(UiKit.button(
             this,
-            "操作层设置",
+            "层与操作集设置",
             onClick = {
                 startActivity(Intent(this@MainActivity, LayerEditActivity::class.java))
             },

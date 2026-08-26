@@ -4,11 +4,12 @@
 
   布局结构（垂直 LinearLayout）:
   1. 标题文字
-  2. 操作层选择行（标签 + Spinner）
-  3. 层信息行（编辑名称按钮 + 编辑触发按键按钮）
-  4. 按键映射标题
-  5. 按键映射列表（ListView，占满剩余空间）
-  6. 底部保存按钮
+  2. 操作集区域（操作集选择 Spinner + 添加/拷贝/改名/删除按钮）
+  3. 操作层选择行（标签 + Spinner）
+  4. 层信息行（编辑名称按钮 + 编辑触发按键按钮）
+  5. 按键映射标题
+  6. 按键映射列表（ListView，占满剩余空间）
+  7. 底部保存按钮
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -21,11 +22,96 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="操作层设置"
+        android:text="层与操作集设置"
         android:textSize="22sp"
         android:textStyle="bold"
         android:textColor="#FFFFFFFF"
         android:paddingBottom="12dp" />
+
+    <!-- ===== 操作集区域 ===== -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="操作集（切换时其下所有操作层整体切换）"
+        android:textSize="14sp"
+        android:textColor="#FFFFD54F"
+        android:paddingBottom="4dp" />
+
+    <!-- 操作集选择行（选择即切换当前操作集） -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingBottom="6dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="当前: "
+            android:textSize="15sp"
+            android:textColor="#FFDDDDDD" />
+
+        <!-- 操作集下拉选择器（切换操作集） -->
+        <Spinner
+            android:id="@+id/spinner_action_set"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:paddingHorizontal="10dp" />
+    </LinearLayout>
+
+    <!-- 操作集管理按钮行：添加 / 拷贝 / 改名 / 删除 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:baselineAligned="false"
+        android:paddingBottom="10dp">
+
+        <Button
+            android:id="@+id/btn_action_set_add"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginEnd="3dp"
+            android:text="添加"
+            android:textColor="#FFFFFFFF"
+            android:textSize="12sp"
+            android:background="@drawable/bg_button" />
+
+        <Button
+            android:id="@+id/btn_action_set_copy"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginEnd="3dp"
+            android:text="拷贝"
+            android:textColor="#FFFFFFFF"
+            android:textSize="12sp"
+            android:background="@drawable/bg_button" />
+
+        <Button
+            android:id="@+id/btn_action_set_rename"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginEnd="3dp"
+            android:text="改名"
+            android:textColor="#FFFFFFFF"
+            android:textSize="12sp"
+            android:background="@drawable/bg_button" />
+
+        <Button
+            android:id="@+id/btn_action_set_delete"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="删除"
+            android:textColor="#FFFFFFFF"
+            android:textSize="12sp"
+            android:background="@drawable/bg_button" />
+    </LinearLayout>
 
     <!-- ===== 操作层选择行 ===== -->
     <LinearLayout

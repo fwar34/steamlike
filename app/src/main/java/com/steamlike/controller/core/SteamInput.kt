@@ -180,6 +180,14 @@ class SteamInput(context: Context) {
     var onLayerChanged: ((activeLayerName: String) -> Unit)? = null
 
     /**
+     * 操作集切换回调
+     *
+     * 当通过 [switchActionSet] 切换操作集时调用，传递新操作集名称。
+     * 由 ControllerOverlayService 设置，用于更新悬浮窗显示当前操作集。
+     */
+    var onActionSetChanged: ((actionSetName: String) -> Unit)? = null
+
+    /**
      * 系统输入设备监听器
      *
      * 监听手柄的插入/拔出/变化事件。
@@ -242,7 +250,9 @@ class SteamInput(context: Context) {
     fun loadProfile(newProfile: ControllerProfile) {
         profile = newProfile
         deactivateAllLayers()
-        Log.i(TAG, "Profile loaded: ${newProfile.layers.size} layers")
+        // 通知悬浮窗操作集信息已变化（编辑页保存/切换操作集后保持显示一致）
+        onActionSetChanged?.invoke(profile.activeActionSetName)
+        Log.i(TAG, "Profile loaded: ${newProfile.layers.size} layers, action set: ${profile.activeActionSetName}")
     }
 
     // ====================================================================
@@ -310,6 +320,35 @@ class SteamInput(context: Context) {
      * 获取当前激活的操作层列表
      */
     fun getActiveLayers(): List<OperationLayer> = activeLayers.toList()
+
+    // ====================================================================
+    // 操作集管理
+    // ====================================================================
+
+    /**
+     * 切换操作集（整体切换其下所有操作层）
+     *
+     * 停用所有已激活的操作层，将当前操作集切换为目标操作集。
+     * 会触发 [onActionSetChanged] 与 [onLayerChanged]（回到公共层状态）回调，
+     * 悬浮窗据此刷新操作集信息与层按钮。
+     *
+     * @param name 目标操作集名称（不存在时忽略）
+     */
+    fun switchActionSet(name: String) {
+        if (profile.findActionSet(name) == null) {
+            Log.w(TAG, "Action set not found: $name")
+            return
+        }
+        deactivateAllLayers()
+        profile = profile.copy(activeActionSetName = name)
+        Log.i(TAG, "Action set switched: $name")
+        onActionSetChanged?.invoke(name)
+    }
+
+    /**
+     * 当前操作集名称（用于 UI 显示）
+     */
+    fun getActiveActionSetName(): String = profile.activeActionSetName
 
     // ====================================================================
     // 按键查询

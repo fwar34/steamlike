@@ -328,36 +328,97 @@ data class GlobalSettings(
 )
 
 /**
- * 控制器完整配置
+ * 操作集（Action Set）
  *
- * 包含公共层、10 个操作层和全局设置，对应一个完整的配置文件。
+ * 一组完整的操作层配置，位于「操作层」之上。切换操作集时，其下的公共层与所有
+ * 操作层**整体切换**（每个操作集拥有独立的公共层 + 10 个操作层）。
  *
- * @param commonLayer 公共层（始终激活）
- * @param layers 操作层列表（最多 10 个）
- * @param globalSettings 全局摇杆设置
+ * ## 与 Steam Input 的对应关系
+ * Steam Input 中一个「动作集（Action Set）」针对一种游戏场景（如战斗/菜单/载具），
+ * 动作集内部再通过「动作层（Action Layer）」叠加微调。本项目按此模型：
+ * - **操作集**: 独立命名，可添加/删除/拷贝/切换（如「默认」「坦克」「治疗」）
+ * - **操作集内**的公共层 + 操作层: 切层机制与原来一致（公共层 SwitchLayer 映射驱动）
+ *
+ * @param name 操作集名称（可自定义，默认「默认」）
+ * @param commonLayer 本操作集的公共层（始终激活）
+ * @param layers 本操作集的操作层列表（最多 [ControllerProfile.MAX_LAYERS] 个）
  */
-data class ControllerProfile(
+data class ActionSet(
+    val name: String,
     val commonLayer: OperationLayer,
-    val layers: List<OperationLayer>,
-    val globalSettings: GlobalSettings = GlobalSettings()
+    val layers: List<OperationLayer>
 ) {
     /**
-     * 所有层（公共层 + 操作层），用于 UI 显示
+     * 本操作集所有层（公共层 + 操作层），用于 UI 显示
      */
     val allLayers: List<OperationLayer> get() = listOf(commonLayer) + layers
 
     /**
-     * 按名称查找操作层
+     * 按名称查找本操作集内的层
      */
     fun findLayer(name: String): OperationLayer? =
         allLayers.firstOrNull { it.name == name }
+}
+
+/**
+ * 控制器完整配置
+ *
+ * 包含多个操作集（[ActionSet]）和全局设置，对应一个完整的配置文件。
+ * 当前生效的操作集由 [activeActionSetName] 指定；切换操作集时，其下所有操作层整体切换。
+ *
+ * ## 访问语义（向后兼容）
+ * [commonLayer] / [layers] / [allLayers] / [findLayer] 均作用于**当前生效的操作集**，
+ * 原有"读当前配置"的调用无需改动；操作集管理（添加/删除/拷贝/切换）操作 [actionSets] 本身。
+ *
+ * @param actionSets 操作集列表（至少 1 个，默认包含「默认」操作集）
+ * @param activeActionSetName 当前生效的操作集名称（不存在时回退到第一个操作集）
+ * @param globalSettings 全局摇杆设置（所有操作集统一）
+ */
+data class ControllerProfile(
+    val actionSets: List<ActionSet>,
+    val activeActionSetName: String = DEFAULT_ACTION_SET_NAME,
+    val globalSettings: GlobalSettings = GlobalSettings()
+) {
+    /**
+     * 当前生效的操作集（名称匹配失败时回退到第一个）
+     */
+    val activeActionSet: ActionSet
+        get() = actionSets.firstOrNull { it.name == activeActionSetName } ?: actionSets.first()
+
+    /**
+     * 当前操作集的公共层（始终激活）
+     */
+    val commonLayer: OperationLayer get() = activeActionSet.commonLayer
+
+    /**
+     * 当前操作集的操作层列表
+     */
+    val layers: List<OperationLayer> get() = activeActionSet.layers
+
+    /**
+     * 当前操作集所有层（公共层 + 操作层），用于 UI 显示
+     */
+    val allLayers: List<OperationLayer> get() = activeActionSet.allLayers
+
+    /**
+     * 按名称查找当前操作集内的层
+     */
+    fun findLayer(name: String): OperationLayer? = activeActionSet.findLayer(name)
+
+    /**
+     * 按名称查找操作集
+     */
+    fun findActionSet(name: String): ActionSet? = actionSets.firstOrNull { it.name == name }
 
     companion object {
         /** 操作层最大数量 */
         const val MAX_LAYERS = 10
 
+        /** 默认操作集名称 */
+        const val DEFAULT_ACTION_SET_NAME = "默认"
+
         /**
-         * 创建默认配置（10 个操作层，Common 层配置触发按键映射）
+         * 创建默认配置（单个「默认」操作集，内含 Common 层 + 10 个操作层）
          *
          * 层切换通过 Common 层的 KeyMapping(SwitchLayer) 实现：
          * - 按住触发键 → 激活对应操作层（按键映射优先用激活层，回退到 Common）
@@ -416,8 +477,9 @@ data class ControllerProfile(
             }
 
             return ControllerProfile(
-                commonLayer = common,
-                layers = layers,
+                actionSets = listOf(
+                    ActionSet(name = DEFAULT_ACTION_SET_NAME, commonLayer = common, layers = layers)
+                ),
                 globalSettings = GlobalSettings()
             )
         }

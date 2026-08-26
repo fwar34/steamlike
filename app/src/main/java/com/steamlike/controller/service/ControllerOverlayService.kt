@@ -224,6 +224,12 @@ class ControllerOverlayService : Service() {
     // 映射列表页子视图引用：切层时原地更新（不重建整个窗口），避免整屏闪屏
     private var mappingTitleView: TextView? = null
     private var mappingItemsLayout: LinearLayout? = null
+    /**
+     * 展开面板中显示当前操作集信息的 TextView
+     *
+     * 操作集切换时由 [onActionSetSwitched] 更新文本（展开面板重建时一并重建）。
+     */
+    private var actionSetText: TextView? = null
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
     // 悬浮窗收起/展开/映射列表状态
@@ -485,6 +491,11 @@ class ControllerOverlayService : Service() {
                     updateLayerButtonColors(layers)
                     updateCollapsedViewText(layers)
                     updateMappingView()
+                }
+
+                // 操作集切换 → 悬浮窗整体刷新（操作集信息 + 层按钮 + 映射页）
+                mapper?.onActionSetChanged = { actionSetName ->
+                    onActionSetSwitched(actionSetName)
                 }
 
                 // 按键映射动作回调（ToggleOverlay / ToggleKeyboard / ToggleCapture）
@@ -1862,6 +1873,15 @@ class ControllerOverlayService : Service() {
         }
         container.addView(statusText)
 
+        // 当前操作集（第一行信息，琥珀色区分于层名）
+        actionSetText = TextView(this).apply {
+            text = "操作集: ${mapper?.getActiveActionSetName() ?: "默认"}"
+            setTextColor(0xFFFFD54F.toInt())
+            textSize = 12f
+            setPadding(0, dp(2), 0, dp(2))
+        }
+        container.addView(actionSetText)
+
         // 操作层堆栈
         layerText = TextView(this).apply {
             text = ""
@@ -2502,6 +2522,30 @@ class ControllerOverlayService : Service() {
 
         // 原地重建映射项，窗口尺寸不变
         rebuildMappingItems(itemsLayout)
+    }
+
+    /**
+     * 操作集切换后的悬浮窗刷新
+     *
+     * 切换操作集时其下操作层整体切换，层按钮/映射页都基于新的操作集：
+     * - 映射页：重建映射列表（新操作集的层）
+     * - 展开面板：重建层按钮与操作集信息
+     * - 收起胶囊：刷新层名
+     *
+     * @param actionSetName 新操作集名称
+     */
+    private fun onActionSetSwitched(actionSetName: String) {
+        Log.i(TAG, "Action set switched: $actionSetName")
+        mainHandler.post {
+            if (isOverlayPaused) return@post
+            if (isMappingView) {
+                showMappingView()
+            } else if (isExpanded) {
+                showExpandedView()
+            } else {
+                updateCollapsedViewText(mapper?.getActiveLayers() ?: emptyList())
+            }
+        }
     }
 
     /**

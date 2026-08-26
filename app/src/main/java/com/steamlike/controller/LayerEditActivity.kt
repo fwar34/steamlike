@@ -28,6 +28,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.steamlike.controller.config.AppConfigStore
 import com.steamlike.controller.config.ConfigManager
 import com.steamlike.controller.config.ControllerConfig
+import com.steamlike.controller.core.ActionSet
 import com.steamlike.controller.core.ControllerButton
 import com.steamlike.controller.core.ControllerInputMapper
 import com.steamlike.controller.core.ControllerType
@@ -235,6 +236,15 @@ class LayerEditActivity : AppCompatActivity() {
     // UI 元素
     // ====================================================================
 
+    /** 操作集选择下拉框（切换操作集） */
+    private lateinit var actionSetSpinner: Spinner
+
+    /** 操作集管理按钮：添加/拷贝/改名/删除 */
+    private lateinit var actionSetAddButton: Button
+    private lateinit var actionSetCopyButton: Button
+    private lateinit var actionSetRenameButton: Button
+    private lateinit var actionSetDeleteButton: Button
+
     /** 操作层选择下拉框 */
     private lateinit var layerSpinner: Spinner
 
@@ -259,6 +269,25 @@ class LayerEditActivity : AppCompatActivity() {
 
     /** 当前选中的操作层 */
     private var currentLayer: OperationLayer? = null
+
+    /**
+     * 当前选中的操作集
+     *
+     * 所有层的编辑（层 Spinner、映射、切入按键）都基于此操作集；
+     * 切换操作集时其下所有操作层整体切换。
+     */
+    private var currentActionSet: ActionSet? = null
+
+    /** 所有操作集名称列表（用于操作集 Spinner 选项） */
+    private var actionSetNames: List<String> = emptyList()
+
+    /**
+     * 抑制操作集 Spinner 监听器标志
+     *
+     * 程序化更新操作集 Spinner 的 adapter/selection 时阻止 onItemSelected 回调，
+     * 避免重建列表时误触发操作集切换。
+     */
+    private var suppressActionSetSpinnerListener = false
 
     // ===== 手柄按键视觉反馈状态 =====
     /** 扳机按到底阈值（与 SteamInput 一致，轴值 >= 此值视为按下） */
@@ -318,12 +347,24 @@ class LayerEditActivity : AppCompatActivity() {
         // 注意：不再暂停悬浮窗，用户要求进入设置页面时悬浮窗保持可见
 
         // 初始化 UI 元素
+        actionSetSpinner = findViewById(R.id.spinner_action_set)
+        actionSetAddButton = findViewById(R.id.btn_action_set_add)
+        actionSetCopyButton = findViewById(R.id.btn_action_set_copy)
+        actionSetRenameButton = findViewById(R.id.btn_action_set_rename)
+        actionSetDeleteButton = findViewById(R.id.btn_action_set_delete)
         layerSpinner = findViewById(R.id.spinner_layer)
         mappingsListView = findViewById(R.id.list_mappings)
         mappingSummaryText = findViewById(R.id.text_mapping_summary)
         editLayerNameButton = findViewById(R.id.btn_edit_layer_name)
         editTriggerButton = findViewById(R.id.btn_edit_trigger)
         saveButton = findViewById(R.id.btn_save)
+
+        // 设置操作集选择 Spinner 与操作集管理按钮
+        setupActionSetSpinner()
+        actionSetAddButton.setOnClickListener { showAddActionSetDialog() }
+        actionSetCopyButton.setOnClickListener { showCopyActionSetDialog() }
+        actionSetRenameButton.setOnClickListener { showRenameActionSetDialog() }
+        actionSetDeleteButton.setOnClickListener { confirmDeleteActionSet() }
 
         // 设置操作层选择 Spinner
         setupLayerSpinner()
@@ -519,14 +560,17 @@ class LayerEditActivity : AppCompatActivity() {
     /**
      * 设置操作层选择 Spinner
      *
-     * 从 SteamInput.profile 获取所有操作层名称，填充到 Spinner。
-     * 如果 Intent 携带了 EXTRA_LAYER_NAME，则初始选中该层。
+     * 从当前操作集获取所有层名称，填充到 Spinner。
+     * 优先使用 [preferredLayerName]（操作集切换时默认选中第一层），
+     * 否则取 Intent 携带的 EXTRA_LAYER_NAME，再否则选中第一层。
+     *
+     * @param preferredLayerName 优先选中的层名（null 时按默认规则选择）
      */
-    private fun setupLayerSpinner() {
-        val profile = this.profile
+    private fun setupLayerSpinner(preferredLayerName: String? = null) {
+        val actionSet = currentActionSet ?: return
 
-        // 获取所有层名称（Common + Layer1-Layer10）
-        layerNames = profile.allLayers.map { it.name }
+        // 获取当前操作集所有层名称（Common + Layer1-Layer10）
+        layerNames = actionSet.allLayers.map { it.name }
 
         // 创建适配器并设置到 Spinner
         val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, layerNames).also {
@@ -534,8 +578,10 @@ class LayerEditActivity : AppCompatActivity() {
         }
         layerSpinner.adapter = adapter
 
-        // 获取 Intent 传递的初始层名称，默认选第一个
-        val initialLayerName = intent.getStringExtra(EXTRA_LAYER_NAME) ?: layerNames.first()
+        // 获取初始层名称：优先参数，其次 Intent 传递的层名，最后第一层
+        val initialLayerName = preferredLayerName
+            ?: intent.getStringExtra(EXTRA_LAYER_NAME)
+            ?: layerNames.first()
         val initialPos = layerNames.indexOf(initialLayerName).coerceAtLeast(0)
         layerSpinner.setSelection(initialPos)
 
@@ -555,15 +601,13 @@ class LayerEditActivity : AppCompatActivity() {
     }
 
     /**
-     * 加载指定名称的操作层
-     *
-     * 从 SteamInput.profile 查找操作层，更新 currentLayer 并刷新 UI。
+     * 加载指定名称的操作层（在当前操作集内查找）
      *
      * @param name 操作层名称（如 "Common"、"Layer1"）
      */
     private fun loadLayer(name: String) {
-        val profile = this.profile
-        currentLayer = profile.findLayer(name)
+        val actionSet = currentActionSet ?: return
+        currentLayer = actionSet.findLayer(name)
         refreshMappingsList()
         updateLayerInfoButtons()
         Log.d(TAG, "Loaded layer: $name, mappings: ${currentLayer?.buttonMappings?.size}")
@@ -602,15 +646,15 @@ class LayerEditActivity : AppCompatActivity() {
     /**
      * 计算切入当前层的按键
      *
-     * 即公共层（Common）中配置了「切换到当前层」（[MappedAction.SwitchLayer]）
+     * 即当前操作集的公共层（Common）中配置了「切换到当前层」（[MappedAction.SwitchLayer]）
      * 的手柄按键。这是实际驱动层切换的按键，也是「切入按键」按钮的数据来源。
      *
      * @return 公共层中切到当前层的按键列表（可为空）
      */
     private fun switchInButtons(): List<ControllerButton> {
         val layer = currentLayer ?: return emptyList()
-        val profile = this.profile
-        return profile.commonLayer.buttonMappings
+        val common = currentActionSet?.commonLayer ?: return emptyList()
+        return common.buttonMappings
             .filterValues { mapping ->
                 (mapping.action as? MappedAction.SwitchLayer)?.layerName == layer.name
             }
@@ -626,20 +670,20 @@ class LayerEditActivity : AppCompatActivity() {
      */
     private fun updateLayerInfoButtons() {
         val layer = currentLayer
-        val profile = this.profile
+        val actionSet = currentActionSet
 
-        if (layer == null) {
+        if (layer == null || actionSet == null) {
             editLayerNameButton.text = "层名称"
             editTriggerButton.text = "切入按键"
             editTriggerButton.isEnabled = false
         } else {
             editLayerNameButton.text = "名称: ${layer.name}"
-            // 切入按键 = 公共层中切到本层的 SwitchLayer 按键
+            // 切入按键 = 当前操作集公共层中切到本层的 SwitchLayer 按键
             val triggerText = switchInButtons()
                 .joinToString("/") { buttonDisplayName(it) }
             editTriggerButton.text = if (triggerText.isEmpty()) "切入: 无" else "切入: $triggerText"
             // 公共层（Common）始终激活，不能设置切入按键
-            val isCommon = (layer === profile?.commonLayer)
+            val isCommon = (layer === actionSet.commonLayer)
             editTriggerButton.isEnabled = !isCommon
         }
     }
@@ -873,10 +917,10 @@ class LayerEditActivity : AppCompatActivity() {
      */
     private fun showTriggerButtonEditDialog() {
         val layer = currentLayer ?: return
-        val profile = this.profile
+        val common = currentActionSet?.commonLayer ?: return
 
         // 公共层不能设置切入按键（始终激活，无需切入）
-        if (layer === profile.commonLayer) {
+        if (layer === common) {
             Toast.makeText(this, "公共层不能设置切入按键", Toast.LENGTH_SHORT).show()
             return
         }
@@ -923,7 +967,7 @@ class LayerEditActivity : AppCompatActivity() {
      * @param chosen 新的切入按键（null = 清除切入映射）
      */
     private fun setLayerSwitchInKey(layer: OperationLayer, chosen: ControllerButton?) {
-        val common = this.profile.commonLayer
+        val common = currentActionSet?.commonLayer ?: return
         val oldName = layer.name
 
         // 若选中的按键已映射为其他内容（非切到本层），先确认再覆盖
@@ -957,8 +1001,7 @@ class LayerEditActivity : AppCompatActivity() {
      * @param chosen 新的切入按键（null = 清除切入映射）
      */
     private fun doSetLayerSwitchInKey(layer: OperationLayer, chosen: ControllerButton?) {
-        val profile = this.profile
-        val common = profile.commonLayer
+        val common = currentActionSet?.commonLayer ?: return
         val layerName = layer.name
 
         // 清除公共层中所有切到本层的旧映射（保留被选中的按键，稍后统一写入）
@@ -985,40 +1028,42 @@ class LayerEditActivity : AppCompatActivity() {
      * 应用操作层名称变更
      *
      * 由于 [OperationLayer.name] 是 `val`（不可变），需要使用 `copy()` 创建新的
-     * OperationLayer，并重建 [ControllerProfile]。
+     * OperationLayer，并在**当前操作集**内重建层列表、再重建 [ControllerProfile]。
      *
      * ## 重建逻辑
-     * - 公共层: 替换 `profile.commonLayer`
-     * - 操作层: 在 `profile.layers` 列表中替换对应项
+     * - 公共层: 替换当前操作集的 commonLayer
+     * - 操作层: 在当前操作集 layers 列表中替换对应项
      *
      * ## 层名同步
-     * 层名变化时，同步更新所有层（含公共层）中引用旧层名的 SwitchLayer 映射，
+     * 层名变化时，同步更新当前操作集所有层（含公共层）中引用旧层名的 SwitchLayer 映射，
      * 否则重命名后切层映射会找不到目标层。
      *
      * @param name 新的层名称
      */
     private fun applyLayerNameChange(name: String) {
         val oldLayer = currentLayer ?: return
+        val actionSet = currentActionSet ?: return
         val oldName = oldLayer.name
-        val profile = this.profile
 
         // 创建新的操作层（copy 保持 buttonMappings 引用不变）
         val newLayer = oldLayer.copy(name = name)
 
-        // 重建 ControllerProfile
-        val newProfile: ControllerProfile
-        if (oldLayer === profile.commonLayer) {
-            newProfile = profile.copy(commonLayer = newLayer)
+        // 在当前操作集内重建层列表
+        val newCommon: OperationLayer
+        val newLayers: List<OperationLayer>
+        if (oldLayer === actionSet.commonLayer) {
+            newCommon = newLayer
+            newLayers = actionSet.layers
         } else {
-            // 操作层: 在列表中替换
-            val newLayers = profile.layers.map { if (it === oldLayer) newLayer else it }
-            newProfile = profile.copy(layers = newLayers)
+            newCommon = actionSet.commonLayer
+            newLayers = actionSet.layers.map { if (it === oldLayer) newLayer else it }
         }
+        val newActionSet = ActionSet(name = actionSet.name, commonLayer = newCommon, layers = newLayers)
 
-        // 层名变化时: 同步更新所有层中引用旧层名的 SwitchLayer 映射
+        // 层名变化时: 同步更新当前操作集所有层中引用旧层名的 SwitchLayer 映射
         // 否则重命名后 SwitchLayer(oldName) 会找不到目标层，导致层切换失效
         if (oldName != name) {
-            newProfile.allLayers.forEach { layer ->
+            newActionSet.allLayers.forEach { layer ->
                 layer.buttonMappings.toMutableMap().let { newMap ->
                     var changed = false
                     layer.buttonMappings.forEach { (button, mapping) ->
@@ -1037,14 +1082,19 @@ class LayerEditActivity : AppCompatActivity() {
             Log.i(TAG, "Updated SwitchLayer references: $oldName -> $name")
         }
 
+        // 重建 ControllerProfile（替换当前操作集）
+        val newProfile = profile.copy(
+            actionSets = profile.actionSets.map { if (it === actionSet) newActionSet else it }
+        )
         // 更新本地配置
         this.profile = newProfile
 
-        // 更新当前层引用（指向新对象）
-        currentLayer = if (oldLayer === profile.commonLayer) {
-            newProfile.commonLayer
+        // 更新当前引用（指向新对象）
+        currentActionSet = newActionSet
+        currentLayer = if (oldLayer === actionSet.commonLayer) {
+            newCommon
         } else {
-            newProfile.findLayer(name)
+            newActionSet.findLayer(name)
         }
 
         // 保存（写文件 + 服务运行时同步）
@@ -1081,6 +1131,296 @@ class LayerEditActivity : AppCompatActivity() {
             Toast.makeText(this, "配置已保存", Toast.LENGTH_SHORT).show()
         }
         Log.i(TAG, "Profile saved to internal storage")
+    }
+
+    // ====================================================================
+    // 操作集管理
+    // ====================================================================
+
+    /**
+     * 初始化操作集选择 Spinner
+     *
+     * 从 [profile] 的操作集列表填充选项，选中当前生效的操作集，
+     * 并设置选择监听器（用户切换操作集时整体切换其下所有操作层）。
+     */
+    private fun setupActionSetSpinner() {
+        actionSetNames = profile.actionSets.map { it.name }
+        currentActionSet = profile.activeActionSet
+
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, actionSetNames).also {
+            it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        }
+        actionSetSpinner.adapter = adapter
+
+        // 选中当前生效的操作集
+        val pos = actionSetNames.indexOf(profile.activeActionSetName).coerceAtLeast(0)
+        actionSetSpinner.setSelection(pos)
+
+        actionSetSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                // 程序化更新时跳过（避免重建列表时误触发切换）
+                if (suppressActionSetSpinnerListener) return
+                switchToActionSet(profile.actionSets[position])
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+    }
+
+    /**
+     * 切换到指定操作集
+     *
+     * 更新 [profile] 的 [ControllerProfile.activeActionSetName]、当前操作集引用，
+     * 刷新操作集/操作层两个 Spinner，并保存配置。切换后其下所有操作层整体切换。
+     *
+     * @param actionSet 目标操作集
+     */
+    private fun switchToActionSet(actionSet: ActionSet) {
+        this.profile = profile.copy(activeActionSetName = actionSet.name)
+        currentActionSet = actionSet
+
+        // 刷新操作集 Spinner 与操作层 Spinner
+        refreshActionSetUi()
+
+        saveProfile(showToast = false)
+        Log.i(TAG, "Action set switched: ${actionSet.name}")
+    }
+
+    /**
+     * 刷新操作集与操作层两个 Spinner
+     *
+     * 在添加/拷贝/改名/删除/切换操作集后调用：
+     * 1. 重建操作集 Spinner 选项并选中当前操作集（抑制监听避免重复切换）
+     * 2. 重建操作层 Spinner（默认选中第一层）
+     */
+    private fun refreshActionSetUi() {
+        suppressActionSetSpinnerListener = true
+        actionSetNames = profile.actionSets.map { it.name }
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, actionSetNames).also {
+            it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        }
+        actionSetSpinner.adapter = adapter
+        val pos = actionSetNames.indexOf(currentActionSet?.name).coerceAtLeast(0)
+        actionSetSpinner.setSelection(pos)
+        suppressActionSetSpinnerListener = false
+
+        // 重建操作层 Spinner（切换后默认选中第一层）
+        setupLayerSpinner()
+    }
+
+    /**
+     * 显示「添加操作集」对话框
+     *
+     * 输入新操作集名称，创建全新的默认操作集（Common + Layer1-Layer10，空映射）
+     * 并切换到它。名称不能为空、不能与已有操作集重名。
+     */
+    private fun showAddActionSetDialog() {
+        val editText = EditText(this).apply {
+            hint = "输入操作集名称"
+            setSingleLine(true)
+            requestFocus()
+        }
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("添加操作集")
+            .setMessage("创建全新的操作集（含公共层 + 10 个操作层，映射为空）")
+            .setView(editText)
+            .setPositiveButton("确定") { _, _ ->
+                val name = editText.text.toString().trim()
+                when {
+                    name.isEmpty() ->
+                        Toast.makeText(this, "名称不能为空", Toast.LENGTH_SHORT).show()
+                    profile.actionSets.any { it.name == name } ->
+                        Toast.makeText(this, "操作集「$name」已存在", Toast.LENGTH_SHORT).show()
+                    else -> {
+                        val newSet = createEmptyActionSet(name)
+                        this.profile = profile.copy(
+                            actionSets = profile.actionSets + newSet,
+                            activeActionSetName = name
+                        )
+                        currentActionSet = newSet
+                        refreshActionSetUi()
+                        saveProfile(showToast = false)
+                        Toast.makeText(this, "已添加并切换到操作集「$name」", Toast.LENGTH_SHORT).show()
+                        Log.i(TAG, "Action set added: $name")
+                    }
+                }
+            }
+            .setNegativeButton("取消", null)
+            .create()
+
+        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE)
+        dialog.show()
+        editText.requestFocus()
+        val imm = getSystemService(InputMethodManager::class.java)
+        imm?.showSoftInput(editText, InputMethodManager.SHOW_IMPLICIT)
+    }
+
+    /**
+     * 显示「拷贝操作集」对话框
+     *
+     * 输入新名称，深拷贝当前操作集的所有层与按键映射到新操作集并切换。
+     * 名称不能为空、不能与已有操作集重名。
+     */
+    private fun showCopyActionSetDialog() {
+        val actionSet = currentActionSet ?: return
+        val editText = EditText(this).apply {
+            hint = "输入新操作集名称"
+            setSingleLine(true)
+            requestFocus()
+        }
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("拷贝操作集")
+            .setMessage("将完整复制「${actionSet.name}」的所有层与按键映射，并切换到新操作集")
+            .setView(editText)
+            .setPositiveButton("确定") { _, _ ->
+                val name = editText.text.toString().trim()
+                when {
+                    name.isEmpty() ->
+                        Toast.makeText(this, "名称不能为空", Toast.LENGTH_SHORT).show()
+                    profile.actionSets.any { it.name == name } ->
+                        Toast.makeText(this, "操作集「$name」已存在", Toast.LENGTH_SHORT).show()
+                    else -> {
+                        val copy = copyActionSet(actionSet, name)
+                        this.profile = profile.copy(
+                            actionSets = profile.actionSets + copy,
+                            activeActionSetName = name
+                        )
+                        currentActionSet = copy
+                        refreshActionSetUi()
+                        saveProfile(showToast = false)
+                        Toast.makeText(this, "已拷贝并切换到操作集「$name」", Toast.LENGTH_SHORT).show()
+                        Log.i(TAG, "Action set copied: ${actionSet.name} -> $name")
+                    }
+                }
+            }
+            .setNegativeButton("取消", null)
+            .create()
+
+        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE)
+        dialog.show()
+        editText.requestFocus()
+        val imm = getSystemService(InputMethodManager::class.java)
+        imm?.showSoftInput(editText, InputMethodManager.SHOW_IMPLICIT)
+    }
+
+    /**
+     * 显示「重命名操作集」对话框
+     *
+     * 修改当前操作集名称，保持其下所有层与映射不变。
+     */
+    private fun showRenameActionSetDialog() {
+        val actionSet = currentActionSet ?: return
+        val editText = EditText(this).apply {
+            setText(actionSet.name)
+            setSelection(actionSet.name.length)
+            hint = "输入新名称"
+            setSingleLine(true)
+            requestFocus()
+        }
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("重命名操作集")
+            .setView(editText)
+            .setPositiveButton("确定") { _, _ ->
+                val name = editText.text.toString().trim()
+                when {
+                    name.isEmpty() ->
+                        Toast.makeText(this, "名称不能为空", Toast.LENGTH_SHORT).show()
+                    name != actionSet.name && profile.actionSets.any { it.name == name } ->
+                        Toast.makeText(this, "操作集「$name」已存在", Toast.LENGTH_SHORT).show()
+                    name == actionSet.name -> {
+                        // 名称未变化，无需处理
+                    }
+                    else -> {
+                        val renamed = actionSet.copy(name = name)
+                        this.profile = profile.copy(
+                            actionSets = profile.actionSets.map { if (it === actionSet) renamed else it },
+                            activeActionSetName = name
+                        )
+                        currentActionSet = renamed
+                        refreshActionSetUi()
+                        saveProfile(showToast = false)
+                        Toast.makeText(this, "操作集已重命名为「$name」", Toast.LENGTH_SHORT).show()
+                        Log.i(TAG, "Action set renamed: ${actionSet.name} -> $name")
+                    }
+                }
+            }
+            .setNegativeButton("取消", null)
+            .create()
+
+        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE)
+        dialog.show()
+        editText.requestFocus()
+        val imm = getSystemService(InputMethodManager::class.java)
+        imm?.showSoftInput(editText, InputMethodManager.SHOW_IMPLICIT)
+    }
+
+    /**
+     * 显示「删除操作集」确认对话框
+     *
+     * 至少保留 1 个操作集。删除后切换到剩余的第一个操作集。
+     */
+    private fun confirmDeleteActionSet() {
+        val actionSet = currentActionSet ?: return
+        if (profile.actionSets.size <= 1) {
+            Toast.makeText(this, "至少需要保留一个操作集", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("删除操作集")
+            .setMessage("确定删除操作集「${actionSet.name}」吗？其下所有操作层与按键映射将一并删除。")
+            .setPositiveButton("删除") { _, _ ->
+                val remaining = profile.actionSets.filterNot { it === actionSet }
+                val next = remaining.first()
+                this.profile = profile.copy(actionSets = remaining, activeActionSetName = next.name)
+                currentActionSet = next
+                refreshActionSetUi()
+                saveProfile(showToast = false)
+                Toast.makeText(this, "已删除操作集「${actionSet.name}」", Toast.LENGTH_SHORT).show()
+                Log.i(TAG, "Action set deleted: ${actionSet.name}")
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    /**
+     * 创建全新的默认操作集（Common + 10 个空操作层）
+     *
+     * 新操作集的层与按键映射均为空，由用户自行配置。
+     *
+     * @param name 操作集名称
+     * @return 新的操作集
+     */
+    private fun createEmptyActionSet(name: String): ActionSet {
+        val common = OperationLayer(name = "Common")
+        val layers = (1..ControllerProfile.MAX_LAYERS).map { OperationLayer(name = "Layer$it") }
+        return ActionSet(name = name, commonLayer = common, layers = layers)
+    }
+
+    /**
+     * 深拷贝操作集到新名称
+     *
+     * 复制公共层与所有操作层，每层的按键映射表都创建新的 Map 实例，
+     * 避免两个操作集共享底层映射导致互相影响。
+     *
+     * @param actionSet 源操作集
+     * @param newName 新操作集名称
+     * @return 拷贝后的操作集
+     */
+    private fun copyActionSet(actionSet: ActionSet, newName: String): ActionSet {
+        fun copyLayer(layer: OperationLayer): OperationLayer {
+            val newMap = LinkedHashMap<ControllerButton, KeyMapping>()
+            newMap.putAll(layer.buttonMappings)
+            return OperationLayer(name = layer.name, buttonMappings = newMap)
+        }
+        return ActionSet(
+            name = newName,
+            commonLayer = copyLayer(actionSet.commonLayer),
+            layers = actionSet.layers.map { copyLayer(it) }
+        )
     }
 
     // ====================================================================

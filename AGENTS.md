@@ -2,7 +2,7 @@
 
 ## What this is
 
-Kotlin Android app + C Windows companion program. The Android app captures gamepad input via a transparent overlay window, maps it through a "public layer + 10 operation layers" system (inspired by Steam Input), and sends mapped events over TCP (port 27015) to a Windows client that injects them via `SendInput()`. Designed for WoW Turtle 1.18.1 running in Winlator.
+Kotlin Android app + C Windows companion program. The Android app captures gamepad input via a transparent overlay window, maps it through an "action set + public layer + 10 operation layers" system (inspired by Steam Input), and sends mapped events over TCP (port 27015) to a Windows client that injects them via `SendInput()`. Designed for WoW Turtle 1.18.1 running in Winlator.
 
 ## Build
 
@@ -53,15 +53,17 @@ Unit tests are pure JVM (no device needed). Test files are under `app/src/test/`
 
 ## Key architecture facts
 
+- **Config is layered: Action Set → layers**. `ControllerProfile` holds a list of `ActionSet`s plus `activeActionSetName`. Each `ActionSet` owns its own public layer + operation layers. Switching action sets swaps all layers underneath as a whole. Backwards-compat accessors (`commonLayer`/`layers`/`allLayers`/`findLayer`) delegate to `activeActionSet`, so old call sites work unchanged.
 - **Layer switching is driven by `SwitchLayer` mappings in the public layer**. `OperationLayer` has no `triggerButton` field; the layer-edit page's「切入按键」button reads/writes the public layer's `SwitchLayer` mapping for that layer.
 - **Key resolution order**: active layers (in activation order) → public layer fallback.
-- **`ControllerOverlayService`** is the central orchestrator: creates `SteamInput`, `BridgeInputInjector`, `InputBridgeServer`, `KeyboardMouseMapper`, and the overlay views.
+- **Action set management lives in `LayerEditActivity`**: top spinner to switch, plus 添加/拷贝/改名/删除 dialogs. Copy deep-copies every layer's mapping table into a new `ActionSet` (fresh `LinkedHashMap`), so sets never share mutable maps. `createEmptyActionSet` builds a blank Common + 10 layers for new sets.
+- **`ControllerOverlayService`** is the central orchestrator: creates `SteamInput`, `BridgeInputInjector`, `InputBridgeServer`, `KeyboardMouseMapper`, and the overlay views. The expanded overlay panel shows the current action set name (`操作集: X`); switching action sets refreshes the panel/mapping view/collapsed pill via `onActionSetSwitched`.
 - **`LayerEditActivity.steamInputRef`** is a static reference set by the service — the settings UI depends on the service running.
 - **LayerEditActivity pauses/resumes the overlay** on create/destroy (via Intent actions) to avoid blocking Android back gestures.
 - **Pause capture removes the focus window**: `pauseCapturing()` truly removes the 1x1 focus window (restoring the Android predictive-back swipe gesture). Consequence: while paused, gamepad events can't reach the app, so the `ToggleCapture` gamepad key cannot resume capture — resume via the overlay "恢复捕获" button or MainActivity's "手柄捕获" switch.
 - **Accessibility key-filtering is unavailable/deprecated**: `GamepadAccessibilityService` attempted `FLAG_REQUEST_FILTER_KEY_EVENTS` to receive gamepad keys while paused, but this MIUI device grants no key-filtering capability (capabilities=0, no "按键过滤" toggle in settings), so `onKeyEvent` never fires. The class is kept only for capability checks; new code must not rely on it.
 - **IME keyboard keeps capture active**: `ToggleKeyboard` shows the soft keyboard bound to the 1x1 focus window (IME can only bind to this process's focused window). Typed text/keys are forwarded over TCP as Windows VK codes and injected via SendInput. Showing the keyboard does NOT pause capture.
-- Config is persisted as version=2 JSON at `{internal storage}/files/steamlike_config.json`.
+- Config is persisted as version=3 JSON at `{internal storage}/files/steamlike_config.json`. `ControllerConfig.fromJson` dispatches by version: v3 = action-set format; v2 = legacy flat format, auto-migrated into a single "默认" action set. The exported `config.json` (`{"wowPath":...}`) tells the Windows client which game to launch.
 
 ## Gotchas
 
@@ -69,6 +71,6 @@ Unit tests are pure JVM (no device needed). Test files are under `app/src/test/`
 - **Aliyun + Tencent mirrors**: `settings.gradle.kts` uses Aliyun mirrors; `gradle-wrapper.properties` uses Tencent mirror for Gradle 9.5.0. These may need changing outside China.
 - **No instrumented tests**: only JUnit 4 unit tests exist. There are no `androidTest/` files.
 - **GCC is optional**: the APK builds without GCC. The bundled exe in assets is used as fallback.
-- **`val` immutability on `OperationLayer`**: `name` is `val`. Use `copy()` to modify it (see `LayerEditActivity`).
+- **`val` immutability on `OperationLayer`**: `name` is `val`. Use `copy()` to modify it (see `LayerEditActivity`). Same applies to `ActionSet.name` — rebuild the `actionSets` list with `copy(name=...)` when renaming.
 - **Single-process Windows client**: uses named mutex `Global\SteamLikeInputBridgeClient`.
 - **IME double-input guard**: only `CONTROL_KEY_CODES` (ENTER/TAB/DPAD/ESCAPE/PAGE_UP/PAGE_DOWN/MOVE_HOME/MOVE_END) go through the key-event channel (`onImeKey`); printable chars are injected only via the text channel (`commitText`/`setComposingText`). Forwarding printables in `sendKeyEvent` too would double-inject because `BaseInputConnection(view, false)`'s fallback also dispatches characters to the view.

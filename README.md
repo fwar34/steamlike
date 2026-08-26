@@ -4,7 +4,7 @@
 >
 > 参考 [InputBridge](https://inputbridge.cloud/) 的架构，采用 **Android TCP服务器 + Windows SendInput客户端** 的桥接方案。
 >
-> 灵感来自 Steam Input API 的 Action Set Layer 与 Sub-Command 机制，采用 **公共层 + 10个操作层 + 子命令组合键** 架构。
+> 灵感来自 Steam Input API 的 Action Set Layer 与 Sub-Command 机制，采用 **操作集 + 公共层 + 10个操作层 + 子命令组合键** 架构。
 >
 > 无需 Root / 无需 Shizuku：通过 **悬浮窗焦点窗口** 直接接收 Android 系统分发的 `KeyEvent` / `MotionEvent`。
 
@@ -20,6 +20,7 @@
 - [编译流程](#编译流程)
 - [按键映射](#按键映射)
 - [子命令机制](#子命令机制)
+- [操作集](#操作集)
 - [10个操作层](#10个操作层)
 - [操作层触发机制](#操作层触发机制)
 - [快捷键](#快捷键)
@@ -48,7 +49,8 @@
 
 **核心创新**:
 - **桥接架构**: Android端(TCP服务器) ←→ Windows端(SendInput注入)，参考InputBridge设计
-- **ControllerProfile 配置模型**: 由 `公共层 + 10个操作层 + 全局设置` 组成的完整配置，所有按键映射以 `KeyMapping` 表示
+- **ControllerProfile 配置模型**: 由 `多个操作集（每个含 公共层 + 10个操作层） + 全局设置` 组成的完整配置，所有按键映射以 `KeyMapping` 表示
+- **操作集 (Action Set)**: 位于操作层之上，切换操作集时其下所有操作层整体切换；每个操作集可自定义名称，支持添加/删除/拷贝（拷贝时可直接改名）
 - **操作层触发机制**: 公共层通过 `SwitchLayer` 映射绑定触发键（如 D-Pad ↑→Layer1），按住触发键激活对应层、松开回到公共层
 - **子命令组合键(Sub-Command)**: 每个 `KeyMapping` 可附加最多 3 个子命令，实现 `Alt+3`、`Ctrl+Shift+3` 等组合键
 - **无 Root/无 Shizuku**: 通过悬浮窗焦点窗口直接接收系统 `KeyEvent` / `MotionEvent`，无需任何特权框架
@@ -64,11 +66,12 @@
 ## 核心特性
 
 - **桥接注入架构**: Android TCP服务器 + Windows SendInput客户端，参考InputBridge
-- **ControllerProfile 配置**: 公共层 + 10个操作层 + GlobalSettings 统一管理
+- **ControllerProfile 配置**: 多个操作集（含 公共层 + 10个操作层）+ GlobalSettings 统一管理
+- **操作集管理**: 添加/删除/切换/拷贝操作集，拷贝时可直接改名；切换操作集时其下所有操作层整体切换
 - **操作层触发机制**: 公共层 SwitchLayer 映射驱动，按住触发键激活对应层、松开回公共层
 - **子命令组合键**: 每个 KeyMapping 可附加最多 3 个子命令，实现 Alt+3、Ctrl+Shift+3 等组合键
-- **配置文件导入/导出**: version=2 JSON 格式，支持导出当前配置、导入自定义配置、自动持久化
-- **设置界面**: LayerEditActivity 提供可视化编辑操作层、按键映射、子命令
+- **配置文件导入/导出**: version=3 JSON 格式（自动兼容 version=2 旧配置），支持导出当前配置、导入自定义配置、自动持久化
+- **设置界面**: LayerEditActivity 提供可视化编辑操作集、操作层、按键映射、子命令
 - **焦点窗口捕获手柄**: 通过全屏透明悬浮窗获取焦点，直接接收系统 `KeyEvent`/`MotionEvent`，无需 Root/Shizuku
 - **多手柄类型支持**: Xbox/PS/Switch/Steam Controller 自动识别和按键修正
 - **摇杆精细控制**: 统一 GlobalSettings 管理死区(deadzone)、视角灵敏度(lookSensitivity)、光标速度(cursorSpeed)
@@ -91,128 +94,132 @@
 
 ### 整体架构（桥接模式 + 焦点窗口）
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Android 设备                              │
-│                                                                  │
-│  ┌──────────────┐    ┌──────────────────────────────────┐       │
-│  │  手柄硬件     │    │  SteamLike APK                   │       │
-│  │  (蓝牙/USB)  │───→│                                  │       │
-│  └──────────────┘    │  ┌──────────────────────────┐    │       │
-│       (系统分发)     │  │ GamepadInputView          │    │       │
-│      KeyEvent /      │  │ (全屏透明焦点窗口)         │    │       │
-│      MotionEvent ───→│  │ dispatchKeyEvent()        │    │       │
-│                      │  │ dispatchGenericMotion()   │    │       │
-│                      │  └────────────┬─────────────┘    │       │
-│                      │               ↓                  │       │
-│                      │  SteamInput (ControllerProfile)  │       │
-│                      │   ├─ 激活层查找 → 公共层回退      │       │
-│                      │   ├─ SwitchLayer 层切换           │       │
-│                      │   └─ 子命令组合键注入             │       │
-│                      │  KeyboardMouseMapper (子命令注入) │       │
-│                      │  BridgeInputInjector (VK映射)     │       │
-│                      │               ↓                  │       │
-│                      │  InputBridgeServer (TCP:27015)   │───┐   │
-│                      └──────────────────────────────────┘   │   │
-│  ┌──────────────────────────────────────────────────────────┐│   │
-│  │              Winlator (Wine + Box86)                     ││   │
-│  │  ┌──────────────────┐  ┌────────────────────┐           ││   │
-│  │  │ inputbridge_     │  │     WoW 游戏       │           ││   │
-│  │  │ client.exe       │  │  (乌龟服 1.18.1)   │           ││   │
-│  │  │                  │  │                    │           ││   │
-│  │  │ recv() ←─────────┼──┼→ SendInput() ──────┼───────────┼┘   │
-│  │  │ TCP客户端        │  │  注入键鼠事件       │           │    │
-│  │  └──────────────────┘  └────────────────────┘           │    │
-│  └──────────────────────────────────────────────────────────┘    │
-└──────────────────────────────────────────────────────────────────┘
+```plantuml
+@startuml
+title 整体架构（桥接模式 + 焦点窗口）
+left to right direction
+skinparam componentStyle rectangle
+
+package "Android 设备" {
+  [手柄硬件\n(蓝牙/USB)] as HWD
+
+  package "SteamLike APK" {
+    [GamepadInputView\n(全屏透明焦点窗口)\ndispatchKeyEvent()\ndispatchGenericMotion()] as V
+    [SteamInput (ControllerProfile)\n激活层查找 → 公共层回退\nSwitchLayer 层切换\n子命令组合键注入] as SI
+    [KeyboardMouseMapper\n(子命令注入)] as M
+    [BridgeInputInjector\n(VK映射)] as INJ
+    [InputBridgeServer\n(TCP:27015)] as SV
+  }
+}
+
+package "Winlator (Wine + Box86)" {
+  [inputbridge_client.exe\nTCP客户端 recv()] as CL
+  [WoW 游戏\n(乌龟服 1.18.1)] as WOW
+}
+
+HWD --> V : 系统分发 KeyEvent / MotionEvent
+V --> SI
+SI --> M
+M --> INJ
+INJ --> SV
+SV --> CL : TCP:27015
+CL --> WOW : SendInput() 注入键鼠事件
+@enduml
 ```
 
 ### 数据流（含子命令注入）
 
-```
-手柄按键 X 按下
-     ↓
-Android 系统分发 KeyEvent 到前台焦点窗口
-     ↓
-GamepadInputView.dispatchKeyEvent(event)       ← 全屏透明焦点窗口
-     ↓
-KeyboardMouseMapper.onKeyEvent(event)          ← 转发
-     ↓ SteamInput.dispatchKeyEvent()
-SteamInput.handleButtonEvent(X, true)
-     ├─ 更新 heldButtons 集合
-     ├─ 检查 X 的映射是否为 SwitchLayer → 是则激活目标层，return
-     └─ getEffectiveMapping(X):
-         ① 遍历激活操作层 buttonMappings[X] → 找到?
-         ② 未找到 → 回退公共层 commonLayer.buttonMappings[X]
-     ↓ 假设: 公共层 X → KeyMapping(KeyboardKey(Alt), subCommands=[KEYCODE_3])
-onButtonMapped 回调 → KeyboardMouseMapper.handleMapping()
-     ↓ handleKeyboardKey(): 子命令注入流程
-     ↓ 1. sendKeyDown(Alt)           ← 按下主键
-     ↓ 2. sendKeyDown(3)             ← 按下子命令键
-BridgeInputInjector.sendKeyDown()
-     ↓ Android KeyCode → Windows VK Code
-InputBridgeServer.sendKeyEvent(VK_MENU, true)
-     ↓ TCP 8字节包: [0x01, VK_MENU_lo, VK_MENU_hi, 0x01, 0, 0, 0, 0]
-     ↓ TCP传输 (localhost:27015)
-inputbridge_client.exe (Winlator内)
-     ↓ recv() 接收数据包
-     ↓ ProcessPacket() 解析
-SendInput(INPUT_KEYBOARD, {wVk=VK_MENU, dwFlags=0})
-     ↓ (随后注入 VK_3)
-WoW游戏接收 Alt+3 组合键!
+```plantuml
+@startuml
+title 数据流（含子命令注入）
+start
+:手柄按键 X 按下;
+:Android 系统分发 KeyEvent 到前台焦点窗口;
+:GamepadInputView.dispatchKeyEvent(event)\n(全屏透明焦点窗口);
+:KeyboardMouseMapper.onKeyEvent(event)\n(转发);
+:SteamInput.handleButtonEvent(X, true);
+:更新 heldButtons 集合;
+if (X 的映射是否为 SwitchLayer?) then (是)
+  :激活目标层并 return;
+else (否)
+  :getEffectiveMapping(X)\n① 遍历激活操作层 buttonMappings[X]\n② 未找到 → 回退公共层 commonLayer.buttonMappings[X];
+endif
+:假设: 公共层 X → KeyMapping(KeyboardKey(Alt), subCommands=[KEYCODE_3]);
+:onButtonMapped 回调 → KeyboardMouseMapper.handleMapping();
+:handleKeyboardKey(): 子命令注入流程\n1. sendKeyDown(Alt) 按下主键\n2. sendKeyDown(3) 按下子命令键;
+:BridgeInputInjector.sendKeyDown()\nAndroid KeyCode → Windows VK Code;
+:InputBridgeServer.sendKeyEvent(VK_MENU, true)\nTCP 8字节包: [0x01, VK_MENU_lo, VK_MENU_hi, 0x01, 0, 0, 0, 0];
+:TCP传输 (localhost:27015);
+:inputbridge_client.exe (Winlator内)\nrecv() 接收数据包 → ProcessPacket() 解析;
+:SendInput(INPUT_KEYBOARD, {wVk=VK_MENU, dwFlags=0})\n(随后注入 VK_3);
+:WoW游戏接收 Alt+3 组合键!;
+stop
+@enduml
 ```
 
 ### 公共层 + 操作层架构
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│              ControllerProfile (完整配置)                     │
-│                                                             │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │  公共层 commonLayer (name="Common")                  │   │
-│  │  triggerButton = null (始终激活)                      │   │
-│  │  buttonMappings:                                     │   │
-│  │    A → KeyboardKey(Space)                            │   │
-│  │    B → MouseClick(RIGHT)                             │   │
-│  │    X → MouseClick(LEFT)                              │   │
-│  │    Y → KeyboardKey(I)                                │   │
-│  │    ... (其他默认绑定)                                 │   │
-│  └─────────────────────────────────────────────────────┘   │
-│                           ↑ 回退                            │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐      │
-│  │ Layer1   │ │ Layer2   │ │ Layer3   │ │ Layer4   │ ...  │
-│  │ 战斗     │ │ 骑乘     │ │ 瞄准     │ │ 拾取     │      │
-│  │ trigger: │ │ trigger: │ │ trigger: │ │ trigger: │      │
-│  │ DPAD_UP  │ │ DPAD_DOWN│ │ DPAD_LEFT│ │ DPAD_RIGHT│     │
-│  │ (空映射) │ │ (空映射) │ │ (空映射) │ │ (空映射) │      │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────┘      │
-│                                                             │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │  GlobalSettings (全局摇杆设置)                       │   │
-│  │  deadzone=0.0  lookSensitivity=1.0  cursorSpeed=1.0 │   │
-│  └─────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
+```plantuml
+@startuml
+title 公共层 + 操作层架构
+skinparam componentStyle rectangle
+
+package "ControllerProfile (完整配置)" {
+  [公共层 commonLayer (name="Common")\ntriggerButton = null (始终激活)\nbuttonMappings:\n  A → KeyboardKey(Space)\n  B → MouseClick(RIGHT)\n  X → MouseClick(LEFT)\n  Y → KeyboardKey(I)\n  ... (其他默认绑定)] as C
+
+  [Layer1\n战斗\nDPAD_UP\n(空映射)] as L1
+  [Layer2\n骑乘\nDPAD_DOWN\n(空映射)] as L2
+  [Layer3\n瞄准\nDPAD_LEFT\n(空映射)] as L3
+  [Layer4\n拾取\nDPAD_RIGHT\n(空映射)] as L4
+  [Layer5\n潜行\nLB\n(空映射)] as L5
+  [Layer6..10\n(其余操作层)] as L6
+
+  [GlobalSettings (全局摇杆设置)\ndeadzone=0.0  lookSensitivity=1.0  cursorSpeed=1.0] as G
+}
+
+L1 --> C : 回退
+L2 --> C : 回退
+L3 --> C : 回退
+L4 --> C : 回退
+L5 --> C : 回退
+L6 --> C : 回退
+@enduml
 ```
 
 ### 按键查询顺序（激活层 → 公共层回退）
 
-```
-用户按下按钮 A
-     ↓
-① 查找 A 的有效映射（getEffectiveMapping）:
-     先遍历激活的操作层 buttonMappings[A] → 找到?
-     未找到 → 回退公共层 commonLayer.buttonMappings[A]
-     ↓ 找到? → 使用该 KeyMapping
-     ↓ 未找到 → 不执行任何动作
-     ↓
-② 检查 KeyMapping.action 类型:
-     ├─ SwitchLayer → 按下激活目标层并记录，松开停用该层（不注入键鼠）
-     ├─ KeyboardKey → onButtonMapped 回调（含子命令注入）
-     ├─ MouseClick  → onButtonMapped 回调
-     └─ MouseMove/LookAround → 摇杆专用，在 onStickMapped 中处理
+```plantuml
+@startuml
+title 按键查询顺序（激活层 → 公共层回退）
+start
+:用户按下按钮 A;
+:getEffectiveMapping(A)\n① 先遍历激活的操作层 buttonMappings[A];
+if (找到?) then (找到)
+  :使用该 KeyMapping;
+else (未找到)
+  :回退公共层 commonLayer.buttonMappings[A];
+  if (找到?) then (找到)
+    :使用该 KeyMapping;
+  else (未找到)
+    :不执行任何动作;
+  endif
+endif
+:检查 KeyMapping.action 类型;
+switch (action 类型)
+case (SwitchLayer)
+  :按下激活目标层并记录\n松开停用该层（不注入键鼠）;
+case (KeyboardKey)
+  :onButtonMapped 回调（含子命令注入）;
+case (MouseClick)
+  :onButtonMapped 回调;
+case (MouseMove/LookAround)
+  :摇杆专用，在 onStickMapped 中处理;
+endswitch
+stop
+@enduml
 
-注: 层切换完全由公共层的 SwitchLayer 映射驱动（如 D-Pad ↑ → Layer1），
-     OperationLayer.triggerButton 字段仅用于 UI 显示/使用说明，不参与运行时激活。
+> **注**: 层切换完全由公共层的 SwitchLayer 映射驱动（如 D-Pad ↑ → Layer1），
+> `OperationLayer.triggerButton` 字段仅用于 UI 显示/使用说明，不参与运行时激活。
 ```
 
 ---
@@ -369,30 +376,27 @@ inputbridge_client.exe 192.168.1.100 27015
 
 #### 工作流程
 
-```
-./gradlew assembleDebug
-     ↓
-preBuild (Gradle 内置任务)
-     ↓ dependsOn("compileWindowsExe")
-compileWindowsExe task 执行:
-     ├─ 1. 搜索 gcc 路径
-     │    优先级: M:/msys64/ucrt64/bin/gcc.exe
-     │          → C:/msys64/ucrt64/bin/gcc.exe
-     │          → C:/MinGW/bin/gcc.exe
-     │          → 系统 PATH 中的 gcc.exe
-     │
-     ├─ 2. gcc 不可用 → 跳过（使用 assets 中已有的 exe），输出警告
-     │
-     ├─ 3. gcc 可用 → 执行编译命令:
-     │    gcc -O2 -o windows/inputbridge_client.exe
-     │        windows/inputbridge_client.c
-     │        -lws2_32 -luser32
-     │
-     ├─ 4. 编译失败 → 跳过（使用已有 exe），输出警告和编译日志
-     │
-     └─ 5. 编译成功 → 复制 exe 到 app/src/main/assets/inputbridge_client.exe
-     ↓
-APK 打包（assets 中的 exe 和 control.bat 被打包进 APK）
+```plantuml
+@startuml
+title compileWindowsExe 工作流程
+start
+:./gradlew assembleDebug;
+:preBuild (Gradle 内置任务);
+:dependsOn("compileWindowsExe") → compileWindowsExe task 执行;
+:搜索 gcc 路径\n优先级: M:/msys64/ucrt64/bin/gcc.exe\n→ C:/msys64/ucrt64/bin/gcc.exe\n→ C:/MinGW/bin/gcc.exe\n→ 系统 PATH 中的 gcc.exe;
+if (gcc 可用?) then (否)
+  :跳过编译（使用 assets 中已有的 exe）\n输出警告;
+else (是)
+  :执行编译命令\ngcc -O2 -o windows/inputbridge_client.exe\n    windows/inputbridge_client.c\n    -lws2_32 -luser32;
+  if (编译成功?) then (是)
+    :复制 exe 到 app/src/main/assets/inputbridge_client.exe;
+  else (失败)
+    :跳过（使用已有 exe）\n输出警告和编译日志;
+  endif
+endif
+:APK 打包\n(assets 中的 exe 和 control.bat 被打包进 APK);
+stop
+@enduml
 ```
 
 #### 关键代码
@@ -526,6 +530,60 @@ mapping.describe()  // 返回 "Alt+3"
 - 松开按键时按"按下时记录的状态"精确释放（与当前层映射无关）：
   长按鼠标右键时切换操作层，即使激活层覆盖了该按键的映射，松开也能正确释放，
   不会出现右键/按键卡死
+
+---
+
+## 操作集
+
+**操作集（Action Set）** 位于操作层之上，是「公共层 + 10 个操作层」的完整配置集合（仿 Steam Input 的动作集/动作层模型）。切换操作集时，其下所有操作层**整体切换**。
+
+### 数据结构
+
+```kotlin
+data class ActionSet(
+    val name: String,               // 操作集名称（可自定义，默认「默认」）
+    val commonLayer: OperationLayer, // 本操作集的公共层
+    val layers: List<OperationLayer> // 本操作集的操作层
+)
+
+data class ControllerProfile(
+    val actionSets: List<ActionSet>,        // 操作集列表（至少 1 个）
+    val activeActionSetName: String,        // 当前生效的操作集名称
+    val globalSettings: GlobalSettings
+)
+```
+
+向后兼容访问器 `commonLayer` / `layers` / `allLayers` / `findLayer` 均委托到**当前生效的操作集**，原有"读取当前配置"的代码无需改动。
+
+### 功能
+
+- 初始自带一个「默认」操作集
+- 每个操作集可自定义名称（重命名）
+- 可**添加**全新操作集（公共层 + 10 个空操作层）
+- 可**删除**操作集（至少保留 1 个）
+- 可**拷贝**操作集（含全部层与按键映射），拷贝时可直接改名新操作集
+- 切换操作集时其下所有操作层整体切换，悬浮窗展开面板顶部显示当前操作集名称
+
+### 设置入口
+
+应用内「配置管理 → 层与操作集设置」页面顶部为操作集选择器与「添加/拷贝/改名/删除」按钮，下方为当前操作集的层选择器与按键映射列表。
+
+### 代码示例
+
+```kotlin
+// 切换操作集（SteamInput）
+steamInput.switchActionSet("治疗")
+
+// 新增操作集（LayerEditActivity）
+val newSet = ActionSet(name = "PVP", commonLayer = OperationLayer("Common"),
+    layers = (1..10).map { OperationLayer("Layer$it") })
+profile = profile.copy(actionSets = profile.actionSets + newSet)
+
+// 拷贝操作集（深拷贝各层映射表，避免共享可变 Map）
+val copy = ActionSet(name = "PVP 备份",
+    commonLayer = deepCopy(actionSet.commonLayer),
+    layers = actionSet.layers.map { deepCopy(it) })
+```
 
 ---
 
@@ -685,18 +743,19 @@ Layer1: A → KeyboardKey(5)   (用户配置的覆盖)
 
 ### LayerEditActivity
 
-[LayerEditActivity.kt](app/src/main/java/com/steamlike/controller/LayerEditActivity.kt) 提供可视化的操作层和按键映射编辑界面，使用 [activity_layer_edit.xml](app/src/main/res/layout/activity_layer_edit.xml) 布局。
+[LayerEditActivity.kt](app/src/main/java/com/steamlike/controller/LayerEditActivity.kt) 提供可视化的操作集、操作层和按键映射编辑界面，使用 [activity_layer_edit.xml](app/src/main/res/layout/activity_layer_edit.xml) 布局。
 
 #### 功能
 
-1. **选择操作层**: 顶部 Spinner 下拉框切换 Common + Layer1-Layer10
-2. **查看映射**: ListView 显示当前操作层所有手柄按键的映射情况（未设置显示 "[未设置]"）
-3. **编辑映射**: 点击某个按键进入编辑对话框，可设置:
+1. **选择操作集**: 顶部 Spinner 下拉框切换操作集（切换时其下所有操作层整体切换），支持添加/拷贝/改名/删除操作集
+2. **选择操作层**: 操作集下方 Spinner 下拉框切换当前操作集的 Common + Layer1-Layer10
+3. **查看映射**: ListView 显示当前操作层所有手柄按键的映射情况（未设置显示 "[未设置]"）
+4. **编辑映射**: 点击某个按键进入编辑对话框，可设置:
    - 键盘按键（字母A-Z、数字0-9、功能键F1-F12、修饰键、符号键等）
    - 鼠标点击（左键/中键/右键）
    - 切换操作层（选择目标层）
-4. **子命令**: 每个映射可添加最多 3 个子命令（键盘按键，用于组合键）
-5. **层信息编辑**: 可设置操作层名称和触发按键（公共层不能设置触发按键）
+5. **子命令**: 每个映射可添加最多 3 个子命令（键盘按键，用于组合键）
+6. **层信息编辑**: 可设置操作层名称和触发按键（公共层不能设置触发按键）
 
 #### 数据流
 
@@ -704,8 +763,8 @@ Layer1: A → KeyboardKey(5)   (用户配置的覆盖)
 ControllerOverlayService 创建 SteamInput 实例
      ↓ LayerEditActivity.steamInputRef = steamInput
 LayerEditActivity 通过 steamInputRef?.profile 获取配置
-     ↓ 用户编辑映射
-修改 OperationLayer.buttonMappings（MutableMap，可直接修改）
+     ↓ 用户编辑映射 / 操作集
+修改 OperationLayer.buttonMappings / 操作集列表（MutableMap，可直接修改）
      ↓ 保存
 steamInputRef?.loadProfile(newProfile) → 更新运行时
 ConfigManager.saveToInternal(profile) → 持久化到内部存储
@@ -945,43 +1004,46 @@ steamInput.loadProfile(newProfile)
 
 ## 配置文件
 
-> 支持将 ControllerProfile 导出为 JSON 文件（version=2），并在需要时导入恢复。
+> 支持将 ControllerProfile 导出为 JSON 文件（version=3），并在需要时导入恢复。
 >
-> 配置文件包含完整的按键映射定义（主动作 + 子命令），由 [ControllerConfig.kt](app/src/main/java/com/steamlike/controller/config/ControllerConfig.kt) 负责序列化/反序列化。
+> 配置文件包含完整的操作集与按键映射定义（主动作 + 子命令），由 [ControllerConfig.kt](app/src/main/java/com/steamlike/controller/config/ControllerConfig.kt) 负责序列化/反序列化。
 
-### 配置文件格式 (version=2)
+### 配置文件格式 (version=3)
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "globalSettings": {
-    "deadzone": 0.0,
-    "lookSensitivity": 1.0,
-    "cursorSpeed": 1.0
+    "deadzone": 0.15,
+    "lookSensitivity": 0.5,
+    "cursorSpeed": 1.0,
+    "lookSmoothing": 0.5,
+    "lookAcceleration": 1.5
   },
-  "commonLayer": {
-    "name": "Common",
-    "buttonMappings": {
-      "A": { "action": { "type": "keyboard", "keyCode": 62 }, "subCommands": [] },
-      "B": { "action": { "type": "mouse", "button": "RIGHT" }, "subCommands": [] },
-      "X": { "action": { "type": "mouse", "button": "LEFT" }, "subCommands": [] },
-      "Y": { "action": { "type": "keyboard", "keyCode": 37 }, "subCommands": [] },
-      "LEFT_SHOULDER": { "action": { "type": "switchLayer", "layerName": "Layer5" }, "subCommands": [] }
-    }
-  },
-  "layers": [
+  "activeActionSet": "默认",
+  "actionSets": [
     {
-      "name": "Layer1",
-      "triggerButton": "DPAD_UP",
-      "buttonMappings": {
-        "A": { "action": { "type": "keyboard", "keyCode": 8 }, "subCommands": [7] },
-        "X": { "action": { "type": "keyboard", "keyCode": 57 }, "subCommands": [7, 8] }
-      }
-    },
-    {
-      "name": "Layer2",
-      "triggerButton": "DPAD_DOWN",
-      "buttonMappings": {}
+      "name": "默认",
+      "commonLayer": {
+        "name": "Common",
+        "buttonMappings": {
+          "A": { "action": { "type": "keyboard", "keyCode": 62 }, "subCommands": [] },
+          "B": { "action": { "type": "mouse", "button": "RIGHT" }, "subCommands": [] },
+          "LEFT_SHOULDER": { "action": { "type": "switchLayer", "layerName": "Layer5" }, "subCommands": [] }
+        }
+      },
+      "layers": [
+        {
+          "name": "Layer1",
+          "buttonMappings": {
+            "A": { "action": { "type": "keyboard", "keyCode": 8 }, "subCommands": [7] }
+          }
+        },
+        {
+          "name": "Layer2",
+          "buttonMappings": {}
+        }
+      ]
     }
   ]
 }
@@ -991,18 +1053,20 @@ steamInput.loadProfile(newProfile)
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `version` | int | 配置文件版本号（当前=2） |
+| `version` | int | 配置文件版本号（当前=3，加载 version=2 旧格式时自动迁移为默认操作集） |
 | `globalSettings` | object | 全局摇杆设置 |
 | `globalSettings.deadzone` | float | 死区（0.0~1.0） |
 | `globalSettings.lookSensitivity` | float | 视角灵敏度 |
 | `globalSettings.cursorSpeed` | float | 光标速度 |
-| `commonLayer` | object | 公共层配置 |
-| `commonLayer.name` | string | 层名（固定 "Common"） |
-| `commonLayer.buttonMappings` | object | 按键映射表（按钮名 → KeyMapping） |
-| `layers` | array | 操作层配置列表 |
-| `layers[].name` | string | 层名（如 "Layer1"） |
-| `layers[].triggerButton` | string? | 触发按键枚举名（公共层无此字段） |
-| `layers[].buttonMappings` | object | 按键映射表 |
+| `activeActionSet` | string | 当前生效的操作集名称（不存在时回退到第一个操作集） |
+| `actionSets` | array | 操作集列表（至少 1 个） |
+| `actionSets[].name` | string | 操作集名称（可自定义，默认「默认」） |
+| `actionSets[].commonLayer` | object | 该操作集的公共层配置 |
+| `actionSets[].commonLayer.name` | string | 层名（固定 "Common"） |
+| `actionSets[].commonLayer.buttonMappings` | object | 按键映射表（按钮名 → KeyMapping） |
+| `actionSets[].layers` | array | 该操作集的操作层配置列表 |
+| `actionSets[].layers[].name` | string | 层名（如 "Layer1"） |
+| `actionSets[].layers[].buttonMappings` | object | 按键映射表 |
 
 ### KeyMapping 格式
 
@@ -1103,12 +1167,12 @@ configManager.resetToDefault()  // 恢复默认配置并保存
 
 导入配置时，`ControllerConfig.fromJson()` 会进行以下验证：
 
-1. **版本号检查**: `version` 必须为 2，否则抛出 `IllegalArgumentException`
-2. **按钮名验证**: 按钮名必须是有效的 `ControllerButton` 枚举名（如 `A`、`RIGHT_SHOULDER`），无效名跳过
-3. **动作类型验证**: `action.type` 必须是已知类型（keyboard/mouse/switchLayer/mouseMove/lookAround）
-4. **鼠标按钮验证**: `action.button` 必须是有效的 `MouseButton` 枚举名
-5. **子命令数量验证**: `subCommands` 超过 `MAX_SUB_COMMANDS=3` 时跳过该映射
-6. **触发按键验证**: `triggerButton` 必须是有效的 `ControllerButton` 枚举名，无效则设为 null
+1. **版本号检查**: `version` 必须为 3 或 2（旧格式自动迁移为「默认」操作集），否则抛出 `IllegalArgumentException`
+2. **操作集容错**: `actionSets` 为空时回退到默认「默认」操作集；`activeActionSet` 不存在时运行时回退到第一个操作集
+3. **按钮名验证**: 按钮名必须是有效的 `ControllerButton` 枚举名（如 `A`、`RIGHT_SHOULDER`），无效名跳过
+4. **动作类型验证**: `action.type` 必须是已知类型（keyboard/mouse/switchLayer/mouseMove/lookAround）
+5. **鼠标按钮验证**: `action.button` 必须是有效的 `MouseButton` 枚举名
+6. **子命令数量验证**: `subCommands` 超过 `MAX_SUB_COMMANDS=3` 时跳过该映射
 
 ### 设计说明
 
@@ -1119,10 +1183,10 @@ configManager.resetToDefault()  // 恢复默认配置并保存
 #### 导入流程
 
 ```
-1. ControllerConfig.fromJson(jsonString) 解析 JSON
+1. ControllerConfig.fromJson(jsonString) 解析 JSON，按 version 分派（v3=操作集格式 / v2=旧格式迁移）
 2. 构建 GlobalSettings
-3. 构建 commonLayer (OperationLayer)
-4. 构建 layers (List<OperationLayer>)
+3. 构建 actionSets（每个含 commonLayer + layers）
+4. 设置 activeActionSetName
 5. 返回 ControllerProfile
 6. SteamInput.loadProfile(profile) 应用到运行时
 7. ConfigManager.saveToInternal(profile) 保存到内部存储
@@ -1132,10 +1196,10 @@ configManager.resetToDefault()  // 恢复默认配置并保存
 
 ```
 1. ControllerConfig.toJson(profile, indent=2) 序列化
-2. 写入 version=2
-3. 序列化 globalSettings (deadzone/lookSensitivity/cursorSpeed)
-4. 序列化 commonLayer (name/buttonMappings)
-5. 序列化 layers (name/triggerButton/buttonMappings)
+2. 写入 version=3
+3. 序列化 globalSettings (deadzone/lookSensitivity/cursorSpeed/lookSmoothing/lookAcceleration)
+4. 序列化 activeActionSet（当前生效操作集名）
+5. 序列化 actionSets（每个含 name/commonLayer/layers）
 6. 每个 KeyMapping 序列化为 {action: {...}, subCommands: [...]}
 7. 输出 JSON 字符串（缩进2空格，UTF-8编码）
 ```
@@ -1306,27 +1370,29 @@ class ControllerOverlayService : Service()
 
 ### 启动流程图
 
-```
-用户点击应用图标
-      ↓
-App.onCreate()                      ← Application 初始化
-      ↓
-MainActivity.onCreate()             ← 显示主界面
-      ↓ 用户点击"启动手柄映射"
-ContextCompat.startForegroundService()
-      ↓
-ControllerOverlayService.onCreate()
-      ├─ ServiceCompat.startForeground()  ← 显示通知
-      ├─ createOverlay()                  ← 创建悬浮窗 UI
-      └─ onStartCommand()
-           └─ startMapper() (后台线程)
-                ├─ InputBridgeServer.start()  ← TCP 服务器
-                ├─ SteamInput(context)         ← 输入系统(注册 InputManager 监听)
-                ├─ LayerEditActivity.steamInputRef = steamInput  ← 暴露给设置界面
-                ├─ ConfigManager(this, steamInput)
-                ├─ KeyboardMouseMapper.start() ← 注册回调
-                ├─ loadUserConfig()            ← 加载用户配置（覆盖默认）
-                └─ mainHandler.post { createGamepadInputWindow() }  ← 主线程创建焦点窗口
+```plantuml
+@startuml
+title 启动流程图
+start
+:用户点击应用图标;
+:App.onCreate()\nApplication 初始化;
+:MainActivity.onCreate()\n显示主界面;
+:用户点击 "启动手柄映射";
+:ContextCompat.startForegroundService();
+:ControllerOverlayService.onCreate();
+:ServiceCompat.startForeground()\n显示通知;
+:createOverlay()\n创建悬浮窗 UI;
+:onStartCommand();
+:startMapper() (后台线程);
+:InputBridgeServer.start()\nTCP 服务器;
+:SteamInput(context)\n输入系统 (注册 InputManager 监听);
+:LayerEditActivity.steamInputRef = steamInput\n暴露给设置界面;
+:ConfigManager(this, steamInput);
+:KeyboardMouseMapper.start()\n注册回调;
+:loadUserConfig()\n加载用户配置（覆盖默认）;
+:mainHandler.post { createGamepadInputWindow() }\n主线程创建焦点窗口;
+stop
+@enduml
 ```
 
 ---
@@ -1347,36 +1413,30 @@ ControllerOverlayService.onCreate()
 
 ### 线程交互图
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                       主线程 (Main Thread)                       │
-│                                                                  │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐ │
-│  │ MainActivity    │  │ ControllerOver  │  │ SteamInput      │ │
-│  │ UI 事件         │  │ layService      │  │ 事件分发        │ │
-│  │ (按钮点击)      │  │ (UI 操作)       │  │ (dispatchKey)   │ │
-│  │ BroadcastReceiver│  │                 │  │                 │ │
-│  └────────┬────────┘  └────────┬────────┘  └─────────────────┘ │
-│           │                    │                                  │
-│           │   startForegroundService(intent)                      │
-│           ↓                    ↓                                  │
-└──────────────────────────────────────────────────────────────────┘
-                                │
-                  ┌─────────────┴─────────────┐
-                  ↓                            ↓
-┌───────────────────────────┐  ┌──────────────────────────────────┐
-│   Mapper 后台线程          │  │  BridgeServer-Accept 线程        │
-│   (一次性任务)             │  │  while: serverSocket.accept()    │
-│                            │  │  → 每个客户端启动 Client-N 线程   │
-│   InputBridgeServer.start()│  └──────────────────────────────────┘
-│   SteamInput(context)      │
-│   KeyboardMouseMapper.start│  ┌──────────────────────────────────┐
-│   loadUserConfig()         │  │  BridgeServer-Dispatch 线程      │
-│                            │  │  while: messageQueue.poll()      │
-│   mainHandler.post {       │  │  → client.send(packet)           │
-│     createGamepadInputWindow  │  → 转发到所有已连接客户端         │
-│   }                        │  └──────────────────────────────────┘
-└───────────────────────────┘
+```plantuml
+@startuml
+title 线程交互图
+skinparam componentStyle rectangle
+
+package "主线程 (Main Thread)" {
+  [MainActivity\nUI 事件 (按钮点击)\nBroadcastReceiver] as MA
+  [ControllerOverlayService\n(UI 操作)] as COS
+  [SteamInput\n事件分发 (dispatchKey)] as SI
+}
+
+package "后台线程" {
+  [Mapper 后台线程\n(一次性任务)\nInputBridgeServer.start()\nSteamInput(context)\nKeyboardMouseMapper.start()\nloadUserConfig()\nmainHandler.post {\n  createGamepadInputWindow()\n}] as B1
+  [BridgeServer-Accept 线程\nwhile: serverSocket.accept()\n→ 每个客户端启动 Client-N 线程] as ACC
+  [BridgeServer-Dispatch 线程\nwhile: messageQueue.poll()\n→ client.send(packet)\n→ 转发到所有已连接客户端] as DISP
+  [BridgeServer-Client-N 线程\n监听单个客户端断开] as CLN
+}
+
+MA --> COS : startForegroundService(intent)
+COS --> B1 : startMapper()
+B1 ..> SI : 创建 / 初始化
+ACC --> CLN : 每个客户端一线程
+DISP ..> CLN : 转发数据包
+@enduml
 ```
 
 ### 各线程详细说明
@@ -1525,43 +1585,57 @@ private fun dispatchLoop() {
 
 ### 模块依赖关系
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    入口模块 (顶层)                           │
-│  App.kt    MainActivity.kt    LayerEditActivity.kt         │
-└─────────────────────────┬───────────────────────────────────┘
-                          │ startForegroundService / startActivity
-                          ↓
-┌─────────────────────────────────────────────────────────────┐
-│                    服务模块 (协调者)                         │
-│  ControllerOverlayService.kt                                │
-│  - 持有 SteamInput / KeyboardMouseMapper / ConfigManager   │
-│  - 管理 WindowManager 双窗口                                │
-│  - 处理配置操作 Intent                                      │
-│  - 暴露 SteamInput 给 LayerEditActivity                    │
-└────────┬─────────────────┬──────────────────┬──────────────┘
-         │                 │                  │
-         ↓                 ↓                  ↓
-┌─────────────────┐ ┌──────────────┐ ┌──────────────────┐
-│   核心模块       │ │  映射模块     │ │   配置模块        │
-│   core/         │ │  mapping/    │ │   config/        │
-│                 │ │              │ │                  │
-│  SteamInput     │ │ WoWActionSets│ │ ControllerConfig │
-│  MappingTypes   │ │ KeyboardMouse│ │ ConfigManager    │
-│  ControllerTypes│ │ Mapper       │ │                  │
-│  ControllerDevice│ │              │ │                  │
-└────────┬────────┘ └──────┬───────┘ └──────────────────┘
-         │                 │
-         │  持有引用        │ 使用注入器
-         ↓                 ↓
-┌─────────────────────────────────────────────────────────────┐
-│                    注入模块 (底层)                           │
-│  injection/                                                 │
-│  InputInjector (接口) + MouseButton 枚举                    │
-│  BridgeInputInjector (实现: 通过 TCP 发送到 Windows)        │
-│  InputBridgeServer (TCP 服务器)                             │
-│  GamepadInputView (焦点窗口, 接收系统手柄事件)              │
-└─────────────────────────────────────────────────────────────┘
+```plantuml
+@startuml
+title 模块依赖关系
+skinparam componentStyle rectangle
+
+package "入口模块 (顶层)" {
+  [App.kt] as APP
+  [MainActivity.kt] as MA
+  [LayerEditActivity.kt] as LEA
+}
+
+package "服务模块 (协调者)" {
+  [ControllerOverlayService.kt\n- 持有 SteamInput / KeyboardMouseMapper / ConfigManager\n- 管理 WindowManager 双窗口\n- 处理配置操作 Intent\n- 暴露 SteamInput 给 LayerEditActivity] as COS
+}
+
+package "核心模块 core/" {
+  [SteamInput] as SI
+  [MappingTypes] as MT
+  [ControllerTypes] as CT
+  [ControllerDevice] as CD
+}
+
+package "映射模块 mapping/" {
+  [WoWActionSets] as WAS
+  [KeyboardMouseMapper] as KMM
+}
+
+package "配置模块 config/" {
+  [ControllerConfig] as CC
+  [ConfigManager] as CM
+}
+
+package "注入模块 (底层) injection/" {
+  [InputInjector (接口) + MouseButton 枚举] as INJIF
+  [BridgeInputInjector\n(实现: 通过 TCP 发送到 Windows)] as INJ
+  [InputBridgeServer (TCP 服务器)] as SV
+  [GamepadInputView\n(焦点窗口, 接收系统手柄事件)] as V
+}
+
+APP --> COS : startForegroundService / startActivity
+MA --> COS : startForegroundService / startActivity
+LEA --> COS : steamInputRef
+COS --> SI : 持有引用
+COS --> KMM : 持有引用
+COS --> CM : 持有引用
+SI --> CD
+KMM --> INJIF : 使用注入器
+INJIF <|-- INJ
+INJ --> SV
+V --> SI : 事件转发
+@enduml
 ```
 
 ### 各模块详细说明
@@ -2708,63 +2782,60 @@ Android 系统会将手柄的 `KeyEvent` / `MotionEvent` 分发给**当前持有
 
 ### 2. 双窗口架构
 
-```
-┌─────────────────────────────────────────┐
-│  Window 1: GamepadInputView (全屏透明)   │  ← 接收手柄事件
-│  FLAG_NOT_TOUCHABLE                      │  ← 触摸穿透
-│  isFocusable = true                      │  ← 持有焦点
-└─────────────────────────────────────────┘
-                  ↓ (事件转发)
-┌─────────────────────────────────────────┐
-│  Window 2: Floating UI Panel (悬浮面板)  │  ← 显示状态、提供层切换按钮
-│  TYPE_APPLICATION_OVERLAY                │  ← 可触摸交互
-└─────────────────────────────────────────┘
+```plantuml
+@startuml
+title 双窗口架构
+skinparam componentStyle rectangle
+
+[Window 1: GamepadInputView\n(全屏透明)\nFLAG_NOT_TOUCHABLE (触摸穿透)\nisFocusable = true (持有焦点)\n← 接收手柄事件] as W1
+[Window 2: Floating UI Panel\n(悬浮面板)\nTYPE_APPLICATION_OVERLAY\n(可触摸交互)\n← 显示状态、提供层切换按钮] as W2
+
+W1 --> W2 : 事件转发
+@enduml
 ```
 
 ### 3. 摇杆死区处理
 
-```
-原始输入 (MotionEvent AXIS_X/AXIS_Y, -1.0~1.0)
-      ↓
-Vector2.withDeadzone(deadzone):   // SteamInput.dispatchGenericMotionEvent 统一应用
-  magnitude < deadzone → 归零 (Vector2.ZERO)
-  magnitude >= deadzone → 缩放 (mag - deadzone) / (1 - deadzone)
-      ↓
-触发 onStickMapped 回调
-      ↓
-KeyboardMouseMapper.handleStick():
-  右摇杆 → 仅更新最新摇杆位置（事件驱动只负责"采样"）
-      ↓
-SteamLike-LookLoop 固定 125Hz 发送循环（专用线程, 自校正 tick）:
-  每 8ms: 读取最新位置
-         → 幅值钳制(mag>1缩回) → 加速曲线 pow(mag, accel) → 时间常数 EMA 平滑
-         → dx = 平滑值 * lookSensitivity * 480px/秒 * dt   ← dt=实际经过时间
-  → injector.sendMouseMove(dx, dy)   ← 小数余量累积，亚像素不丢失
+```plantuml
+@startuml
+title 摇杆死区处理
+start
+:原始输入 (MotionEvent AXIS_X/AXIS_Y, -1.0~1.0);
+:Vector2.withDeadzone(deadzone)\n// SteamInput.dispatchGenericMotionEvent 统一应用;
+if (magnitude < deadzone) then (<)
+  :归零 (Vector2.ZERO);
+else (>=)
+  :缩放 (mag - deadzone) / (1 - deadzone);
+endif
+:触发 onStickMapped 回调;
+:KeyboardMouseMapper.handleStick()\n右摇杆 → 仅更新最新摇杆位置\n(事件驱动只负责"采样");
+:SteamLike-LookLoop 固定 125Hz 发送循环\n(专用线程, 自校正 tick)\n每 8ms:\n- 读取最新位置\n- 幅值钳制(mag>1缩回)\n- 加速曲线 pow(mag, accel)\n- 时间常数 EMA 平滑\n- dx = 平滑值 * lookSensitivity * 480px/秒 * dt  (dt=实际经过时间);
+:injector.sendMouseMove(dx, dy)\n小数余量累积，亚像素不丢失;
+stop
+@enduml
 ```
 
 ### 4. 操作层激活/停用
 
-```
-公共层: DPAD_UP → KeyMapping(SwitchLayer("Layer1"))
-
-按下 D-Pad 上:
-  SteamInput.handleButtonEvent(DPAD_UP, isPressed=true)
-     ↓ getEffectiveMapping(DPAD_UP) → KeyMapping(SwitchLayer("Layer1"))
-     ↓ action 是 SwitchLayer → activateLayer(Layer1) + buttonTriggeredLayers[DPAD_UP]=Layer1
-     ↓ activeLayers = [Layer1], activeLayerName = "Layer1"
-     ↓ onLayerChanged 回调 → 更新悬浮窗 UI
-
-查找按钮 A:
-  getEffectiveMapping(A):
-     ↓ 遍历 activeLayers ([Layer1])
-     ↓ Layer1.buttonMappings[A] → 找到? 使用 Layer1 的映射
-     ↓ 未找到 → 回退公共层 commonLayer.buttonMappings[A]
-
-松开 D-Pad 上:
-  SteamInput.handleButtonEvent(DPAD_UP, isPressed=false)
-     ↓ buttonTriggeredLayers[DPAD_UP] = Layer1 → deactivateLayer(Layer1)
-     ↓ activeLayers = [], activeLayerName = "Common"
-     ↓ onLayerChanged 回调 → 更新悬浮窗 UI
+```plantuml
+@startuml
+title 操作层激活/停用
+start
+:公共层: DPAD_UP → KeyMapping(SwitchLayer("Layer1"));
+:按下 D-Pad 上;
+:SteamInput.handleButtonEvent(DPAD_UP, isPressed=true);
+:getEffectiveMapping(DPAD_UP) → KeyMapping(SwitchLayer("Layer1"));
+:action 是 SwitchLayer → activateLayer(Layer1)\nbuttonTriggeredLayers[DPAD_UP]=Layer1;
+:activeLayers = [Layer1], activeLayerName = "Layer1";
+:onLayerChanged 回调 → 更新悬浮窗 UI;
+:查找按钮 A → getEffectiveMapping(A)\n① 遍历 activeLayers ([Layer1])\n② Layer1.buttonMappings[A] → 找到? 使用 Layer1 的映射\n③ 未找到 → 回退公共层 commonLayer.buttonMappings[A];
+:松开 D-Pad 上;
+:SteamInput.handleButtonEvent(DPAD_UP, isPressed=false);
+:buttonTriggeredLayers[DPAD_UP]=Layer1 → deactivateLayer(Layer1);
+:activeLayers = [], activeLayerName = "Common";
+:onLayerChanged 回调 → 更新悬浮窗 UI;
+stop
+@enduml
 ```
 
 ### 5. 子命令注入（Sub-Command）

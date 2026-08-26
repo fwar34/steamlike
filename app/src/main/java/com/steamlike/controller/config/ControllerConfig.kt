@@ -1,5 +1,6 @@
 package com.steamlike.controller.config
 
+import com.steamlike.controller.core.ActionSet
 import com.steamlike.controller.core.ControllerButton
 import com.steamlike.controller.core.ControllerProfile
 import com.steamlike.controller.core.GlobalSettings
@@ -13,10 +14,10 @@ import org.json.JSONObject
 /**
  * 控制器配置文件 JSON 序列化/反序列化
  *
- * ## JSON 格式 (version=2)
+ * ## JSON 格式 (version=3)
  * ```json
  * {
- *   "version": 2,
+ *   "version": 3,
  *   "globalSettings": {
  *     "deadzone": 0.15,
  *     "lookSensitivity": 0.5,
@@ -24,23 +25,33 @@ import org.json.JSONObject
  *     "lookSmoothing": 0.5,
  *     "lookAcceleration": 1.5
  *   },
- *   "commonLayer": {
- *     "name": "Common",
- *     "buttonMappings": {
- *       "A": { "action": { "type": "keyboard", "keyCode": 62 }, "subCommands": [] },
- *       "B": { "action": { "type": "mouse", "button": "RIGHT" }, "subCommands": [] }
- *     }
- *   },
- *   "layers": [
+ *   "activeActionSet": "默认",
+ *   "actionSets": [
  *     {
- *       "name": "Layer1",
- *       "buttonMappings": {
- *         "A": { "action": { "type": "keyboard", "keyCode": 57 }, "subCommands": [7] }
- *       }
+ *       "name": "默认",
+ *       "commonLayer": {
+ *         "name": "Common",
+ *         "buttonMappings": {
+ *           "A": { "action": { "type": "keyboard", "keyCode": 62 }, "subCommands": [] },
+ *           "B": { "action": { "type": "mouse", "button": "RIGHT" }, "subCommands": [] }
+ *         }
+ *       },
+ *       "layers": [
+ *         {
+ *           "name": "Layer1",
+ *           "buttonMappings": {
+ *             "A": { "action": { "type": "keyboard", "keyCode": 57 }, "subCommands": [7] }
+ *           }
+ *         }
+ *       ]
  *     }
  *   ]
  * }
  * ```
+ *
+ * ## 版本兼容
+ * - version=3: 当前格式，包含操作集列表（[ActionSet]）与当前操作集名
+ * - version=2: 旧格式（顶层 commonLayer/layers，无操作集），加载时自动迁移为默认操作集
  *
  * ## 设计原则
  * 1. 所有枚举使用名称字符串（如 "A"、"DPAD_UP"），人类可读
@@ -50,7 +61,7 @@ import org.json.JSONObject
  */
 object ControllerConfig {
 
-    const val CONFIG_VERSION = 2
+    const val CONFIG_VERSION = 3
 
     /**
      * 将 [ControllerProfile] 序列化为 JSON 字符串
@@ -64,12 +75,12 @@ object ControllerConfig {
         val json = JSONObject()
         json.put("version", CONFIG_VERSION)
         json.put("globalSettings", globalSettingsToJson(profile.globalSettings))
-        json.put("commonLayer", layerToJson(profile.commonLayer))
-        val layersArray = JSONArray()
-        profile.layers.forEach { layer ->
-            layersArray.put(layerToJson(layer))
+        json.put("activeActionSet", profile.activeActionSetName)
+        val actionSetsArray = JSONArray()
+        profile.actionSets.forEach { set ->
+            actionSetsArray.put(actionSetToJson(set))
         }
-        json.put("layers", layersArray)
+        json.put("actionSets", actionSetsArray)
         if (appConfig != null) {
             json.put("settings", appConfigToJson(appConfig))
         }
@@ -133,10 +144,46 @@ object ControllerConfig {
     fun fromJson(jsonString: String): ControllerProfile {
         val json = JSONObject(jsonString)
         val version = json.optInt("version", 1)
-        if (version != CONFIG_VERSION) {
-            throw IllegalArgumentException("Unsupported config version: $version, expected: $CONFIG_VERSION")
+        return when {
+            version == CONFIG_VERSION -> parseV3(json)
+            version == 2 -> parseV2(json)  // 旧格式自动迁移为默认操作集
+            else -> throw IllegalArgumentException(
+                "Unsupported config version: $version, expected: $CONFIG_VERSION or 2"
+            )
         }
+    }
 
+    /**
+     * 解析 version=3 格式（操作集列表）
+     */
+    private fun parseV3(json: JSONObject): ControllerProfile {
+        val globalSettings = json.optJSONObject("globalSettings")?.let { parseGlobalSettings(it) }
+            ?: GlobalSettings()
+
+        val actionSetsArray = json.optJSONArray("actionSets") ?: JSONArray()
+        val actionSets = (0 until actionSetsArray.length()).map { i ->
+            parseActionSet(actionSetsArray.getJSONObject(i))
+        }
+        // 容错：无操作集时回退到默认「默认」操作集
+        if (actionSets.isEmpty()) {
+            return ControllerProfile(
+                actionSets = listOf(ControllerProfile.createDefault().activeActionSet),
+                globalSettings = globalSettings
+            )
+        }
+        val activeName = json.optString("activeActionSet", ControllerProfile.DEFAULT_ACTION_SET_NAME)
+
+        return ControllerProfile(
+            actionSets = actionSets,
+            activeActionSetName = activeName,
+            globalSettings = globalSettings
+        )
+    }
+
+    /**
+     * 解析 version=2 旧格式（顶层 commonLayer/layers），迁移为单个默认操作集
+     */
+    private fun parseV2(json: JSONObject): ControllerProfile {
         val globalSettings = json.optJSONObject("globalSettings")?.let { parseGlobalSettings(it) }
             ?: GlobalSettings()
 
@@ -149,13 +196,34 @@ object ControllerConfig {
         }
 
         return ControllerProfile(
-            commonLayer = commonLayer,
-            layers = layers,
+            actionSets = listOf(
+                ActionSet(name = ControllerProfile.DEFAULT_ACTION_SET_NAME, commonLayer = commonLayer, layers = layers)
+            ),
             globalSettings = globalSettings
         )
     }
 
     // ===== 内部序列化方法 =====
+
+    private fun actionSetToJson(set: ActionSet): JSONObject {
+        val json = JSONObject()
+        json.put("name", set.name)
+        json.put("commonLayer", layerToJson(set.commonLayer))
+        val layersArray = JSONArray()
+        set.layers.forEach { layer -> layersArray.put(layerToJson(layer)) }
+        json.put("layers", layersArray)
+        return json
+    }
+
+    private fun parseActionSet(json: JSONObject): ActionSet {
+        val name = json.getString("name")
+        val commonLayer = parseLayer(json.getJSONObject("commonLayer"))
+        val layersArray = json.optJSONArray("layers") ?: JSONArray()
+        val layers = (0 until layersArray.length()).map { i ->
+            parseLayer(layersArray.getJSONObject(i))
+        }
+        return ActionSet(name = name, commonLayer = commonLayer, layers = layers)
+    }
 
     private fun globalSettingsToJson(settings: GlobalSettings): JSONObject {
         val json = JSONObject()
