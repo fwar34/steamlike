@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  按键映射列表行点击态
+  默认 ListView 的 pressed 高亮是 Android 经典橙黄色，与深色界面不搭。
+  这里改为半透明白色按压反馈：按压时有轻微高亮，其余状态透明。
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_pressed="true">
+        <shape>
+            <solid android:color="#33FFFFFF" />
+        </shape>
+    </item>
+    <item android:state_activated="true">
+        <shape>
+            <solid android:color="#22FFFFFF" />
+        </shape>
+    </item>
+    <item>
+        <shape>
+            <solid android:color="#00000000" />
+        </shape>
+    </item>
+</selector>

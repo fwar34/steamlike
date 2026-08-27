@@ -209,6 +209,7 @@
         android:background="@drawable/bg_card"
         android:divider="#33FFFFFF"
         android:dividerHeight="1dp"
+        android:listSelector="@drawable/list_selector_mapping"
         android:padding="6dp" />
 
     <!-- ===== 底部保存按钮 ===== -->
