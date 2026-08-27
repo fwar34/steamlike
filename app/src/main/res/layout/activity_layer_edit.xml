@@ -2,21 +2,26 @@
 <!--
   操作层设置 Activity 布局（深色美化版）
 
-  布局结构（垂直 LinearLayout）:
+  布局结构（ScrollView 内垂直 LinearLayout，整页可滚动）:
   1. 标题文字
   2. 操作集区域（操作集选择 Spinner + 添加/拷贝/改名/删除按钮）
   3. 操作层选择行（标签 + Spinner）
   4. 层信息行（编辑名称按钮 + 编辑触发按键按钮）
   5. 按键映射标题
-  6. 按键映射列表（ListView，占满剩余空间）
+  6. 按键映射列表（NonScrollListView 全展开，随页面整体滚动）
   7. 底部保存按钮
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
     android:background="@drawable/bg_panel"
-    android:padding="16dp">
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
 
     <!-- ===== 标题 ===== -->
     <TextView
@@ -194,13 +199,13 @@
     <!--
       按键映射列表
       显示当前操作层中所有手柄按键的映射情况。
-      layout_weight=1 让列表占据剩余的所有垂直空间。
+      使用 NonScrollListView 全展开所有行，由外层 ScrollView 统一接管滚动，
+      避免内容超出屏幕后列表被压缩导致无法滚动。
     -->
-    <ListView
+    <com.steamlike.controller.NonScrollListView
         android:id="@+id/list_mappings"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
+        android:layout_height="wrap_content"
         android:background="@drawable/bg_card"
         android:divider="#33FFFFFF"
         android:dividerHeight="1dp"
@@ -216,4 +221,6 @@
         android:background="@drawable/bg_button_green"
         android:layout_marginTop="10dp" />
 
-</LinearLayout>
+    </LinearLayout>
+
+</ScrollView>

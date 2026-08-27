@@ -1,8 +1,10 @@
 package com.steamlike.controller
 
 import android.content.Intent
+import android.content.Context
 import android.os.Build
 import android.os.Bundle
+import android.util.AttributeSet
 import android.util.Log
 import android.view.Gravity
 import android.view.InputDevice
@@ -590,7 +592,11 @@ class LayerEditActivity : AppCompatActivity() {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 // 程序化更新时跳过（避免重建列表时的重复调用）
                 if (suppressLayerSpinnerListener) return
-                loadLayer(layerNames[position])
+                val name = layerNames.getOrNull(position) ?: return
+                // 选中项已是当前层则跳过：重建 adapter 后 onItemSelected 由异步布局触发，
+                // suppress 标志可能已复位，不判断会把选择重置回第一层（表现为"选了不切换"）
+                if (name == currentLayer?.name) return
+                loadLayer(name)
             }
 
             override fun onNothingSelected(parent: AdapterView<*>?) {}
@@ -1160,7 +1166,12 @@ class LayerEditActivity : AppCompatActivity() {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 // 程序化更新时跳过（避免重建列表时误触发切换）
                 if (suppressActionSetSpinnerListener) return
-                switchToActionSet(profile.actionSets[position])
+                val selected = profile.actionSets.getOrNull(position) ?: return
+                // 选中项已是当前操作集则跳过：
+                // Spinner 重建 adapter 后 onItemSelected 由异步布局触发，此时 suppress 标志
+                // 可能已复位，若不判断会产生 switchToActionSet 无限循环（页面不停刷新/掉帧）
+                if (selected.name == currentActionSet?.name) return
+                switchToActionSet(selected)
             }
 
             override fun onNothingSelected(parent: AdapterView<*>?) {}
@@ -1642,5 +1653,28 @@ class LayerEditActivity : AppCompatActivity() {
                 null  // 跳过"无"
             }
         }
+    }
+}
+
+/**
+ * 全展开 ListView（用于 ScrollView 内）
+ *
+ * 操作层设置页面内容（操作集区域 + 操作层区域 + 按键映射列表）可能超出屏幕高度，
+ * 若用普通 ListView 以 layout_weight 占剩余空间，会被压缩到很小甚至无法滚动。
+ * 本类重写 onMeasure，将高度测量改为 AT_MOST + 极大上限，使 ListView 一次性展开
+ * 全部行，由外层 ScrollView 统一接管滚动，避免嵌套滚动冲突。
+ */
+class NonScrollListView @JvmOverloads constructor(
+    context: Context,
+    attrs: AttributeSet? = null,
+    defStyleAttr: Int = 0
+) : ListView(context, attrs, defStyleAttr) {
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val expandSpec = View.MeasureSpec.makeMeasureSpec(
+            Int.MAX_VALUE shr 2,
+            View.MeasureSpec.AT_MOST
+        )
+        super.onMeasure(widthMeasureSpec, expandSpec)
     }
 }
