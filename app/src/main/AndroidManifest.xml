@@ -52,21 +52,24 @@
             android:name=".LayerEditActivity"
             android:label="操作层设置"
             android:exported="false"
-            android:parentActivityName=".MainActivity" />
+            android:parentActivityName=".MainActivity"
+            android:theme="@style/Theme.AppCompat.DayNight.NoActionBar" />
 
         <!-- 使用说明 Activity（内部使用，不对外暴露） -->
         <activity
             android:name=".HelpActivity"
             android:label="使用说明"
             android:exported="false"
-            android:parentActivityName=".MainActivity" />
+            android:parentActivityName=".MainActivity"
+            android:theme="@style/Theme.AppCompat.DayNight.NoActionBar" />
 
         <!-- 手柄按键测试 Activity（调试用） -->
         <activity
             android:name=".GamepadTestActivity"
             android:label="手柄按键测试"
             android:exported="false"
-            android:parentActivityName=".MainActivity" />
+            android:parentActivityName=".MainActivity"
+            android:theme="@style/Theme.AppCompat.DayNight.NoActionBar" />
 
         <!-- 悬浮窗前台服务 -->
         <service

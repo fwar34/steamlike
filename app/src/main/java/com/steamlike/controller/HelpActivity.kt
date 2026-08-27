@@ -1,6 +1,8 @@
 package com.steamlike.controller
 
+import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -30,6 +32,11 @@ class HelpActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 挖孔屏横屏兜底设置（主方案是自定义标题栏，见 UiKit.titleBar）
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes.layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
         buildUi()
     }
 
@@ -52,7 +59,8 @@ class HelpActivity : AppCompatActivity() {
             setPadding(UiKit.dp(this@HelpActivity, 16), UiKit.dp(this@HelpActivity, 16),
                 UiKit.dp(this@HelpActivity, 16), UiKit.dp(this@HelpActivity, 6))
         }
-        header.addView(UiKit.bigTitle(this, "📖 使用说明"))
+        // 自定义标题栏（替代系统 ActionBar：系统 ActionBar 挖孔屏横屏时避让挖孔不贴边）
+        header.addView(UiKit.titleBar(this, "📖 使用说明") { finish() })
         header.addView(UiKit.spacer(this, 4))
         header.addView(UiKit.caption(this, "SteamLike Controller 使用指南（随版本持续更新）", 0xFF888888.toInt(), 11f))
         root.addView(header)

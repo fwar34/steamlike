@@ -76,6 +76,39 @@ object UiKit {
         }
     }
 
+    /**
+     * 自定义标题栏（返回按钮 + 标题）
+     *
+     * 替代系统 ActionBar。系统 ActionBar 在挖孔屏横屏时会避让挖孔区，
+     * 导致标题栏左侧空出避让区（返回箭头/标题不贴边，Android 15+ 强制
+     * edge-to-edge 下 shortEdges 也覆盖不了）。自定义标题栏位于页面内容区内，
+     * 与内容一样从屏幕左缘开始，彻底规避该问题。
+     *
+     * @param title 标题文字
+     * @param onBack 返回按钮点击回调（通常为 finish()）
+     */
+    fun titleBar(context: Context, title: String, onBack: () -> Unit): LinearLayout {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            // 返回按钮（圆角灰底，文字型）
+            addView(TextView(context).apply {
+                text = "‹ 返回"
+                textSize = 15f
+                setTextColor(0xFFFFFFFF.toInt())
+                setPadding(dp(context, 10), dp(context, 6), dp(context, 12), dp(context, 6))
+                background = rounded(context, 0x33444444.toInt(), 8)
+                setOnClickListener { onBack() }
+            })
+            // 标题（占据剩余宽度，左对齐）
+            addView(bigTitle(context, title), LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1f
+            ).apply { marginStart = dp(context, 12) })
+        }
+    }
+
     /** 区块标题（卡片内） */
     fun sectionTitle(context: Context, text: String): TextView {
         return TextView(context).apply {

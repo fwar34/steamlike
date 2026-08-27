@@ -17,6 +17,7 @@ import android.os.Process
 import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Log
+import android.view.WindowManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -133,6 +134,12 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // 挖孔屏横屏兜底设置（本机对系统装饰避让无效，主方案是用自定义标题栏）
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes.layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
 
         // 状态栏深色（与深色界面一致，图标为浅色）
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {

@@ -1,227 +1,263 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  操作层设置 Activity 布局（深色美化版）
+  操作层与操作集设置 Activity 布局（深色美化版）
 
-  布局结构（ScrollView 内垂直 LinearLayout，整页可滚动）:
-  1. 标题文字
+  布局结构（固定标题栏 + 可滚动内容区）:
+  1. 标题栏（自定义，固定不滚动；替代系统 ActionBar，横屏不避让挖孔）
   2. 操作集区域（操作集选择 Spinner + 添加/拷贝/改名/删除按钮）
   3. 操作层选择行（标签 + Spinner）
   4. 层信息行（编辑名称按钮 + 编辑触发按键按钮）
   5. 按键映射标题
-  6. 按键映射列表（NonScrollListView 全展开，随页面整体滚动）
+  6. 按键映射列表（NonScrollListView 全展开，随内容区整体滚动）
   7. 底部保存按钮
 -->
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:orientation="vertical"
     android:background="@drawable/bg_panel"
-    android:fillViewport="true">
+    android:fitsSystemWindows="true">
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="16dp">
-
-    <!-- ===== 标题 ===== -->
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="层与操作集设置"
-        android:textSize="22sp"
-        android:textStyle="bold"
-        android:textColor="#FFFFFFFF"
-        android:paddingBottom="12dp" />
-
-    <!-- ===== 操作集区域 ===== -->
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="操作集（切换时其下所有操作层整体切换）"
-        android:textSize="14sp"
-        android:textColor="#FFFFD54F"
-        android:paddingBottom="4dp" />
-
-    <!-- 操作集选择行（选择即切换当前操作集） -->
+    <!-- ===== 标题栏（固定，不随内容滚动）=====
+         系统 ActionBar 在挖孔屏横屏时会避让挖孔区，标题不贴边；
+         自定义标题栏位于内容区内，随内容从屏幕左缘开始，横屏贴边。 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingBottom="6dp">
+        android:padding="16dp"
+        android:paddingBottom="12dp">
 
+        <!-- 返回按钮 -->
         <TextView
+            android:id="@+id/btn_back"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="当前: "
+            android:text="‹ 返回"
             android:textSize="15sp"
-            android:textColor="#FFDDDDDD" />
-
-        <!-- 操作集下拉选择器（切换操作集） -->
-        <Spinner
-            android:id="@+id/spinner_action_set"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:paddingHorizontal="10dp" />
-    </LinearLayout>
-
-    <!-- 操作集管理按钮行：添加 / 拷贝 / 改名 / 删除 -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:baselineAligned="false"
-        android:paddingBottom="10dp">
-
-        <Button
-            android:id="@+id/btn_action_set_add"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginEnd="3dp"
-            android:text="添加"
             android:textColor="#FFFFFFFF"
-            android:textSize="12sp"
+            android:padding="10dp"
             android:background="@drawable/bg_button" />
 
-        <Button
-            android:id="@+id/btn_action_set_copy"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginEnd="3dp"
-            android:text="拷贝"
-            android:textColor="#FFFFFFFF"
-            android:textSize="12sp"
-            android:background="@drawable/bg_button" />
-
-        <Button
-            android:id="@+id/btn_action_set_rename"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginEnd="3dp"
-            android:text="改名"
-            android:textColor="#FFFFFFFF"
-            android:textSize="12sp"
-            android:background="@drawable/bg_button" />
-
-        <Button
-            android:id="@+id/btn_action_set_delete"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="删除"
-            android:textColor="#FFFFFFFF"
-            android:textSize="12sp"
-            android:background="@drawable/bg_button" />
-    </LinearLayout>
-
-    <!-- ===== 操作层选择行 ===== -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingBottom="8dp">
-
+        <!-- 标题 -->
         <TextView
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:text="选择操作层: "
+            android:layout_weight="1"
+            android:layout_marginStart="12dp"
+            android:text="层与操作集设置"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:textColor="#FFFFFFFF" />
+    </LinearLayout>
+
+    <!-- ===== 可滚动内容区 ===== -->
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingLeft="16dp"
+            android:paddingRight="16dp"
+            android:paddingBottom="16dp">
+
+        <!-- ===== 操作集区域 ===== -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="操作集（切换时其下所有操作层整体切换）"
+            android:textSize="14sp"
+            android:textColor="#FFFFD54F"
+            android:paddingBottom="4dp" />
+
+        <!-- 操作集选择行（选择即切换当前操作集） -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingBottom="6dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="当前: "
+                android:textSize="15sp"
+                android:textColor="#FFDDDDDD" />
+
+            <!-- 操作集下拉选择器（切换操作集） -->
+            <Spinner
+                android:id="@+id/spinner_action_set"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:paddingHorizontal="10dp" />
+        </LinearLayout>
+
+        <!-- 操作集管理按钮行：添加 / 拷贝 / 改名 / 删除 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:baselineAligned="false"
+            android:paddingBottom="10dp">
+
+            <Button
+                android:id="@+id/btn_action_set_add"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginEnd="3dp"
+                android:text="添加"
+                android:textColor="#FFFFFFFF"
+                android:textSize="12sp"
+                android:background="@drawable/bg_button" />
+
+            <Button
+                android:id="@+id/btn_action_set_copy"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginEnd="3dp"
+                android:text="拷贝"
+                android:textColor="#FFFFFFFF"
+                android:textSize="12sp"
+                android:background="@drawable/bg_button" />
+
+            <Button
+                android:id="@+id/btn_action_set_rename"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginEnd="3dp"
+                android:text="改名"
+                android:textColor="#FFFFFFFF"
+                android:textSize="12sp"
+                android:background="@drawable/bg_button" />
+
+            <Button
+                android:id="@+id/btn_action_set_delete"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="删除"
+                android:textColor="#FFFFFFFF"
+                android:textSize="12sp"
+                android:background="@drawable/bg_button" />
+        </LinearLayout>
+
+        <!-- ===== 操作层选择行 ===== -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingBottom="8dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="选择操作层: "
+                android:textSize="16sp"
+                android:textColor="#FFDDDDDD" />
+
+            <!-- 操作层下拉选择器，包含 Common + Layer1-Layer10（使用系统默认风格） -->
+            <Spinner
+                android:id="@+id/spinner_layer"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:paddingHorizontal="10dp" />
+        </LinearLayout>
+
+        <!-- ===== 层信息行（名称 + 切入按键） ===== -->
+        <!-- baselineAligned=false: 文字换行成两行时，Button 会因文本基线对齐被下推导致错位/底部拥挤 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:baselineAligned="false"
+            android:paddingBottom="8dp">
+
+            <!-- 编辑当前操作层名称 -->
+            <Button
+                android:id="@+id/btn_edit_layer_name"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginEnd="4dp"
+                android:text="层名称"
+                android:textColor="#FFFFFFFF"
+                android:background="@drawable/bg_button" />
+
+            <!-- 编辑当前操作层切入按键（公共层 SwitchLayer 映射，Common 层禁用） -->
+            <Button
+                android:id="@+id/btn_edit_trigger"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="4dp"
+                android:text="切入按键"
+                android:textColor="#FFFFFFFF"
+                android:background="@drawable/bg_button" />
+        </LinearLayout>
+
+        <!-- ===== 按键映射列表标题 ===== -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="按键映射（点击编辑）:"
             android:textSize="16sp"
-            android:textColor="#FFDDDDDD" />
+            android:textColor="#FFDDDDDD"
+            android:paddingTop="8dp"
+            android:paddingBottom="4dp" />
 
-        <!-- 操作层下拉选择器，包含 Common + Layer1-Layer10（使用系统默认风格） -->
-        <Spinner
-            android:id="@+id/spinner_layer"
-            android:layout_width="0dp"
+        <!--
+          当前层映射摘要
+          显示当前操作层的名称与已映射按键数量，便于快速了解该层配置。
+        -->
+        <TextView
+            android:id="@+id/text_mapping_summary"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:paddingHorizontal="10dp" />
-    </LinearLayout>
+            android:textSize="12sp"
+            android:textColor="#FF8BC34A"
+            android:paddingBottom="6dp" />
 
-    <!-- ===== 层信息行（名称 + 切入按键） ===== -->
-    <!-- baselineAligned=false: 文字换行成两行时，Button 会因文本基线对齐被下推导致错位/底部拥挤 -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:baselineAligned="false"
-        android:paddingBottom="8dp">
+        <!--
+          按键映射列表
+          显示当前操作层中所有手柄按键的映射情况。
+          使用 NonScrollListView 全展开所有行，由外层 ScrollView 统一接管滚动，
+          避免内容超出屏幕后列表被压缩导致无法滚动。
+        -->
+        <com.steamlike.controller.NonScrollListView
+            android:id="@+id/list_mappings"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_card"
+            android:divider="#33FFFFFF"
+            android:dividerHeight="1dp"
+            android:listSelector="@drawable/list_selector_mapping"
+            android:padding="6dp" />
 
-        <!-- 编辑当前操作层名称 -->
+        <!-- ===== 底部保存按钮 ===== -->
         <Button
-            android:id="@+id/btn_edit_layer_name"
-            android:layout_width="0dp"
+            android:id="@+id/btn_save"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginEnd="4dp"
-            android:text="层名称"
+            android:text="保存配置"
             android:textColor="#FFFFFFFF"
-            android:background="@drawable/bg_button" />
+            android:background="@drawable/bg_button_green"
+            android:layout_marginTop="10dp" />
 
-        <!-- 编辑当前操作层切入按键（公共层 SwitchLayer 映射，Common 层禁用） -->
-        <Button
-            android:id="@+id/btn_edit_trigger"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="4dp"
-            android:text="切入按键"
-            android:textColor="#FFFFFFFF"
-            android:background="@drawable/bg_button" />
-    </LinearLayout>
+        </LinearLayout>
 
-    <!-- ===== 按键映射列表标题 ===== -->
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="按键映射（点击编辑）:"
-        android:textSize="16sp"
-        android:textColor="#FFDDDDDD"
-        android:paddingTop="8dp"
-        android:paddingBottom="4dp" />
+    </ScrollView>
 
-    <!--
-      当前层映射摘要
-      显示当前操作层的名称与已映射按键数量，便于快速了解该层配置。
-    -->
-    <TextView
-        android:id="@+id/text_mapping_summary"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textSize="12sp"
-        android:textColor="#FF8BC34A"
-        android:paddingBottom="6dp" />
-
-    <!--
-      按键映射列表
-      显示当前操作层中所有手柄按键的映射情况。
-      使用 NonScrollListView 全展开所有行，由外层 ScrollView 统一接管滚动，
-      避免内容超出屏幕后列表被压缩导致无法滚动。
-    -->
-    <com.steamlike.controller.NonScrollListView
-        android:id="@+id/list_mappings"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="@drawable/bg_card"
-        android:divider="#33FFFFFF"
-        android:dividerHeight="1dp"
-        android:listSelector="@drawable/list_selector_mapping"
-        android:padding="6dp" />
-
-    <!-- ===== 底部保存按钮 ===== -->
-    <Button
-        android:id="@+id/btn_save"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="保存配置"
-        android:textColor="#FFFFFFFF"
-        android:background="@drawable/bg_button_green"
-        android:layout_marginTop="10dp" />
-
-    </LinearLayout>
-
-</ScrollView>
+</LinearLayout>

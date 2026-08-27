@@ -1,8 +1,10 @@
 package com.steamlike.controller
 
+import android.os.Build
 import android.os.Bundle
 import android.view.MenuItem
 import android.view.MotionEvent
+import android.view.WindowManager
 import android.widget.Button
 import android.widget.GridLayout
 import android.widget.LinearLayout
@@ -45,6 +47,12 @@ class GamepadTestActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // 挖孔屏横屏兜底设置（主方案是自定义标题栏，见 UiKit.titleBar）
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes.layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
+
         steamInput = LayerEditActivity.steamInputRef
         if (steamInput == null) {
             Toast.makeText(this, "服务未启动或初始化未完成", Toast.LENGTH_LONG).show()
@@ -52,17 +60,16 @@ class GamepadTestActivity : AppCompatActivity() {
             return
         }
 
-        supportActionBar?.apply {
-            title = "手柄按键测试"
-            setDisplayHomeAsUpEnabled(true)
-            setDisplayShowHomeEnabled(true)
-        }
-
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(16, 16, 16, 16)
             background = UiKit.rounded(this@GamepadTestActivity, 0xF21C1C1C.toInt(), 0)
+            // Android 15+ 强制 edge-to-edge：让根布局自动按状态栏高度加 padding，避免标题重叠
+            fitsSystemWindows = true
         }
+
+        // 自定义标题栏（替代系统 ActionBar：系统 ActionBar 挖孔屏横屏时避让挖孔不贴边）
+        root.addView(UiKit.titleBar(this, "手柄按键测试") { finish() })
 
         // 状态显示
         val statusLabel = TextView(this).apply {

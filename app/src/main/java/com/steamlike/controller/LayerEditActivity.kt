@@ -330,6 +330,14 @@ class LayerEditActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // 挖孔屏横屏兜底设置：尝试让窗口内容延伸到挖孔区。
+        // 本机 MIUI/Android 16 下对系统装饰避让无效，主方案是使用自定义标题栏
+        // （见 R.id.btn_back），此处作为其它挖孔设备的兜底保留。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes.layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
+
         // 状态栏深色（与深色界面一致，图标为浅色）
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             window.statusBarColor = 0xFF1C1C1C.toInt()
@@ -337,11 +345,9 @@ class LayerEditActivity : AppCompatActivity() {
 
         setContentView(R.layout.activity_layer_edit)
 
-        // 启用 ActionBar 返回箭头（替代边缘滑动返回手势，模拟器/手机上更可靠）
-        supportActionBar?.apply {
-            setDisplayHomeAsUpEnabled(true)
-            setDisplayShowHomeEnabled(true)
-        }
+        // 自定义标题栏返回按钮（替代系统 ActionBar 的返回箭头。
+        // 系统 ActionBar 在挖孔屏横屏时会避让挖孔区导致不贴边，故用自定义标题栏）
+        findViewById<android.widget.TextView>(R.id.btn_back).setOnClickListener { finish() }
 
         // 加载配置（优先服务运行时 profile，否则从配置文件加载，不依赖服务运行）
         profile = loadProfile()
@@ -406,14 +412,11 @@ class LayerEditActivity : AppCompatActivity() {
     }
 
     /**
-     * 处理 ActionBar 菜单项点击
+     * 处理菜单项点击
      *
-     * 处理返回箭头（home）点击，等价于按返回键。
-     *
-     * ## Android 知识点: ActionBar 返回箭头
-     * - `setDisplayHomeAsUpEnabled(true)` 在 ActionBar 左侧显示返回箭头
-     * - 点击箭头会触发 [android.R.id.home] 的 onOptionsItemSelected
-     * - 必须手动调用 finish() 才能返回（不会自动返回）
+     * 兼容处理 android.R.id.home 返回事件（等价于按返回键）。
+     * 当前页面已改用自定义标题栏返回按钮（[R.id.btn_back]），
+     * 不再依赖系统 ActionBar 返回箭头，此处理仅作兼容保留。
      */
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         if (item.itemId == android.R.id.home) {
