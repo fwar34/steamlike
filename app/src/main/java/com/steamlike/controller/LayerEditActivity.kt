@@ -726,6 +726,8 @@ class LayerEditActivity : AppCompatActivity() { // 定义操作层编辑 Activit
         val spinnerActionType = dialogView.findViewById<Spinner>(R.id.spinner_action_type) // 获取动作类型下拉框
         val tvActionLabel = dialogView.findViewById<TextView>(R.id.tv_action_label) // 获取动作值标签文本控件
         val spinnerActionValue = dialogView.findViewById<Spinner>(R.id.spinner_action_value) // 获取动作值下拉框
+        val layoutExtraKey = dialogView.findViewById<LinearLayout>(R.id.layout_extra_key) // 获取「同时按下的按键」区域容器
+        val spinnerExtraKey = dialogView.findViewById<Spinner>(R.id.spinner_extra_key) // 获取「同时按下的按键」下拉框
         val layoutSubCommands = dialogView.findViewById<LinearLayout>(R.id.layout_sub_commands) // 获取子命令区域父容器
         val layoutSubCommandList = dialogView.findViewById<LinearLayout>(R.id.layout_sub_command_list) // 获取子命令列表容器
         val btnAddSubCommand = dialogView.findViewById<Button>(R.id.btn_add_sub_command) // 获取「添加子命令」按钮
@@ -735,9 +737,9 @@ class LayerEditActivity : AppCompatActivity() { // 定义操作层编辑 Activit
 
         // ===== 设置动作类型 Spinner =====
         // 0=未设置(取消映射), 1=键盘按键, 2=鼠标点击, 3=鼠标长按, 4=切换操作层,
-        // 5=滚轮上滚, 6=滚轮下滚, 7=切换悬浮窗, 8=切换键盘, 9=切换捕获
+        // 5=滚轮上滚, 6=滚轮下滚, 7=切换悬浮窗, 8=切换键盘, 9=切换捕获, 10=切换层+按键
         val actionTypes = listOf("未设置", "键盘按键", "鼠标点击", "鼠标长按", "切换操作层", // 定义动作类型选项列表（语法：listOf=列表工厂）
-            "滚轮上滚", "滚轮下滚", "切换悬浮窗", "切换键盘", "切换捕获") // 动作类型列表续行（共 10 种）
+            "滚轮上滚", "滚轮下滚", "切换悬浮窗", "切换键盘", "切换捕获", "切换层+按键") // 动作类型列表续行（共 11 种）
         // 设置动作类型下拉框的适配器（语法：ArrayAdapter=数组适配器，also{}=作用域函数）
         spinnerActionType.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, actionTypes).also {
             it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) // 设置下拉展开项的布局资源
@@ -749,6 +751,7 @@ class LayerEditActivity : AppCompatActivity() { // 定义操作层编辑 Activit
             is MappedAction.MouseClick -> 2 // 鼠标点击动作 → 类型 2
             is MappedAction.MouseToggle -> 3 // 鼠标长按动作 → 类型 3
             is MappedAction.SwitchLayer -> 4 // 切换层动作 → 类型 4
+            is MappedAction.SwitchLayerAndKey -> 10 // 切层+按键动作 → 类型 10
             is MappedAction.MouseScrollUp -> 5 // 滚轮上滚动作 → 类型 5
             is MappedAction.MouseScrollDown -> 6 // 滚轮下滚动作 → 类型 6
             is MappedAction.ToggleOverlay -> 7 // 切换悬浮窗动作 → 类型 7
@@ -760,6 +763,11 @@ class LayerEditActivity : AppCompatActivity() { // 定义操作层编辑 Activit
 
         // 先设置动作值 Spinner 的适配器（基于初始类型）
         setupActionValueSpinner(spinnerActionValue, tvActionLabel, initialActionType) // 按初始类型初始化动作值下拉框的选项
+
+        // 设置「同时按下的按键」下拉框的适配器（固定为键盘按键列表，仅切层+按键类型使用）
+        spinnerExtraKey.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, keyboardKeyOptions.map { it.first }).also {
+            it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) // 设置下拉展开项的布局资源
+        } // 结束 also 块
 
         // 设置初始动作类型选择
         spinnerActionType.setSelection(initialActionType) // 设置动作类型下拉框的初始选中项
@@ -782,6 +790,12 @@ class LayerEditActivity : AppCompatActivity() { // 定义操作层编辑 Activit
                 val pos = layerNames.indexOfFirst { it == action.layerName } // 查找与目标层名匹配的选项下标
                 if (pos >= 0) spinnerActionValue.setSelection(pos) // 找到则设置选中项
             } // 结束切换层分支
+            is MappedAction.SwitchLayerAndKey -> { // 若为切层+按键动作
+                val pos = layerNames.indexOfFirst { it == action.layerName } // 查找与目标层名匹配的选项下标
+                if (pos >= 0) spinnerActionValue.setSelection(pos) // 找到则设置目标层选中项
+                val keyPos = keyboardKeyOptions.indexOfFirst { it.second == action.keyCode } // 查找与同时按键 KeyCode 匹配的选项下标
+                if (keyPos >= 0) spinnerExtraKey.setSelection(keyPos) // 找到则设置额外按键选中项
+            } // 结束切层+按键分支
             else -> {} // 其它类型无需设置初始动作值
         } // 结束初始动作值设置 when 块
 
@@ -798,7 +812,7 @@ class LayerEditActivity : AppCompatActivity() { // 定义操作层编辑 Activit
         } // 结束已有子命令遍历
         updateAddSubCommandButton(btnAddSubCommand, subCommandSpinners.size) // 更新「添加子命令」按钮的文字与可用状态
 
-        // 子命令区域可见性（未设置/切换操作层/滚轮/悬浮窗/键盘/捕获时隐藏）
+        // 子命令区域可见性（未设置/切换操作层/滚轮/悬浮窗/键盘/捕获时隐藏；切层+按键类型支持子命令故显示）
         layoutSubCommands.visibility = // 设置子命令区域可见性（跨行赋值）
             if (initialActionType == 0 || initialActionType == 4 || // 若初始类型为未设置(0)或切换层(4)（跨行条件）
                 initialActionType == 5 || initialActionType == 6 || // 或为滚轮上滚(5)、滚轮下滚(6)
@@ -806,17 +820,22 @@ class LayerEditActivity : AppCompatActivity() { // 定义操作层编辑 Activit
                 initialActionType == 9) // 或为切换捕获(9)
                 View.GONE else View.VISIBLE // 上述类型隐藏子命令区，否则显示（语法：if...else 表达式，View.GONE=隐藏且不占位）
 
+        // 额外按键区域仅「切换层+按键」类型显示
+        layoutExtraKey.visibility = if (initialActionType == 10) View.VISIBLE else View.GONE // 仅切层+按键类型显示附加按键区
+
         // ===== 动作类型切换监听器 =====
         // 用户切换动作类型时，更新动作值 Spinner 的选项
         spinnerActionType.onItemSelectedListener = object : AdapterView.OnItemSelectedListener { // 设置动作类型下拉框选择监听：匿名对象实现接口（语法：object:接口=匿名对象）
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) { // 覆写：动作类型切换时回调（语法：override=覆写）
                 // 重新设置动作值 Spinner 的选项
                 setupActionValueSpinner(spinnerActionValue, tvActionLabel, position) // 按新类型重建动作值下拉框的选项
-                // 未设置/切换操作层/滚轮/悬浮窗/键盘/捕获时隐藏子命令区域
+                // 未设置/切换操作层/滚轮/悬浮窗/键盘/捕获时隐藏子命令区域（切层+按键类型支持子命令故显示）
                 layoutSubCommands.visibility = // 设置子命令区域可见性（跨行赋值）
                     if (position == 0 || position == 4 || position == 5 || position == 6 || // 若类型为未设置/切换层/滚轮上下滚（跨行条件）
                         position == 7 || position == 8 || position == 9) // 或为切换悬浮窗/键盘/捕获
                         View.GONE else View.VISIBLE // 隐藏子命令区，否则显示
+                // 额外按键区域仅「切换层+按键」类型显示
+                layoutExtraKey.visibility = if (position == 10) View.VISIBLE else View.GONE // 仅切层+按键类型显示附加按键区
             } // 结束 onItemSelected 回调
 
             override fun onNothingSelected(parent: AdapterView<*>?) {} // 覆写：无选项选中时回调，空实现
@@ -840,10 +859,11 @@ class LayerEditActivity : AppCompatActivity() { // 定义操作层编辑 Activit
                     layer.buttonMappings.remove(button) // 从映射表移除该按键的映射
                     Log.i(TAG, "Mapping removed: ${buttonDisplayName(button)}") // 打印日志：映射已移除（语法：字符串模板）
                 } else { // 否则（选择了具体动作类型）
-                    // 构建动作（actionType-1 映射回 0=键盘/1=鼠标点击/2=鼠标长按/3=切换层）
+                    // 构建动作（actionType-1 映射回 0=键盘/1=鼠标点击/2=鼠标长按/3=切换层/9=切层+按键）
                     val action = buildAction( // 调用构建动作函数（跨行参数）
                         actionType - 1, // 动作类型减去 1 还原为构建函数使用的索引
-                        spinnerActionValue.selectedItemPosition // 动作值下拉框当前选中位置
+                        spinnerActionValue.selectedItemPosition, // 动作值下拉框当前选中位置
+                        spinnerExtraKey.selectedItemPosition // 附加按键下拉框当前选中位置（仅切层+按键类型生效）
                     ) // 结束 buildAction 调用
                     // 收集子命令（跳过"无"选项）
                     val subCommands = collectSubCommands(subCommandSpinners) // 收集所有已选子命令 KeyCode
@@ -1083,6 +1103,9 @@ class LayerEditActivity : AppCompatActivity() { // 定义操作层编辑 Activit
                         val action = mapping.action // 取出映射动作
                         if (action is MappedAction.SwitchLayer && action.layerName == oldName) { // 若是切层动作且目标为旧层名（语法：is=类型判断，&&=逻辑与）
                             newMap[button] = mapping.copy(action = MappedAction.SwitchLayer(name)) // 更新副本中的映射目标为新层名（语法：copy=数据类拷贝）
+                            changed = true // 标记发生修改
+                        } else if (action is MappedAction.SwitchLayerAndKey && action.layerName == oldName) { // 若是切层+按键动作且目标为旧层名
+                            newMap[button] = mapping.copy(action = MappedAction.SwitchLayerAndKey(name, action.keyCode)) // 更新副本中的目标层名（按键不变）（语法：copy=数据类拷贝）
                             changed = true // 标记发生修改
                         } // 结束切层目标判断
                     } // 结束映射遍历
@@ -1513,6 +1536,10 @@ class LayerEditActivity : AppCompatActivity() { // 定义操作层编辑 Activit
                 label.text = "选择目标层:" // 更新动作标签文字
                 layerNames // 返回所有层名称作为选项
             } // 结束切换层分支
+            10 -> {  // 切换层+按键 // 切层+按键类型分支
+                label.text = "选择目标层:" // 更新动作标签文字
+                layerNames // 返回所有层名称作为选项
+            } // 结束切层+按键分支
             5 -> {  // 滚轮上滚 // 滚轮上滚类型分支
                 label.text = "按下时发送滚轮上滚事件" // 更新动作标签文字
                 listOf("（滚轮上滚）") // 返回占位选项
@@ -1545,11 +1572,12 @@ class LayerEditActivity : AppCompatActivity() { // 定义操作层编辑 Activit
     /**
      * 根据动作类型和选中位置构建 [MappedAction]
      *
-     * @param actionType 动作类型 (0=键盘, 1=鼠标点击, 2=鼠标长按, 3=切换层)
+     * @param actionType 动作类型 (0=键盘, 1=鼠标点击, 2=鼠标长按, 3=切换层, 9=切层+按键)
      * @param valuePosition 动作值 Spinner 的选中位置
+     * @param extraValuePosition 附加按键 Spinner 的选中位置（仅切层+按键类型使用，默认 0）
      * @return 对应的 MappedAction 实例
      */
-    private fun buildAction(actionType: Int, valuePosition: Int): MappedAction { // 私有函数：根据动作类型和选中位置构建动作对象
+    private fun buildAction(actionType: Int, valuePosition: Int, extraValuePosition: Int = 0): MappedAction { // 私有函数：根据动作类型和选中位置构建动作对象
         return when (actionType) { // 按动作类型返回对应动作（语法：when=分支表达式）
             0 -> {  // 键盘按键 // 键盘按键动作
                 MappedAction.KeyboardKey(keyboardKeyOptions[valuePosition].second) // 用所选 KeyCode 构建键盘按键动作
@@ -1563,6 +1591,12 @@ class LayerEditActivity : AppCompatActivity() { // 定义操作层编辑 Activit
             3 -> {  // 切换操作层 // 切换操作层动作
                 MappedAction.SwitchLayer(layerNames[valuePosition]) // 用所选目标层名构建切层动作
             } // 结束切层动作分支
+            9 -> {  // 切换层+按键 // 切层+按键动作
+                MappedAction.SwitchLayerAndKey( // 构建切层+按键动作（跨行参数）
+                    layerNames[valuePosition], // 目标层名（动作值下拉框选中项）
+                    keyboardKeyOptions[extraValuePosition].second // 同时按下的键盘键码（附加按键下拉框选中项）
+                ) // 结束 SwitchLayerAndKey 构造
+            } // 结束切层+按键分支
             4 -> MappedAction.MouseScrollUp   // 滚轮上滚 // 滚轮上滚动作
             5 -> MappedAction.MouseScrollDown  // 滚轮下滚 // 滚轮下滚动作
             6 -> MappedAction.ToggleOverlay   // 切换悬浮窗 // 切换悬浮窗动作

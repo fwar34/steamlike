@@ -70,6 +70,22 @@ sealed class MappedAction { // 映射动作密封类（语法：sealed class 密
     data class SwitchLayer(val layerName: String) : MappedAction() // 切换操作层动作
 
     /**
+     * 切换操作层 + 按键映射同时生效动作
+     *
+     * 按下时同时做两件事:
+     * 1. 激活目标操作层（与 [SwitchLayer] 相同）
+     * 2. 注入一个键盘按键按下（与 [KeyboardKey] 相同，由 BridgeInputInjector 转换为 VK 码注入）
+     *
+     * 松开时: 停用目标层 + 注入该按键松开，两者同时结束。
+     * 用于"按住切层键的同时还按住某个键"的场景，例如按住 D-Pad 上切换到战斗层
+     * 的同时按住 Ctrl（切层 + 组合键同时生效）。
+     *
+     * @param layerName 目标层名称（如 "Layer1"、"Combat"）
+     * @param keyCode Android [KeyEvent.KEYCODE_*] 常量（按下切层时同时按下的键盘键）
+     */
+    data class SwitchLayerAndKey(val layerName: String, val keyCode: Int) : MappedAction() // 切换层+按键同时生效动作
+
+    /**
      * 鼠标移动动作（摇杆专用）
      *
      * 将摇杆映射为鼠标相对移动，用于控制光标位置。
@@ -186,6 +202,7 @@ data class KeyMapping( // 按键映射定义（语法：data class 数据类）
             is MappedAction.KeyboardKey -> parts.add(keyCodeToName(action.keyCode)) // 键盘键：加入按键名（语法：is 类型判断分支）
             is MappedAction.MouseClick -> parts.add(action.button.toDisplayName()) // 鼠标点击：加入按钮名
             is MappedAction.SwitchLayer -> parts.add("切换→${action.layerName}") // 层切换：加入目标层名
+            is MappedAction.SwitchLayerAndKey -> parts.add("切换→${action.layerName}+${keyCodeToName(action.keyCode)}") // 层切换+按键：加入目标层名和按键名
             is MappedAction.MouseMove -> parts.add("鼠标移动") // 鼠标移动描述
             is MappedAction.LookAround -> parts.add("视角控制") // 视角控制描述
             is MappedAction.MouseToggle -> parts.add("长按${action.button.toDisplayName()}") // 鼠标长按描述

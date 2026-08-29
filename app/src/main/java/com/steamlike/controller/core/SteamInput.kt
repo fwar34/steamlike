@@ -84,6 +84,14 @@ class SteamInput(context: Context) { // 主控制器类（语法：class 声明�
     private val buttonTriggeredLayers = mutableMapOf<ControllerButton, OperationLayer>() // 按键触发层切换记录表（语法：mutableMapOf 可变 Map + 键/值泛型）
 
     /**
+     * 「切层+按键」类型按下时缓存的原始映射
+     *
+     * [MappedAction.SwitchLayerAndKey] 按下时记录原映射，松开时（经过 [buttonTriggeredLayers]
+     * 提前停层返回路径）仍需用它注入按键松开，否则同时按下的键盘键会卡住。
+     */
+    private val switchLayerAndKeyMappings = mutableMapOf<ControllerButton, KeyMapping>() // 切层+按键类型缓存映射表
+
+    /**
      * 控制器配置（公共层 + 操作层 + 全局设置）
      *
      * 由外部通过 [loadProfile] 加载，包含所有按键映射定义。
@@ -308,6 +316,7 @@ class SteamInput(context: Context) { // 主控制器类（语法：class 声明�
     fun deactivateAllLayers() { // 停用所有操作层
         activeLayers.clear() // 清空激活列表
         buttonTriggeredLayers.clear() // 清空层切换触发记录
+        switchLayerAndKeyMappings.clear() // 清空切层+按键缓存映射
         activeLayerName = "Common" // 激活层名回到公共层
         onLayerChanged?.invoke(activeLayerName) // 触发层变化回调
     } // 结束 deactivateAllLayers 函数
@@ -627,6 +636,11 @@ class SteamInput(context: Context) { // 主控制器类（语法：class 声明�
             val triggeredLayer = buttonTriggeredLayers.remove(button) // 取出并移除该按钮的触发层记录
             if (triggeredLayer != null) { // 曾触发过层切换则停用
                 deactivateLayer(triggeredLayer) // 停用对应操作层
+                // 「切层+按键」类型：停用层后还需注入按键松开，避免同时按下的键盘键卡住
+                val savedMapping = switchLayerAndKeyMappings.remove(button) // 取出缓存的切层+按键原映射
+                if (savedMapping != null) { // 存在缓存映射则注入按键松开
+                    onButtonMapped?.invoke(button, false, savedMapping) // 触发映射回调，注入按键松开
+                } // 结束缓存映射判断
                 return // 提前返回
             } // 结束 if
         } // 结束松开分支
@@ -648,6 +662,21 @@ class SteamInput(context: Context) { // 主控制器类（语法：class 声明�
                     } // 结束目标层存在判断
                 } // 结束捕获判断
             } // 结束 SwitchLayer 分支
+            is MappedAction.SwitchLayerAndKey -> { // 切层+按键同时生效分支（语法：is 类型判断分支）
+                // 暂停时不处理层切换
+                if (isCapturing) { // 捕获中才处理层切换
+                    val targetLayer = profile.findLayer(action.layerName) // 查找目标操作层
+                    if (targetLayer != null) { // 目标层存在
+                        if (isPressed) { // 按下时激活目标层并缓存原映射
+                            activateLayer(targetLayer) // 激活目标层
+                            buttonTriggeredLayers[button] = targetLayer // 记录按钮与层的触发关系
+                            switchLayerAndKeyMappings[button] = mapping // 缓存原映射供松开时注入按键
+                        } // 结束按下分支
+                    } // 结束目标层存在判断
+                } // 结束捕获判断
+                // 同时注入键盘按键（与 KeyboardKey 相同的注入路径）
+                onButtonMapped?.invoke(button, isPressed, mapping) // 触发映射回调，交由外部注入按键
+            } // 结束 SwitchLayerAndKey 分支
             else -> { // 其他动作分支
                 // 键盘/鼠标动作 → 通知外部注入
                 onButtonMapped?.invoke(button, isPressed, mapping) // 触发映射回调，交由外部注入

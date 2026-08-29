@@ -86,6 +86,38 @@
             android:paddingHorizontal="10dp"
             android:paddingBottom="14dp" />
 
+        <!-- ===== 「切层+按键」类型的附加按键区域 ===== -->
+        <!-- 仅当动作类型选择「切换层+按键」时显示；用于选择切层的同时注入的键盘按键 -->
+        <!-- 语法：LinearLayout 线性布局；附加按键区域容器
+             id=@+id/layout_extra_key：新建附加按键区域容器 id（代码中控制显隐）；layout_width=match_parent：与父容器同宽；
+             layout_height=wrap_content：高度自适应；orientation=vertical：垂直排列（起始标签） -->
+        <LinearLayout
+            android:id="@+id/layout_extra_key"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <!-- 语法：TextView 文本控件；"同时按下的按键:" 标签
+                 layout_width=match_parent：与父容器同宽；layout_height=wrap_content：高度自适应；
+                 text=同时按下的按键:：标签文字；textSize=14sp：字号；textColor=#FFDDDDDD：浅灰 -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="同时按下的按键:"
+                android:textSize="14sp"
+                android:textColor="#FFDDDDDD" />
+
+            <!-- 语法：Spinner 下拉选择器控件；选择切层时同时注入的键盘按键
+                 id=@+id/spinner_extra_key：新建附加按键选择器 id；layout_width=match_parent：与父容器同宽；
+                 layout_height=wrap_content：高度自适应；paddingHorizontal=10dp：水平内边距；paddingBottom=14dp：底部内边距 -->
+            <Spinner
+                android:id="@+id/spinner_extra_key"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingHorizontal="10dp"
+                android:paddingBottom="14dp" />
+        </LinearLayout>  <!-- 结束附加按键区域 -->
+
         <!-- ===== 子命令区域 ===== -->
         <!-- 整个子命令容器，未设置/切换操作层类型时整体隐藏 -->
         <!-- 语法：LinearLayout 线性布局；子命令区域容器
