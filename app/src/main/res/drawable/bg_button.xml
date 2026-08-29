@@ -1,16 +1,16 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>  <!-- XML 声明：版本 1.0，编码 UTF-8 -->
 <!-- 普通功能按钮（圆角，按下变亮） -->
-<selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:state_pressed="true">
-        <shape>
-            <solid android:color="#CC6E6E6E" />
-            <corners android:radius="10dp" />
-        </shape>
-    </item>
-    <item>
-        <shape>
-            <solid android:color="#CC444444" />
-            <corners android:radius="10dp" />
-        </shape>
-    </item>
-</selector>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">  <!-- 语法：selector 状态列表 drawable，根据控件当前状态（按下/默认等）选择不同子项 -->
+    <item android:state_pressed="true">  <!-- 语法：item 状态项；state_pressed=true 表示控件被按下时 -->
+        <shape>  <!-- 语法：shape 形状 drawable，定义图形外观 -->
+            <solid android:color="#CC6E6E6E" />  <!-- 语法：solid 填充色；#CC 为 80% 不透明度，浅灰（按下时变亮） -->
+            <corners android:radius="10dp" />  <!-- 语法：corners 圆角；radius 四个角统一圆角半径 10dp -->
+        </shape>  <!-- 结束 shape -->
+    </item>  <!-- 结束按下态 item -->
+    <item>  <!-- 语法：默认状态 item（不带状态条件，作为兜底） -->
+        <shape>  <!-- 语法：shape 形状 -->
+            <solid android:color="#CC444444" />  <!-- 填充色：80% 不透明度深灰（默认态） -->
+            <corners android:radius="10dp" />  <!-- 圆角 10dp -->
+        </shape>  <!-- 结束 shape -->
+    </item>  <!-- 结束默认态 item -->
+</selector>  <!-- 结束 selector -->

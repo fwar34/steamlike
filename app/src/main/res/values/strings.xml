@@ -1,5 +1,5 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
+<?xml version="1.0" encoding="utf-8"?>  <!-- XML 声明：版本 1.0，编码 UTF-8 -->
+<resources>  <!-- 语法：resources 根节点，容纳全部资源定义 -->
     <!-- 无障碍服务描述：系统无障碍设置界面显示 -->
-    <string name="accessibility_service_description">在暂停捕获后继续接收手柄按键，使"切换捕获"按键仍能恢复捕获。不读取屏幕内容，不执行任何手势。</string>
-</resources>
+    <string name="accessibility_service_description">在暂停捕获后继续接收手柄按键，使"切换捕获"按键仍能恢复捕获。不读取屏幕内容，不执行任何手势。</string>  <!-- 语法：<string name="资源名">定义字符串资源；代码/资源中通过 @string/资源名 或 R.string.资源名 引用 -->
+</resources>  <!-- 结束 resources 节点 -->

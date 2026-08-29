@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>  <!-- XML 声明：版本 1.0，编码 UTF-8 -->
 <!--
   编辑按键映射的对话框布局（深色美化版）
 
@@ -11,12 +11,18 @@
   4. 子命令区域（最多3个键盘按键选择，未设置/切换操作层时隐藏）
   5. 添加子命令按钮（子命令未满3个时显示）
 -->
+<!-- 语法：ScrollView 可滚动容器（对话框内容超高时可滚动）；xmlns:android 声明 android 命名空间
+     layout_width=match_parent：与父容器同宽；layout_height=wrap_content：高度随内容自适应；
+     maxHeight=480dp：最大高度 480dp（超出后启用滚动）；background=@drawable/bg_panel：深色面板背景 -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:maxHeight="480dp"
     android:background="@drawable/bg_panel">
 
+    <!-- 语法：LinearLayout 线性布局；对话框内容垂直容器
+         layout_width=match_parent：与父容器同宽；layout_height=wrap_content：高度自适应；
+         orientation=vertical：垂直排列；padding=20dp：内边距 20dp -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -24,6 +30,10 @@
         android:padding="20dp">
 
         <!-- ===== 正在编辑的按键名称 ===== -->
+        <!-- 语法：TextView 文本控件；显示正在编辑的手柄按键名称
+             id=@+id/tv_button_name：新建按键名称文本 id（代码中动态设置）；layout_width=match_parent：与父容器同宽；
+             layout_height=wrap_content：高度自适应；textSize=18sp：字号；textStyle=bold：加粗；
+             textColor=#FFFFFFFF：白色；paddingBottom=14dp：底部内边距 -->
         <TextView
             android:id="@+id/tv_button_name"
             android:layout_width="match_parent"
@@ -34,6 +44,9 @@
             android:paddingBottom="14dp" />
 
         <!-- ===== 动作类型选择 ===== -->
+        <!-- 语法：TextView 文本控件；"动作类型:" 标签
+             layout_width=match_parent：与父容器同宽；layout_height=wrap_content：高度自适应；
+             text=动作类型:：标签文字；textSize=14sp：字号；textColor=#FFDDDDDD：浅灰 -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -41,6 +54,9 @@
             android:textSize="14sp"
             android:textColor="#FFDDDDDD" />
 
+        <!-- 语法：Spinner 下拉选择器控件；选择动作类型（未设置/键盘/鼠标点击/鼠标长按/切换操作层）
+             id=@+id/spinner_action_type：新建动作类型选择器 id；layout_width=match_parent：与父容器同宽；
+             layout_height=wrap_content：高度自适应；paddingHorizontal=10dp：水平内边距；paddingBottom=10dp：底部内边距 -->
         <Spinner
             android:id="@+id/spinner_action_type"
             android:layout_width="match_parent"
@@ -49,6 +65,9 @@
             android:paddingBottom="10dp" />
 
         <!-- ===== 动作值选择（根据类型动态切换） ===== -->
+        <!-- 语法：TextView 文本控件；"选择按键:" 标签
+             id=@+id/tv_action_label：新建动作值标签 id（代码中动态改文字）；layout_width=match_parent：与父容器同宽；
+             layout_height=wrap_content：高度自适应；text=选择按键:：标签文字；textSize=14sp：字号；textColor=#FFDDDDDD：浅灰 -->
         <TextView
             android:id="@+id/tv_action_label"
             android:layout_width="match_parent"
@@ -57,6 +76,9 @@
             android:textSize="14sp"
             android:textColor="#FFDDDDDD" />
 
+        <!-- 语法：Spinner 下拉选择器控件；选择具体动作值（如具体按键）
+             id=@+id/spinner_action_value：新建动作值选择器 id；layout_width=match_parent：与父容器同宽；
+             layout_height=wrap_content：高度自适应；paddingHorizontal=10dp：水平内边距；paddingBottom=14dp：底部内边距 -->
         <Spinner
             android:id="@+id/spinner_action_value"
             android:layout_width="match_parent"
@@ -66,12 +88,19 @@
 
         <!-- ===== 子命令区域 ===== -->
         <!-- 整个子命令容器，未设置/切换操作层类型时整体隐藏 -->
+        <!-- 语法：LinearLayout 线性布局；子命令区域容器
+             id=@+id/layout_sub_commands：新建子命令容器 id（代码中控制显隐）；layout_width=match_parent：与父容器同宽；
+             layout_height=wrap_content：高度自适应；orientation=vertical：垂直排列 -->
         <LinearLayout
             android:id="@+id/layout_sub_commands"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
+            <!-- 语法：TextView 文本控件；子命令说明标题
+                 layout_width=match_parent：与父容器同宽；layout_height=wrap_content：高度自适应；
+                 text=子命令（最多3个，组合键）:：标题文字；textStyle=bold：加粗；textColor=#FFDDDDDD：浅灰；
+                 paddingTop=8dp：顶部内边距；paddingBottom=8dp：底部内边距 -->
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -86,6 +115,10 @@
               子命令 Spinner 在代码中动态添加到此容器。
               每个子命令 Spinner 第一项为"无"（表示该位置不设子命令）。
             -->
+            <!-- 语法：LinearLayout 线性布局；子命令动态容器
+                 id=@+id/layout_sub_command_list：新建子命令列表容器 id（代码中动态添加 Spinner）；
+                 layout_width=match_parent：与父容器同宽；layout_height=wrap_content：高度自适应；
+                 orientation=vertical：垂直排列（自闭合标签） -->
             <LinearLayout
                 android:id="@+id/layout_sub_command_list"
                 android:layout_width="match_parent"
@@ -93,6 +126,10 @@
                 android:orientation="vertical" />
 
             <!-- 添加子命令按钮（已满3个时隐藏） -->
+            <!-- 语法：Button 按钮控件；"添加子命令" 按钮
+                 id=@+id/btn_add_sub_command：新建添加子命令按钮 id；layout_width=match_parent：与父容器同宽；
+                 layout_height=wrap_content：高度自适应；text=+ 添加子命令：按钮文字；textColor=#FFFFFFFF：白色；
+                 background=@drawable/bg_button：普通按钮圆角样式 -->
             <Button
                 android:id="@+id/btn_add_sub_command"
                 android:layout_width="match_parent"
@@ -100,7 +137,7 @@
                 android:text="+ 添加子命令"
                 android:textColor="#FFFFFFFF"
                 android:background="@drawable/bg_button" />
-        </LinearLayout>
+        </LinearLayout>  <!-- 结束子命令区域 -->
 
-    </LinearLayout>
-</ScrollView>
+    </LinearLayout>  <!-- 结束对话框内容垂直容器 -->
+</ScrollView>  <!-- 结束 ScrollView -->

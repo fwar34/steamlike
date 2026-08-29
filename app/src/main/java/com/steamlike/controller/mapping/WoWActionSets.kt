@@ -1,4 +1,4 @@
-package com.steamlike.controller.mapping
+package com.steamlike.controller.mapping // 语法：package 包声明，声明本文件所属的包（映射模块）
 
 /**
  * WoW 动作集预设
@@ -21,7 +21,7 @@ package com.steamlike.controller.mapping
  * - Layer9: 旅行 - A→自动跑, B→坐骑
  * - Layer10: 自定义 - 空层(可运行时配置)
  */
-object WoWActionSets {
+object WoWActionSets { // 语法：object 单例对象声明，集中存放 WoW 操作层名称常量
 
     /**
      * 操作层名称映射（层名 → 显示名称）
@@ -29,16 +29,16 @@ object WoWActionSets {
      * 用于悬浮窗 UI 创建层切换按钮。
      * 每个元素是 (内部层名, 中文显示名) 的 Pair。
      */
-    val LAYER_NAMES: List<Pair<String, String>> = listOf(
-        "Layer1" to "战斗",
-        "Layer2" to "骑乘",
-        "Layer3" to "瞄准",
-        "Layer4" to "拾取",
-        "Layer5" to "潜行",
-        "Layer6" to "钓鱼",
-        "Layer7" to "对战",
-        "Layer8" to "团本",
-        "Layer9" to "旅行",
-        "Layer10" to "自定义"
-    )
-}
+    val LAYER_NAMES: List<Pair<String, String>> = listOf( // 语法：val 只读常量，List<Pair<String,String>> 二元组列表，listOf 创建不可变列表
+        "Layer1" to "战斗", // Layer1 显示为「战斗」（语法：to=创建 Pair 二元组）
+        "Layer2" to "骑乘", // Layer2 显示为「骑乘」（语法：to=创建 Pair 二元组）
+        "Layer3" to "瞄准", // Layer3 显示为「瞄准」（语法：to=创建 Pair 二元组）
+        "Layer4" to "拾取", // Layer4 显示为「拾取」（语法：to=创建 Pair 二元组）
+        "Layer5" to "潜行", // Layer5 显示为「潜行」（语法：to=创建 Pair 二元组）
+        "Layer6" to "钓鱼", // Layer6 显示为「钓鱼」（语法：to=创建 Pair 二元组）
+        "Layer7" to "对战", // Layer7 显示为「对战」（语法：to=创建 Pair 二元组）
+        "Layer8" to "团本", // Layer8 显示为「团本」（语法：to=创建 Pair 二元组）
+        "Layer9" to "旅行", // Layer9 显示为「旅行」（语法：to=创建 Pair 二元组）
+        "Layer10" to "自定义" // Layer10 显示为「自定义」（语法：to=创建 Pair 二元组）
+    ) // 结束 listOf 列表
+} // 结束 WoWActionSets 单例对象

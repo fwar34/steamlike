@@ -1,53 +1,53 @@
-plugins {
-    id("com.android.application")
-}
+plugins {  // 语法：plugins{} 块，声明本模块需要应用的 Gradle 插件
+    id("com.android.application")  // 语法：id(...) 应用 Android 应用插件（AGP），用于构建 APK
+}  // 结束 plugins 块
 
-android {
-    namespace = "com.steamlike.controller"
-    compileSdk = 37
+android {  // 语法：android{} 块，Android 应用模块的配置入口
+    namespace = "com.steamlike.controller"  // 命名空间：包名，用于生成 R 类与 BuildConfig 类的包路径
+    compileSdk = 37  // 语法：compileSdk 编译所用的 Android SDK 版本（37）
 
-    defaultConfig {
-        applicationId = "com.steamlike.controller"
-        minSdk = 24
-        targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.7"
-    }
+    defaultConfig {  // 语法：defaultConfig{} 块，定义应用默认配置（所有构建类型共享）
+        applicationId = "com.steamlike.controller"  // 应用唯一 ID（即安装包名）
+        minSdk = 24  // 语法：minSdk 最低支持 Android 版本（Android 7.0）
+        targetSdk = 37  // 语法：targetSdk 目标 Android 版本（37，决定系统兼容行为）
+        versionCode = 1  // 内部版本号（整数，用于版本比较/升级判断）
+        versionName = "0.1.7"  // 对外显示的版本名称
+    }  // 结束 defaultConfig 块
 
-    buildTypes {
-        release {
-            isMinifyEnabled = false
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-        }
-    }
+    buildTypes {  // 语法：buildTypes{} 块，配置各构建类型（debug/release 等）
+        release {  // release：发布版构建配置
+            isMinifyEnabled = false  // 是否启用代码混淆与压缩（false = 不启用）
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")  // 语法：proguardFiles(...) 指定混淆规则文件（Android 默认优化规则 + 项目自定义规则）
+        }  // 结束 release 块
+    }  // 结束 buildTypes 块
 
     // 生成 BuildConfig（用于在界面显示 versionName）
-    buildFeatures {
-        buildConfig = true
-    }
+    buildFeatures {  // 语法：buildFeatures{} 块，开关各类构建特性
+        buildConfig = true  // 开启生成 BuildConfig 类（代码中可读取 VERSION_NAME 等常量）
+    }  // 结束 buildFeatures 块
 
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
-    }
+    compileOptions {  // 语法：compileOptions{} 块，配置 Java 编译选项
+        sourceCompatibility = JavaVersion.VERSION_1_8  // Java 源码兼容版本设为 1.8
+        targetCompatibility = JavaVersion.VERSION_1_8  // 生成字节码的目标版本设为 1.8
+    }  // 结束 compileOptions 块
 
-    kotlin {
-        compilerOptions {
-            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8)
-        }
-    }
-}
+    kotlin {  // 语法：kotlin{} 块，配置 Kotlin 编译相关选项
+        compilerOptions {  // 语法：compilerOptions{} 块，Kotlin 编译器选项
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8)  // 语法：jvmTarget.set(...) 设置 Kotlin 编译目标为 JVM 1.8（与 Java 版本保持一致）
+        }  // 结束 compilerOptions 块
+    }  // 结束 kotlin 块
+}  // 结束 android 块
 
-dependencies {
-    implementation("androidx.core:core-ktx:1.12.0")
-    implementation("androidx.appcompat:appcompat:1.6.1")
-    implementation("com.google.android.material:material:1.11.0")
-    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
+dependencies {  // 语法：dependencies{} 块，声明本模块的依赖
+    implementation("androidx.core:core-ktx:1.12.0")  // 语法：implementation(...) 声明编译期+运行期可见的依赖；androidx 核心 Kotlin 扩展库
+    implementation("androidx.appcompat:appcompat:1.6.1")  // AppCompat 兼容库（提供兼容 ActionBar/主题）
+    implementation("com.google.android.material:material:1.11.0")  // Material 设计组件库
+    implementation("androidx.constraintlayout:constraintlayout:2.1.4")  // ConstraintLayout 约束布局库
 
     // 单元测试依赖
-    testImplementation("junit:junit:4.13.2")
-    testImplementation("org.json:json:20240303")
-}
+    testImplementation("junit:junit:4.13.2")  // 语法：testImplementation(...) 仅测试源码可见的依赖；JUnit 4 单元测试框架
+    testImplementation("org.json:json:20240303")  // JVM 版 JSON 库（测试用；Android 自带 org.json 但纯 JVM 测试需要此依赖）
+}  // 结束 dependencies 块
 
 // ====================================================================
 // Windows 客户端预编译任务
@@ -61,84 +61,86 @@ dependencies {
 // 如 gcc 不可用，exe 编译跳过（使用 assets 中已有的 exe），脚本仍会同步。
 // ====================================================================
 
-tasks.register("compileWindowsExe") {
-    group = "build"
-    description = "Compiles Windows inputbridge_client.exe and syncs scripts to assets"
+tasks.register("compileWindowsExe") {  // 语法：tasks.register("任务名"){...} 注册自定义 Gradle 任务（在 APK 编译前自动执行）
+    group = "build"  // 任务分组：build（在 gradlew tasks 列表中归入 build 组）
+    description = "Compiles Windows inputbridge_client.exe and syncs scripts to assets"  // 任务说明（显示在 gradlew tasks 列表）
 
-    val sourceFile = rootProject.file("windows/inputbridge_client.c")
-    val outputExe = rootProject.file("windows/inputbridge_client.exe")
-    val assetsExe = file("src/main/assets/inputbridge_client.exe")
-    val controlSource = rootProject.file("windows/control.bat")
-        val assetsControl = file("src/main/assets/control.bat")
-        val controlPs1Source = rootProject.file("windows/control.ps1")
-        val assetsPs1Control = file("src/main/assets/control.ps1")
+    val sourceFile = rootProject.file("windows/inputbridge_client.c")  // 语法：val 声明只读变量；rootProject.file(...) 定位根项目下的 C 源码文件
+    val outputExe = rootProject.file("windows/inputbridge_client.exe")  // 定位编译输出 exe 的路径（windows 目录下）
+    val assetsExe = file("src/main/assets/inputbridge_client.exe")  // 定位 APK assets 中的 exe 目标路径（file() 相对当前模块）
+    val controlSource = rootProject.file("windows/control.bat")  // 定位根项目下 control.bat 源脚本
+        val assetsControl = file("src/main/assets/control.bat")  // 定位 APK assets 中 control.bat 的目标路径
+        val controlPs1Source = rootProject.file("windows/control.ps1")  // 定位根项目下 control.ps1 源脚本
+        val assetsPs1Control = file("src/main/assets/control.ps1")  // 定位 APK assets 中 control.ps1 的目标路径
 
     // 搜索 gcc 路径
-    val gccCandidates = listOf(
-        "M:/msys64/ucrt64/bin/gcc.exe",
-        "C:/msys64/ucrt64/bin/gcc.exe",
-        "C:/MinGW/bin/gcc.exe"
-    )
-    val systemPath = System.getenv("PATH") ?: ""
-    val pathGcc = systemPath.split(File.pathSeparator)
-        .map { File(it, "gcc.exe") }
-        .firstOrNull { it.exists() }
-    val gccPath = gccCandidates.map { File(it) }.firstOrNull { it.exists() } ?: pathGcc
+    val gccCandidates = listOf(  // 语法：listOf(...) 创建不可变列表；列出常见的 gcc 安装位置候选
+        "M:/msys64/ucrt64/bin/gcc.exe",  // MinGW gcc 候选路径 1
+        "C:/msys64/ucrt64/bin/gcc.exe",  // MinGW gcc 候选路径 2
+        "C:/MinGW/bin/gcc.exe"  // MinGW gcc 候选路径 3
+    )  // 结束 gccCandidates 列表
+    val systemPath = System.getenv("PATH") ?: ""  // 读取系统环境变量 PATH，为空时回退为空字符串（?: 为 Kotlin 空安全 Elvis 运算符）
+    val pathGcc = systemPath.split(File.pathSeparator)  // 语法：split(...) 按路径分隔符（Windows 为 ;）拆分 PATH
+        .map { File(it, "gcc.exe") }  // 语法：map{...} 将每个目录路径转换为 File(目录, "gcc.exe")
+        .firstOrNull { it.exists() }  // 取第一个真实存在的 gcc.exe，全部不存在则返回 null
+    val gccPath = gccCandidates.map { File(it) }.firstOrNull { it.exists() } ?: pathGcc  // 先在候选路径中找存在的 gcc，找不到再回退到 PATH 中的；整体仍可能为 null
 
-    doLast {
+    doLast {  // 语法：doLast{} 块，任务执行阶段的末尾执行其中代码（真正干活的动作）
         // 1. 编译 exe（gcc 可用时）
-        if (gccPath == null || !gccPath.exists()) {
+        if (gccPath == null || !gccPath.exists()) {  // 语法：if 条件分支；若未找到 gcc 或文件不存在
+            // 警告日志：跳过 exe 编译，沿用 assets 中已有的 inputbridge_client.exe
             logger.warn("gcc not found, skipping Windows exe compilation. Using existing assets/inputbridge_client.exe")
-        } else {
-            logger.lifecycle("Compiling Windows exe with: ${gccPath.absolutePath}")
+        } else {  // 否则（找到了可用的 gcc）
+            logger.lifecycle("Compiling Windows exe with: ${gccPath.absolutePath}")  // 输出生命周期日志：正在使用哪个 gcc 编译
 
             // 确保输出目录存在
-            outputExe.parentFile.mkdirs()
-            assetsExe.parentFile.mkdirs()
+            outputExe.parentFile.mkdirs()  // 创建 exe 输出目录（不存在时）
+            assetsExe.parentFile.mkdirs()  // 创建 assets 目录（不存在时）
 
             // 执行编译命令
-            val cmd = listOf(
-                gccPath.absolutePath,
-                "-O2",
-                "-o", outputExe.absolutePath,
-                sourceFile.absolutePath,
-                "-lws2_32", "-luser32"
-            )
-            val process = ProcessBuilder(cmd).redirectErrorStream(true).start()
-            val output = process.inputStream.bufferedReader().readText()
-            val exitCode = process.waitFor()
-            if (exitCode != 0) {
+            val cmd = listOf(  // 语法：listOf(...) 组装编译命令的参数列表
+                gccPath.absolutePath,  // gcc 可执行文件路径
+                "-O2",  // 优化级别：O2 优化
+                "-o", outputExe.absolutePath,  // -o 指定输出文件路径
+                sourceFile.absolutePath,  // 待编译的 C 源码路径
+                "-lws2_32", "-luser32"  // 链接 Windows 网络库 ws2_32 与用户界面库 user32
+            )  // 结束命令参数列表
+            val process = ProcessBuilder(cmd).redirectErrorStream(true).start()  // 语法：ProcessBuilder 启动子进程执行命令，redirectErrorStream(true) 合并标准输出与错误流
+            val output = process.inputStream.bufferedReader().readText()  // 读取子进程的全部输出文本
+            val exitCode = process.waitFor()  // 等待子进程结束并获取退出码（0 表示成功）
+            if (exitCode != 0) {  // 若编译失败（退出码非 0）
+                // 警告日志：编译失败，沿用已有 exe，并附上编译输出
                 logger.warn("gcc compilation failed (exit=$exitCode), using existing exe. Output:\n$output")
-            } else {
-                logger.lifecycle("Windows exe compiled: ${outputExe.absolutePath} (${outputExe.length()} bytes)")
+            } else {  // 编译成功
+                logger.lifecycle("Windows exe compiled: ${outputExe.absolutePath} (${outputExe.length()} bytes)")  // 日志：exe 编译完成及字节数
 
                 // 复制到 assets
-                outputExe.copyTo(assetsExe, overwrite = true)
-                logger.lifecycle("Copied to assets: ${assetsExe.absolutePath}")
-            }
-        }
+                outputExe.copyTo(assetsExe, overwrite = true)  // 语法：copyTo(目标, overwrite=true) 复制 exe 到 assets，存在则覆盖
+                logger.lifecycle("Copied to assets: ${assetsExe.absolutePath}")  // 日志：已复制到 assets
+            }  // 结束编译成功分支
+        }  // 结束 gcc 可用分支
 
         // 2. 始终同步 control.bat 脚本到 assets（保证 APK 内脚本与源码一致）
-        if (controlSource.exists()) {
-            assetsControl.parentFile.mkdirs()
-            controlSource.copyTo(assetsControl, overwrite = true)
-            logger.lifecycle("Copied control.bat to assets: ${assetsControl.absolutePath}")
-        } else {
-            logger.warn("windows/control.bat not found, keeping existing assets/control.bat")
-        }
+        if (controlSource.exists()) {  // 语法：if 条件判断；若根项目存在 control.bat
+            assetsControl.parentFile.mkdirs()  // 创建 assets 目录（不存在时）
+            controlSource.copyTo(assetsControl, overwrite = true)  // 复制 control.bat 到 assets（覆盖）
+            logger.lifecycle("Copied control.bat to assets: ${assetsControl.absolutePath}")  // 日志：已同步 control.bat
+        } else {  // 源码不存在
+            logger.warn("windows/control.bat not found, keeping existing assets/control.bat")  // 警告日志：保留 assets 中已有的 control.bat
+        }  // 结束 control.bat 同步分支
 
         // 3. 同步 control.ps1 脚本到 assets（保证 APK 内脚本与源码一致）
-        if (controlPs1Source.exists()) {
-            assetsPs1Control.parentFile.mkdirs()
-            controlPs1Source.copyTo(assetsPs1Control, overwrite = true)
-            logger.lifecycle("Copied control.ps1 to assets: ${assetsPs1Control.absolutePath}")
-        } else {
-            logger.warn("windows/control.ps1 not found, keeping existing assets/control.ps1")
-        }
-    }
-}
+        if (controlPs1Source.exists()) {  // 语法：if 条件判断；若根项目存在 control.ps1
+            assetsPs1Control.parentFile.mkdirs()  // 创建 assets 目录（不存在时）
+            controlPs1Source.copyTo(assetsPs1Control, overwrite = true)  // 复制 control.ps1 到 assets（覆盖）
+            logger.lifecycle("Copied control.ps1 to assets: ${assetsPs1Control.absolutePath}")  // 日志：已同步 control.ps1
+        } else {  // 源码不存在
+            logger.warn("windows/control.ps1 not found, keeping existing assets/control.ps1")  // 警告日志：保留 assets 中已有的 control.ps1
+        }  // 结束 control.ps1 同步分支
+    }  // 结束 doLast 块
+}  // 结束 compileWindowsExe 任务
 
 // 在 preBuild 前执行编译
-tasks.named("preBuild") {
-    dependsOn("compileWindowsExe")
-}
+tasks.named("preBuild") {  // 语法：tasks.named("任务名") 获取已存在的任务并对其进行配置
+    dependsOn("compileWindowsExe")  // 语法：dependsOn(...) 声明任务依赖：preBuild 依赖 compileWindowsExe，先编译 exe 再构建
+}  // 结束 preBuild 配置块

@@ -1,4 +1,9 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>  <!-- XML 声明：版本 1.0，编码 UTF-8 -->
+<!-- 语法：accessibility-service 无障碍服务配置根节点（对应 AndroidManifest 中 meta-data 引用的资源）
+     accessibilityEventTypes=typeAllMask：监听所有类型事件；accessibilityFeedbackType=feedbackGeneric：通用反馈；
+     accessibilityFlags=flagDefault：默认行为；canPerformGestures=false：不支持手势（本服务不操作屏幕）；
+     canRetrieveWindowContent=false：不读取窗口内容（保护隐私）；description=@string/accessibility_service_description：服务描述；
+     notificationTimeout=100：事件通知合并上报间隔 100ms -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:accessibilityEventTypes="typeAllMask"
     android:accessibilityFeedbackType="feedbackGeneric"

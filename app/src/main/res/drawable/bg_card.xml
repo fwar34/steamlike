@@ -1,6 +1,6 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>  <!-- XML 声明：版本 1.0，编码 UTF-8 -->
 <!-- 圆角卡片背景（App 内深色卡片） -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <solid android:color="#F22A2A2A" />
-    <corners android:radius="14dp" />
-</shape>
+<shape xmlns:android="http://schemas.android.com/apk/res/android">  <!-- 语法：shape 形状 drawable 根节点 -->
+    <solid android:color="#F22A2A2A" />  <!-- 语法：solid 填充色；#F2 为 95% 不透明度，深灰色 -->
+    <corners android:radius="14dp" />  <!-- 语法：corners 圆角；radius 圆角半径 14dp -->
+</shape>  <!-- 结束 shape -->

@@ -1,6 +1,6 @@
-package com.steamlike.controller.injection
+package com.steamlike.controller.injection  // 声明包名：注入相关类的包
 
-import android.view.KeyEvent
+import android.view.KeyEvent  // 导入 Android 按键事件类（提供 KEYCODE_* 常量）
 
 /**
  * 桥接输入注入器
@@ -30,15 +30,15 @@ import android.view.KeyEvent
  *
  * @param server TCP服务器实例
  */
-class BridgeInputInjector(
-    private val server: InputBridgeServer
-) : InputInjector {
+class BridgeInputInjector(  // 语法：class 声明类；桥接输入注入器实现类
+    private val server: InputBridgeServer  // 语法：val 只读属性；持有 TCP 服务器实例（构造参数注入依赖）
+) : InputInjector {  // 语法：冒号+接口名表示实现该接口
 
     /** 当前按下的键集合（用于releaseAll） */
-    private val pressedKeys = mutableSetOf<Int>()
+    private val pressedKeys = mutableSetOf<Int>()  // 语法：val 只读引用 + 泛型；当前按下的按键 VK 码集合
 
     /** 当前按下的鼠标按钮集合 */
-    private val pressedButtons = mutableSetOf<MouseButton>()
+    private val pressedButtons = mutableSetOf<MouseButton>()  // 语法：val 只读引用 + 泛型；当前按下的鼠标按钮集合
 
     /**
      * 鼠标相对移动的小数余量（X/Y）
@@ -50,61 +50,61 @@ class BridgeInputInjector(
      * 这里把每帧的小数余量累积起来，累计超过 1px 时补发一次，
      * 从而在不改协议的前提下保留亚像素精度。
      */
-    private var mouseRemainderX = 0f
-    private var mouseRemainderY = 0f
+    private var mouseRemainderX = 0f  // 语法：var 可变变量；X 轴位移小数余量累积
+    private var mouseRemainderY = 0f  // 语法：var 可变变量；Y 轴位移小数余量累积
 
-    override fun isAvailable(): Boolean {
+    override fun isAvailable(): Boolean {  // 语法：override 覆写接口方法 + fun 函数；判断注入器是否可用
         // 服务器已启动即可认为注入器可用（客户端是否连接由连接状态另行展示）
-        return server.isRunning()
-    }
+        return server.isRunning()  // 返回 TCP 服务器运行状态
+    }  // 结束 isAvailable 函数
 
     /**
      * 按下键盘按键
      * @param keyCode Android KeyEvent.KEYCODE_* 常量
      */
-    override fun sendKeyDown(keyCode: Int) {
-        val vkCode = androidKeyCodeToWindowsVK(keyCode)
-        if (vkCode != 0) {
-            pressedKeys.add(vkCode)
-            server.sendKeyEvent(vkCode, isDown = true)
-        }
-    }
+    override fun sendKeyDown(keyCode: Int) {  // 语法：override 覆写；发送键盘按键按下事件
+        val vkCode = androidKeyCodeToWindowsVK(keyCode)  // 语法：val 只读变量；把 Android 按键码转换为 Windows VK 码
+        if (vkCode != 0) {  // 语法：if 条件判断；仅当映射有效（非0）时才发送
+            pressedKeys.add(vkCode)  // 记录该按键处于按下状态
+            server.sendKeyEvent(vkCode, isDown = true)  // 语法：命名参数 isDown=true；经 TCP 发送按键按下事件
+        }  // 结束 if 块
+    }  // 结束 sendKeyDown 函数
 
     /**
      * 释放键盘按键
      * @param keyCode Android KeyEvent.KEYCODE_* 常量
      */
-    override fun sendKeyUp(keyCode: Int) {
-        val vkCode = androidKeyCodeToWindowsVK(keyCode)
-        if (vkCode != 0) {
-            pressedKeys.remove(vkCode)
-            server.sendKeyEvent(vkCode, isDown = false)
-        }
-    }
+    override fun sendKeyUp(keyCode: Int) {  // 语法：override 覆写；发送键盘按键释放事件
+        val vkCode = androidKeyCodeToWindowsVK(keyCode)  // 语法：val 只读变量；把 Android 按键码转换为 Windows VK 码
+        if (vkCode != 0) {  // 语法：if 条件判断；仅当映射有效（非0）时才发送
+            pressedKeys.remove(vkCode)  // 从按下集合中移除该按键
+            server.sendKeyEvent(vkCode, isDown = false)  // 语法：命名参数 isDown=false；经 TCP 发送按键释放事件
+        }  // 结束 if 块
+    }  // 结束 sendKeyUp 函数
 
-    override fun sendMouseDown(button: MouseButton) {
-        val btnId = when (button) {
-            MouseButton.LEFT -> 0
-            MouseButton.RIGHT -> 1
-            MouseButton.MIDDLE -> 2
-            MouseButton.FORWARD -> 3
-            MouseButton.BACK -> 4
-        }
-        pressedButtons.add(button)
-        server.sendMouseButton(btnId, isDown = true)
-    }
+    override fun sendMouseDown(button: MouseButton) {  // 语法：override 覆写；发送鼠标按钮按下事件
+        val btnId = when (button) {  // 语法：val + when 分支表达式；把鼠标按钮枚举映射为协议按钮 ID
+            MouseButton.LEFT -> 0  // 左键映射为 ID 0
+            MouseButton.RIGHT -> 1  // 右键映射为 ID 1
+            MouseButton.MIDDLE -> 2  // 中键映射为 ID 2
+            MouseButton.FORWARD -> 3  // 前进键映射为 ID 3
+            MouseButton.BACK -> 4  // 后退键映射为 ID 4
+        }  // 结束 when 分支
+        pressedButtons.add(button)  // 记录该按钮处于按下状态
+        server.sendMouseButton(btnId, isDown = true)  // 语法：命名参数 isDown=true；经 TCP 发送鼠标按下事件
+    }  // 结束 sendMouseDown 函数
 
-    override fun sendMouseUp(button: MouseButton) {
-        val btnId = when (button) {
-            MouseButton.LEFT -> 0
-            MouseButton.RIGHT -> 1
-            MouseButton.MIDDLE -> 2
-            MouseButton.FORWARD -> 3
-            MouseButton.BACK -> 4
-        }
-        pressedButtons.remove(button)
-        server.sendMouseButton(btnId, isDown = false)
-    }
+    override fun sendMouseUp(button: MouseButton) {  // 语法：override 覆写；发送鼠标按钮释放事件
+        val btnId = when (button) {  // 语法：val + when 分支；把鼠标按钮枚举映射为协议按钮 ID
+            MouseButton.LEFT -> 0  // 左键映射为 ID 0
+            MouseButton.RIGHT -> 1  // 右键映射为 ID 1
+            MouseButton.MIDDLE -> 2  // 中键映射为 ID 2
+            MouseButton.FORWARD -> 3  // 前进键映射为 ID 3
+            MouseButton.BACK -> 4  // 后退键映射为 ID 4
+        }  // 结束 when 分支
+        pressedButtons.remove(button)  // 从按下集合中移除该按钮
+        server.sendMouseButton(btnId, isDown = false)  // 语法：命名参数 isDown=false；经 TCP 发送鼠标释放事件
+    }  // 结束 sendMouseUp 函数
 
     /**
      * 发送鼠标相对移动（带小数余量累积）
@@ -115,48 +115,48 @@ class BridgeInputInjector(
      * @param dx X轴相对位移（像素，右为正）
      * @param dy Y轴相对位移（像素，下为正）
      */
-    override fun sendMouseMove(dx: Float, dy: Float) {
-        mouseRemainderX += dx
-        mouseRemainderY += dy
-        val ix = mouseRemainderX.toInt()
-        val iy = mouseRemainderY.toInt()
-        if (ix == 0 && iy == 0) return  // 累计不足 1px，本帧不发送
-        mouseRemainderX -= ix
-        mouseRemainderY -= iy
-        server.sendMouseMove(ix.toFloat(), iy.toFloat())
-    }
+    override fun sendMouseMove(dx: Float, dy: Float) {  // 语法：override 覆写；发送鼠标相对位移
+        mouseRemainderX += dx  // 累加本次 X 轴位移到余量
+        mouseRemainderY += dy  // 累加本次 Y 轴位移到余量
+        val ix = mouseRemainderX.toInt()  // 语法：val 只读变量；取 X 余量的整数部分
+        val iy = mouseRemainderY.toInt()  // 语法：val 只读变量；取 Y 余量的整数部分
+        if (ix == 0 && iy == 0) return  // 提前返回，不发网络包 // 累计不足 1px，本帧不发送
+        mouseRemainderX -= ix  // 扣除已发送的 X 整数部分，保留新余量
+        mouseRemainderY -= iy  // 扣除已发送的 Y 整数部分，保留新余量
+        server.sendMouseMove(ix.toFloat(), iy.toFloat())  // 经 TCP 发送整数位移（转回 Float 类型）
+    }  // 结束 sendMouseMove 函数
 
     /**
      * 发送鼠标滚轮事件
      * @param delta 滚轮增量（正数=上滚，负数=下滚）
      */
-    override fun sendMouseScroll(delta: Float) {
-        server.sendMouseWheel(delta)
-    }
+    override fun sendMouseScroll(delta: Float) {  // 语法：override 覆写；发送鼠标滚轮事件
+        server.sendMouseWheel(delta)  // 转发给 TCP 服务器发送滚轮事件
+    }  // 结束 sendMouseScroll 函数
 
     /**
      * 释放所有按下的键和按钮
      * 通知Windows客户端执行释放操作
      */
-    override fun releaseAll() {
+    override fun releaseAll() {  // 语法：override 覆写；释放所有按键和按钮
         // 本地状态清理
-        pressedKeys.clear()
-        pressedButtons.clear()
-        mouseRemainderX = 0f
-        mouseRemainderY = 0f
+        pressedKeys.clear()  // 清空本地按下的按键集合
+        pressedButtons.clear()  // 清空本地按下的按钮集合
+        mouseRemainderX = 0f  // 清零 X 轴位移余量
+        mouseRemainderY = 0f  // 清零 Y 轴位移余量
         // 通知Windows客户端释放所有
-        server.sendReleaseAll()
-    }
+        server.sendReleaseAll()  // 经 TCP 通知 Windows 客户端释放所有按键
+    }  // 结束 releaseAll 函数
 
-    override fun destroy() {
-        releaseAll()
-    }
+    override fun destroy() {  // 语法：override 覆写；销毁注入器
+        releaseAll()  // 销毁前先释放所有按键，防止按键卡住
+    }  // 结束 destroy 函数
 
     // ====================================================================
     // Android KeyCode → Windows VK Code 映射表
     // ====================================================================
 
-    companion object {
+    companion object {  // 语法：companion object 伴生对象（类级静态成员容器）
         /**
          * 将Android KeyCode转换为Windows虚拟键码
          *
@@ -165,120 +165,120 @@ class BridgeInputInjector(
          * @param androidKeyCode Android KeyEvent.KEYCODE_* 常量
          * @return Windows VK Code，0=无对应映射
          */
-        fun androidKeyCodeToWindowsVK(androidKeyCode: Int): Int {
-        return when (androidKeyCode) {
+        fun androidKeyCodeToWindowsVK(androidKeyCode: Int): Int {  // 语法：fun 函数；Android 按键码转 Windows VK 码
+        return when (androidKeyCode) {  // 语法：when 分支表达式；按 Android 按键码分发返回对应的 VK 码
             // ===== 字母 A-Z =====
-            KeyEvent.KEYCODE_A -> 0x41  // VK_A
-            KeyEvent.KEYCODE_B -> 0x42
-            KeyEvent.KEYCODE_C -> 0x43
-            KeyEvent.KEYCODE_D -> 0x44
-            KeyEvent.KEYCODE_E -> 0x45
-            KeyEvent.KEYCODE_F -> 0x46
-            KeyEvent.KEYCODE_G -> 0x47
-            KeyEvent.KEYCODE_H -> 0x48
-            KeyEvent.KEYCODE_I -> 0x49
-            KeyEvent.KEYCODE_J -> 0x4A
-            KeyEvent.KEYCODE_K -> 0x4B
-            KeyEvent.KEYCODE_L -> 0x4C
-            KeyEvent.KEYCODE_M -> 0x4D
-            KeyEvent.KEYCODE_N -> 0x4E
-            KeyEvent.KEYCODE_O -> 0x4F
-            KeyEvent.KEYCODE_P -> 0x50
-            KeyEvent.KEYCODE_Q -> 0x51
-            KeyEvent.KEYCODE_R -> 0x52
-            KeyEvent.KEYCODE_S -> 0x53
-            KeyEvent.KEYCODE_T -> 0x54
-            KeyEvent.KEYCODE_U -> 0x55
-            KeyEvent.KEYCODE_V -> 0x56
-            KeyEvent.KEYCODE_W -> 0x57
-            KeyEvent.KEYCODE_X -> 0x58
-            KeyEvent.KEYCODE_Y -> 0x59
-            KeyEvent.KEYCODE_Z -> 0x5A
+            KeyEvent.KEYCODE_A -> 0x41  // VK_A // 映射字母A键
+            KeyEvent.KEYCODE_B -> 0x42  // 映射字母B键
+            KeyEvent.KEYCODE_C -> 0x43  // 映射字母C键
+            KeyEvent.KEYCODE_D -> 0x44  // 映射字母D键
+            KeyEvent.KEYCODE_E -> 0x45  // 映射字母E键
+            KeyEvent.KEYCODE_F -> 0x46  // 映射字母F键
+            KeyEvent.KEYCODE_G -> 0x47  // 映射字母G键
+            KeyEvent.KEYCODE_H -> 0x48  // 映射字母H键
+            KeyEvent.KEYCODE_I -> 0x49  // 映射字母I键
+            KeyEvent.KEYCODE_J -> 0x4A  // 映射字母J键
+            KeyEvent.KEYCODE_K -> 0x4B  // 映射字母K键
+            KeyEvent.KEYCODE_L -> 0x4C  // 映射字母L键
+            KeyEvent.KEYCODE_M -> 0x4D  // 映射字母M键
+            KeyEvent.KEYCODE_N -> 0x4E  // 映射字母N键
+            KeyEvent.KEYCODE_O -> 0x4F  // 映射字母O键
+            KeyEvent.KEYCODE_P -> 0x50  // 映射字母P键
+            KeyEvent.KEYCODE_Q -> 0x51  // 映射字母Q键
+            KeyEvent.KEYCODE_R -> 0x52  // 映射字母R键
+            KeyEvent.KEYCODE_S -> 0x53  // 映射字母S键
+            KeyEvent.KEYCODE_T -> 0x54  // 映射字母T键
+            KeyEvent.KEYCODE_U -> 0x55  // 映射字母U键
+            KeyEvent.KEYCODE_V -> 0x56  // 映射字母V键
+            KeyEvent.KEYCODE_W -> 0x57  // 映射字母W键
+            KeyEvent.KEYCODE_X -> 0x58  // 映射字母X键
+            KeyEvent.KEYCODE_Y -> 0x59  // 映射字母Y键
+            KeyEvent.KEYCODE_Z -> 0x5A  // 映射字母Z键
 
             // ===== 数字 0-9 =====
-            KeyEvent.KEYCODE_0 -> 0x30  // VK_0
-            KeyEvent.KEYCODE_1 -> 0x31
-            KeyEvent.KEYCODE_2 -> 0x32
-            KeyEvent.KEYCODE_3 -> 0x33
-            KeyEvent.KEYCODE_4 -> 0x34
-            KeyEvent.KEYCODE_5 -> 0x35
-            KeyEvent.KEYCODE_6 -> 0x36
-            KeyEvent.KEYCODE_7 -> 0x37
-            KeyEvent.KEYCODE_8 -> 0x38
-            KeyEvent.KEYCODE_9 -> 0x39
+            KeyEvent.KEYCODE_0 -> 0x30  // VK_0 // 映射数字0键
+            KeyEvent.KEYCODE_1 -> 0x31  // 映射数字1键
+            KeyEvent.KEYCODE_2 -> 0x32  // 映射数字2键
+            KeyEvent.KEYCODE_3 -> 0x33  // 映射数字3键
+            KeyEvent.KEYCODE_4 -> 0x34  // 映射数字4键
+            KeyEvent.KEYCODE_5 -> 0x35  // 映射数字5键
+            KeyEvent.KEYCODE_6 -> 0x36  // 映射数字6键
+            KeyEvent.KEYCODE_7 -> 0x37  // 映射数字7键
+            KeyEvent.KEYCODE_8 -> 0x38  // 映射数字8键
+            KeyEvent.KEYCODE_9 -> 0x39  // 映射数字9键
 
             // ===== 功能键 =====
-            KeyEvent.KEYCODE_F1 -> 0x70   // VK_F1
-            KeyEvent.KEYCODE_F2 -> 0x71
-            KeyEvent.KEYCODE_F3 -> 0x72
-            KeyEvent.KEYCODE_F4 -> 0x73
-            KeyEvent.KEYCODE_F5 -> 0x74
-            KeyEvent.KEYCODE_F6 -> 0x75
-            KeyEvent.KEYCODE_F7 -> 0x76
-            KeyEvent.KEYCODE_F8 -> 0x77
-            KeyEvent.KEYCODE_F9 -> 0x78
-            KeyEvent.KEYCODE_F10 -> 0x79
-            KeyEvent.KEYCODE_F11 -> 0x7A
-            KeyEvent.KEYCODE_F12 -> 0x7B
+            KeyEvent.KEYCODE_F1 -> 0x70   // VK_F1 // 映射功能键F1
+            KeyEvent.KEYCODE_F2 -> 0x71  // 映射功能键F2
+            KeyEvent.KEYCODE_F3 -> 0x72  // 映射功能键F3
+            KeyEvent.KEYCODE_F4 -> 0x73  // 映射功能键F4
+            KeyEvent.KEYCODE_F5 -> 0x74  // 映射功能键F5
+            KeyEvent.KEYCODE_F6 -> 0x75  // 映射功能键F6
+            KeyEvent.KEYCODE_F7 -> 0x76  // 映射功能键F7
+            KeyEvent.KEYCODE_F8 -> 0x77  // 映射功能键F8
+            KeyEvent.KEYCODE_F9 -> 0x78  // 映射功能键F9
+            KeyEvent.KEYCODE_F10 -> 0x79  // 映射功能键F10
+            KeyEvent.KEYCODE_F11 -> 0x7A  // 映射功能键F11
+            KeyEvent.KEYCODE_F12 -> 0x7B  // 映射功能键F12
 
             // ===== 修饰键 =====
-            KeyEvent.KEYCODE_SHIFT_LEFT -> 0xA0   // VK_LSHIFT
-            KeyEvent.KEYCODE_SHIFT_RIGHT -> 0xA1  // VK_RSHIFT
-            KeyEvent.KEYCODE_CTRL_LEFT -> 0xA2    // VK_LCONTROL
-            KeyEvent.KEYCODE_CTRL_RIGHT -> 0xA3   // VK_RCONTROL
-            KeyEvent.KEYCODE_ALT_LEFT -> 0xA4     // VK_LMENU
-            KeyEvent.KEYCODE_ALT_RIGHT -> 0xA5    // VK_RMENU
+            KeyEvent.KEYCODE_SHIFT_LEFT -> 0xA0   // VK_LSHIFT // 映射左Shift键
+            KeyEvent.KEYCODE_SHIFT_RIGHT -> 0xA1  // VK_RSHIFT // 映射右Shift键
+            KeyEvent.KEYCODE_CTRL_LEFT -> 0xA2    // VK_LCONTROL // 映射左Ctrl键
+            KeyEvent.KEYCODE_CTRL_RIGHT -> 0xA3   // VK_RCONTROL // 映射右Ctrl键
+            KeyEvent.KEYCODE_ALT_LEFT -> 0xA4     // VK_LMENU // 映射左Alt键
+            KeyEvent.KEYCODE_ALT_RIGHT -> 0xA5    // VK_RMENU // 映射右Alt键
 
             // ===== 特殊键 =====
-            KeyEvent.KEYCODE_SPACE -> 0x20        // VK_SPACE
-            KeyEvent.KEYCODE_ENTER -> 0x0D        // VK_RETURN
-            KeyEvent.KEYCODE_ESCAPE -> 0x1B       // VK_ESCAPE
-            KeyEvent.KEYCODE_TAB -> 0x09          // VK_TAB
-            KeyEvent.KEYCODE_BACK -> 0x08         // VK_BACK (Backspace)
-            KeyEvent.KEYCODE_DEL -> 0x2E          // VK_DELETE
-            KeyEvent.KEYCODE_INSERT -> 0x2D       // VK_INSERT
-            KeyEvent.KEYCODE_HOME -> 0x24         // VK_HOME
-            KeyEvent.KEYCODE_PAGE_UP -> 0x21      // VK_PRIOR
-            KeyEvent.KEYCODE_PAGE_DOWN -> 0x22    // VK_NEXT
-            KeyEvent.KEYCODE_MOVE_END -> 0x23     // VK_END
+            KeyEvent.KEYCODE_SPACE -> 0x20        // VK_SPACE // 映射空格键
+            KeyEvent.KEYCODE_ENTER -> 0x0D        // VK_RETURN // 映射回车键
+            KeyEvent.KEYCODE_ESCAPE -> 0x1B       // VK_ESCAPE // 映射ESC键
+            KeyEvent.KEYCODE_TAB -> 0x09          // VK_TAB // 映射Tab键
+            KeyEvent.KEYCODE_BACK -> 0x08         // VK_BACK (Backspace) // 映射退格键
+            KeyEvent.KEYCODE_DEL -> 0x2E          // VK_DELETE // 映射删除键
+            KeyEvent.KEYCODE_INSERT -> 0x2D       // VK_INSERT // 映射插入键
+            KeyEvent.KEYCODE_HOME -> 0x24         // VK_HOME // 映射Home键
+            KeyEvent.KEYCODE_PAGE_UP -> 0x21      // VK_PRIOR // 映射PageUp键
+            KeyEvent.KEYCODE_PAGE_DOWN -> 0x22    // VK_NEXT // 映射PageDown键
+            KeyEvent.KEYCODE_MOVE_END -> 0x23     // VK_END // 映射End键
 
             // ===== 方向键 =====
-            KeyEvent.KEYCODE_DPAD_UP -> 0x26      // VK_UP
-            KeyEvent.KEYCODE_DPAD_DOWN -> 0x28    // VK_DOWN
-            KeyEvent.KEYCODE_DPAD_LEFT -> 0x25    // VK_LEFT
-            KeyEvent.KEYCODE_DPAD_RIGHT -> 0x27   // VK_RIGHT
+            KeyEvent.KEYCODE_DPAD_UP -> 0x26      // VK_UP // 映射方向上键
+            KeyEvent.KEYCODE_DPAD_DOWN -> 0x28    // VK_DOWN // 映射方向下键
+            KeyEvent.KEYCODE_DPAD_LEFT -> 0x25    // VK_LEFT // 映射方向左键
+            KeyEvent.KEYCODE_DPAD_RIGHT -> 0x27   // VK_RIGHT // 映射方向右键
 
             // ===== 符号键 =====
-            KeyEvent.KEYCODE_MINUS -> 0xBD        // VK_OEM_MINUS "-"
-            KeyEvent.KEYCODE_EQUALS -> 0xBB       // VK_OEM_PLUS "="
-            KeyEvent.KEYCODE_LEFT_BRACKET -> 0xDB // VK_OEM_4 "["
-            KeyEvent.KEYCODE_RIGHT_BRACKET -> 0xDD // VK_OEM_6 "]"
-            KeyEvent.KEYCODE_BACKSLASH -> 0xDC     // VK_OEM_5 "\"
-            KeyEvent.KEYCODE_SEMICOLON -> 0xBA     // VK_OEM_1 ";"
-            KeyEvent.KEYCODE_APOSTROPHE -> 0xDE    // VK_OEM_7 "'"
-            KeyEvent.KEYCODE_COMMA -> 0xBC         // VK_OEM_COMMA ","
-            KeyEvent.KEYCODE_PERIOD -> 0xBE        // VK_OEM_PERIOD "."
-            KeyEvent.KEYCODE_SLASH -> 0xBF         // VK_OEM_2 "/"
-            KeyEvent.KEYCODE_GRAVE -> 0xC0         // VK_OEM_3 "`"
+            KeyEvent.KEYCODE_MINUS -> 0xBD        // VK_OEM_MINUS "-" // 映射减号键
+            KeyEvent.KEYCODE_EQUALS -> 0xBB       // VK_OEM_PLUS "=" // 映射等号键
+            KeyEvent.KEYCODE_LEFT_BRACKET -> 0xDB // VK_OEM_4 "[" // 映射左方括号键
+            KeyEvent.KEYCODE_RIGHT_BRACKET -> 0xDD // VK_OEM_6 "]" // 映射右方括号键
+            KeyEvent.KEYCODE_BACKSLASH -> 0xDC     // VK_OEM_5 "\" // 映射反斜杠键
+            KeyEvent.KEYCODE_SEMICOLON -> 0xBA     // VK_OEM_1 ";" // 映射分号键
+            KeyEvent.KEYCODE_APOSTROPHE -> 0xDE    // VK_OEM_7 "'" // 映射单引号键
+            KeyEvent.KEYCODE_COMMA -> 0xBC         // VK_OEM_COMMA "," // 映射逗号键
+            KeyEvent.KEYCODE_PERIOD -> 0xBE        // VK_OEM_PERIOD "." // 映射句号键
+            KeyEvent.KEYCODE_SLASH -> 0xBF         // VK_OEM_2 "/" // 映射斜杠键
+            KeyEvent.KEYCODE_GRAVE -> 0xC0         // VK_OEM_3 "`" // 映射反引号键
 
             // ===== 小键盘 =====
-            KeyEvent.KEYCODE_NUM_LOCK -> 0x90     // VK_NUMLOCK
-            KeyEvent.KEYCODE_NUMPAD_0 -> 0x60     // VK_NUMPAD0
-            KeyEvent.KEYCODE_NUMPAD_1 -> 0x61
-            KeyEvent.KEYCODE_NUMPAD_2 -> 0x62
-            KeyEvent.KEYCODE_NUMPAD_3 -> 0x63
-            KeyEvent.KEYCODE_NUMPAD_4 -> 0x64
-            KeyEvent.KEYCODE_NUMPAD_5 -> 0x65
-            KeyEvent.KEYCODE_NUMPAD_6 -> 0x66
-            KeyEvent.KEYCODE_NUMPAD_7 -> 0x67
-            KeyEvent.KEYCODE_NUMPAD_8 -> 0x68
-            KeyEvent.KEYCODE_NUMPAD_9 -> 0x69
+            KeyEvent.KEYCODE_NUM_LOCK -> 0x90     // VK_NUMLOCK // 映射NumLock键
+            KeyEvent.KEYCODE_NUMPAD_0 -> 0x60     // VK_NUMPAD0 // 映射小键盘0键
+            KeyEvent.KEYCODE_NUMPAD_1 -> 0x61  // 映射小键盘1键
+            KeyEvent.KEYCODE_NUMPAD_2 -> 0x62  // 映射小键盘2键
+            KeyEvent.KEYCODE_NUMPAD_3 -> 0x63  // 映射小键盘3键
+            KeyEvent.KEYCODE_NUMPAD_4 -> 0x64  // 映射小键盘4键
+            KeyEvent.KEYCODE_NUMPAD_5 -> 0x65  // 映射小键盘5键
+            KeyEvent.KEYCODE_NUMPAD_6 -> 0x66  // 映射小键盘6键
+            KeyEvent.KEYCODE_NUMPAD_7 -> 0x67  // 映射小键盘7键
+            KeyEvent.KEYCODE_NUMPAD_8 -> 0x68  // 映射小键盘8键
+            KeyEvent.KEYCODE_NUMPAD_9 -> 0x69  // 映射小键盘9键
 
             // ===== 其他 =====
-            KeyEvent.KEYCODE_CAPS_LOCK -> 0x14     // VK_CAPITAL
-            KeyEvent.KEYCODE_SCROLL_LOCK -> 0x91   // VK_SCROLL
+            KeyEvent.KEYCODE_CAPS_LOCK -> 0x14     // VK_CAPITAL // 映射大写锁定键
+            KeyEvent.KEYCODE_SCROLL_LOCK -> 0x91   // VK_SCROLL // 映射滚动锁定键
 
-            else -> 0  // 无对应映射
+            else -> 0  // 无对应映射 // 无法映射的按键返回 0
         }
         }
 
@@ -291,48 +291,48 @@ class BridgeInputInjector(
          * @param c 输入字符
          * @return (VK Code, 是否需要Shift) 或 null=无对应映射
          */
-        fun charToWindowsVK(c: Char): Pair<Int, Boolean>? {
-            return when {
-                c in 'a'..'z' -> (0x41 + (c - 'a')) to false  // VK_A..VK_Z
-                c in 'A'..'Z' -> (0x41 + (c - 'A')) to true
-                c in '0'..'9' -> (0x30 + (c - '0')) to false  // VK_0..VK_9
-                c == ' ' -> 0x20 to false                    // VK_SPACE
-                c == '\t' -> 0x09 to false                   // VK_TAB
-                c == '\n' || c == '\r' -> 0x0D to false      // VK_RETURN
-                c == '-' -> 0xBD to false                    // VK_OEM_MINUS
-                c == '_' -> 0xBD to true
-                c == '=' -> 0xBB to false                    // VK_OEM_PLUS
-                c == '+' -> 0xBB to true
-                c == '[' -> 0xDB to false                    // VK_OEM_4
-                c == '{' -> 0xDB to true
-                c == ']' -> 0xDD to false                    // VK_OEM_6
-                c == '}' -> 0xDD to true
-                c == '\\' -> 0xDC to false                   // VK_OEM_5
-                c == '|' -> 0xDC to true
-                c == ';' -> 0xBA to false                    // VK_OEM_1
-                c == ':' -> 0xBA to true
-                c == '\'' -> 0xDE to false                   // VK_OEM_7
-                c == '"' -> 0xDE to true
-                c == ',' -> 0xBC to false                    // VK_OEM_COMMA
-                c == '<' -> 0xBC to true
-                c == '.' -> 0xBE to false                    // VK_OEM_PERIOD
-                c == '>' -> 0xBE to true
-                c == '/' -> 0xBF to false                    // VK_OEM_2
-                c == '?' -> 0xBF to true
-                c == '`' -> 0xC0 to false                    // VK_OEM_3
-                c == '~' -> 0xC0 to true
-                c == '!' -> 0x31 to true                     // Shift + VK_1
-                c == '@' -> 0x32 to true
-                c == '#' -> 0x33 to true
-                c == '$' -> 0x34 to true
-                c == '%' -> 0x35 to true
-                c == '^' -> 0x36 to true
-                c == '&' -> 0x37 to true
-                c == '*' -> 0x38 to true
-                c == '(' -> 0x39 to true
-                c == ')' -> 0x30 to true
-                else -> null
-            }
-        }
-    }
-}
+        fun charToWindowsVK(c: Char): Pair<Int, Boolean>? {  // 语法：fun 函数 + Pair 泛型 + ?可空返回值；单字符转 VK 码及是否需 Shift
+            return when {  // 语法：when 无参数分支表达式；按字符条件匹配返回 VK 码与 Shift 标记的 Pair
+                c in 'a'..'z' -> (0x41 + (c - 'a')) to false  // VK_A..VK_Z // 小写字母：VK码=0x41+字母偏移，不需Shift
+                c in 'A'..'Z' -> (0x41 + (c - 'A')) to true  // 大写字母：VK码同理，但需配合Shift注入
+                c in '0'..'9' -> (0x30 + (c - '0')) to false  // VK_0..VK_9 // 数字：VK码=0x30+数字偏移，不需Shift
+                c == ' ' -> 0x20 to false                    // VK_SPACE // 空格键
+                c == '\t' -> 0x09 to false                   // VK_TAB // Tab键
+                c == '\n' || c == '\r' -> 0x0D to false      // VK_RETURN // 换行/回车均映射为回车键
+                c == '-' -> 0xBD to false                    // VK_OEM_MINUS // 减号键
+                c == '_' -> 0xBD to true  // 下划线 = Shift+减号键
+                c == '=' -> 0xBB to false                    // VK_OEM_PLUS // 等号键
+                c == '+' -> 0xBB to true  // 加号 = Shift+等号键
+                c == '[' -> 0xDB to false                    // VK_OEM_4 // 左方括号键
+                c == '{' -> 0xDB to true  // 左花括号 = Shift+左方括号键
+                c == ']' -> 0xDD to false                    // VK_OEM_6 // 右方括号键
+                c == '}' -> 0xDD to true  // 右花括号 = Shift+右方括号键
+                c == '\\' -> 0xDC to false                   // VK_OEM_5 // 反斜杠键
+                c == '|' -> 0xDC to true  // 竖线 = Shift+反斜杠键
+                c == ';' -> 0xBA to false                    // VK_OEM_1 // 分号键
+                c == ':' -> 0xBA to true  // 冒号 = Shift+分号键
+                c == '\'' -> 0xDE to false                   // VK_OEM_7 // 单引号键
+                c == '"' -> 0xDE to true  // 双引号 = Shift+单引号键
+                c == ',' -> 0xBC to false                    // VK_OEM_COMMA // 逗号键
+                c == '<' -> 0xBC to true  // 小于号 = Shift+逗号键
+                c == '.' -> 0xBE to false                    // VK_OEM_PERIOD // 句号键
+                c == '>' -> 0xBE to true  // 大于号 = Shift+句号键
+                c == '/' -> 0xBF to false                    // VK_OEM_2 // 斜杠键
+                c == '?' -> 0xBF to true  // 问号 = Shift+斜杠键
+                c == '`' -> 0xC0 to false                    // VK_OEM_3 // 反引号键
+                c == '~' -> 0xC0 to true  // 波浪号 = Shift+反引号键
+                c == '!' -> 0x31 to true                     // Shift + VK_1 // 感叹号 = Shift+数字1
+                c == '@' -> 0x32 to true  // @ = Shift+数字2
+                c == '#' -> 0x33 to true  // # = Shift+数字3
+                c == '$' -> 0x34 to true  // $ = Shift+数字4
+                c == '%' -> 0x35 to true  // % = Shift+数字5
+                c == '^' -> 0x36 to true  // ^ = Shift+数字6
+                c == '&' -> 0x37 to true  // & = Shift+数字7
+                c == '*' -> 0x38 to true  // * = Shift+数字8
+                c == '(' -> 0x39 to true  // ( = Shift+数字9
+                c == ')' -> 0x30 to true  // ) = Shift+数字0
+                else -> null  // 无法映射的字符返回 null（忽略）
+            }  // 结束 when 分支
+        }  // 结束 charToWindowsVK 函数
+    }  // 结束 companion object
+}  // 结束 BridgeInputInjector 类

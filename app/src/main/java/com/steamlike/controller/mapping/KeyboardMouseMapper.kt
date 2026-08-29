@@ -1,16 +1,16 @@
-package com.steamlike.controller.mapping
+package com.steamlike.controller.mapping // 语法：package 包声明，声明本文件所属的包（映射模块）
 
-import android.os.SystemClock
-import android.util.Log
-import android.view.KeyEvent
-import android.view.MotionEvent
-import com.steamlike.controller.core.ControllerButton
-import com.steamlike.controller.core.ControllerStick
-import com.steamlike.controller.core.KeyMapping
-import com.steamlike.controller.core.MappedAction
-import com.steamlike.controller.core.MouseButton
-import com.steamlike.controller.core.SteamInput
-import com.steamlike.controller.injection.InputInjector
+import android.os.SystemClock // 语法：import 导入声明，导入系统单调时钟 SystemClock（摇杆循环计时用）
+import android.util.Log // 语法：import 导入声明，导入 Log 日志工具
+import android.view.KeyEvent // 语法：import 导入声明，导入 KeyEvent（使用 Android 按键码常量，如 KEYCODE_D）
+import android.view.MotionEvent // 语法：import 导入声明，导入 MotionEvent（摇杆/扳机运动事件）
+import com.steamlike.controller.core.ControllerButton // 语法：import 导入声明，导入手柄按钮枚举
+import com.steamlike.controller.core.ControllerStick // 语法：import 导入声明，导入摇杆类型枚举
+import com.steamlike.controller.core.KeyMapping // 语法：import 导入声明，导入按键映射数据类
+import com.steamlike.controller.core.MappedAction // 语法：import 导入声明，导入映射动作密封类
+import com.steamlike.controller.core.MouseButton // 语法：import 导入声明，导入鼠标按钮枚举
+import com.steamlike.controller.core.SteamInput // 语法：import 导入声明，导入 SteamInput 核心控制器
+import com.steamlike.controller.injection.InputInjector // 语法：import 导入声明，导入输入注入器接口
 
 /**
  * 键盘/鼠标映射器
@@ -45,33 +45,33 @@ import com.steamlike.controller.injection.InputInjector
  * @param steamInput Steam 输入控制器
  * @param injector 输入注入器
  */
-class KeyboardMouseMapper(
-    private val steamInput: SteamInput,
-    private val injector: InputInjector,
-    screenWidth: Int = 0,
-    screenHeight: Int = 0
-) {
+class KeyboardMouseMapper( // 语法：class 类声明，定义键盘/鼠标映射器
+    private val steamInput: SteamInput, // 语法：val 只读构造参数，持有 SteamInput 控制器引用（用于注册映射回调）
+    private val injector: InputInjector, // 语法：val 只读构造参数，持有输入注入器引用（用于发送键鼠事件）
+    screenWidth: Int = 0, // 屏幕宽度参数，默认 0（语法：默认参数）
+    screenHeight: Int = 0 // 屏幕高度参数，默认 0（语法：默认参数）
+) { // 类体开始
 
-    private val TAG = "SteamLikeMapper"
+    private val TAG = "SteamLikeMapper" // 语法：val 只读变量，日志标签常量（类型推断为 String）
 
     /**
      * 当前按下的主键集合（用于松开时释放）
      *
      * key = 手柄按钮, value = 主键的 Android KeyCode
      */
-    private val pressedMainKeys = mutableMapOf<ControllerButton, Int>()
+    private val pressedMainKeys = mutableMapOf<ControllerButton, Int>() // 语法：val+mutableMapOf 可变映射，记录按下主键：手柄按钮→主键KeyCode
 
     /**
      * 当前按下的子命令键集合（用于松开时释放）
      *
      * key = 手柄按钮, value = 子命令的 Android KeyCode 列表
      */
-    private val pressedSubKeys = mutableMapOf<ControllerButton, List<Int>>()
+    private val pressedSubKeys = mutableMapOf<ControllerButton, List<Int>>() // 语法：val+mutableMapOf 可变映射，记录按下子命令键：手柄按钮→KeyCode列表
 
     /**
      * 当前按下鼠标按钮的手柄按钮集合
      */
-    private val pressedMouseButtons = mutableMapOf<ControllerButton, MouseButton>()
+    private val pressedMouseButtons = mutableMapOf<ControllerButton, MouseButton>() // 语法：val+mutableMapOf 可变映射，记录按下鼠标按钮的手柄按钮→鼠标按钮
 
     /**
      * 左摇杆当前按下的方向键集合（WASD映射）
@@ -82,7 +82,7 @@ class KeyboardMouseMapper(
      *
      * 每次摇杆移动时计算新方向集合，与旧集合差异发送按键事件。
      */
-    private val leftStickPressedKeys = mutableSetOf<Int>()
+    private val leftStickPressedKeys = mutableSetOf<Int>() // 语法：val+mutableSetOf 可变集合（无重复元素），保存左摇杆当前按下的方向键
 
     /**
      * MouseToggle 当前处于"按下"状态的手柄按钮集合
@@ -95,7 +95,7 @@ class KeyboardMouseMapper(
      * toggle 是用户主动锁存机制，不随操作层切换自动释放
      * （松开手柄键也不改变状态，见 [handleMouseToggle]）。
      */
-    private val toggledMouseButtons = mutableMapOf<ControllerButton, MouseButton>()
+    private val toggledMouseButtons = mutableMapOf<ControllerButton, MouseButton>() // 语法：val+mutableMapOf 可变映射，记录 MouseToggle 锁存状态
 
     /**
      * 右摇杆最新位置（主线程事件回调写入，发送循环线程读取）
@@ -108,11 +108,11 @@ class KeyboardMouseMapper(
      * 由稳定时钟每 tick 读取最新位置并发送，包节奏完全均匀。
      * 这里事件回调只负责更新位置状态，实际发送由 [startLookLoop] 消费。
      */
-    @Volatile
-    private var latestLookX = 0f
+    @Volatile // 语法：@Volatile 注解，保证字段跨线程可见（主线程写、发送循环线程读）
+    private var latestLookX = 0f // 语法：var 可变变量，右摇杆最新 X 位置（0f=Float 字面量）
 
-    @Volatile
-    private var latestLookY = 0f
+    @Volatile // 语法：@Volatile 注解，保证字段跨线程可见
+    private var latestLookY = 0f // 语法：var 可变变量，右摇杆最新 Y 位置
 
     /**
      * 右摇杆平滑滤波后的 X/Y 值（仅在发送循环线程内读写）
@@ -121,8 +121,8 @@ class KeyboardMouseMapper(
      * τ 由 [com.steamlike.controller.core.GlobalSettings.lookSmoothing] 映射（0~45ms），
      * 与事件频率无关，tick 频率变化时平滑效果一致。
      */
-    private var smoothedLookX = 0f
-    private var smoothedLookY = 0f
+    private var smoothedLookX = 0f // 语法：var 可变变量，右摇杆 EMA 平滑后的 X
+    private var smoothedLookY = 0f // 语法：var 可变变量，右摇杆 EMA 平滑后的 Y
 
     /**
      * 右摇杆固定频率发送循环线程（自校正 tick）
@@ -131,10 +131,10 @@ class KeyboardMouseMapper(
      * 位移总量 = 速度 × 实际经过时间（tick 被系统延迟时总量不变，不丢量）。
      * 独立于主线程，主线程 jank 不影响发送节奏。
      */
-    private var lookThread: Thread? = null
+    private var lookThread: Thread? = null // 语法：var+Thread? 可空类型，发送循环线程引用（null=未启动）
 
-    @Volatile
-    private var lookThreadRunning = false
+    @Volatile // 语法：@Volatile 注解，保证运行标志跨线程可见
+    private var lookThreadRunning = false // 语法：var 可变变量，发送循环是否运行标志
 
     /**
      * 操作层变化回调
@@ -142,7 +142,7 @@ class KeyboardMouseMapper(
      * 当激活的操作层发生变化时调用，传递当前所有激活层的名称列表。
      * 由 ControllerOverlayService 设置，用于更新悬浮窗 UI。
      */
-    var onLayerChanged: ((List<String>) -> Unit)? = null
+    var onLayerChanged: ((List<String>) -> Unit)? = null // 语法：var+函数类型+? 可空回调，操作层变化时触发（lambda 类型）
 
     /**
      * 操作集切换回调
@@ -150,7 +150,7 @@ class KeyboardMouseMapper(
      * 当通过 [switchActionSet] 切换操作集时调用，传递新操作集名称。
      * 由 ControllerOverlayService 设置，用于更新悬浮窗显示当前操作集。
      */
-    var onActionSetChanged: ((String) -> Unit)? = null
+    var onActionSetChanged: ((String) -> Unit)? = null // 语法：var+函数类型+? 可空回调，操作集切换时触发
 
     /**
      * 切换悬浮窗回调
@@ -158,7 +158,7 @@ class KeyboardMouseMapper(
      * 当映射到 ToggleOverlay 动作的手柄按钮按下时调用。
      * 由 ControllerOverlayService 设置，触发悬浮窗收起/映射列表切换。
      */
-    var onToggleOverlay: (() -> Unit)? = null
+    var onToggleOverlay: (() -> Unit)? = null // 语法：var+函数类型+? 可空回调，切换悬浮窗时触发
 
     /**
      * 切换系统键盘回调
@@ -166,7 +166,7 @@ class KeyboardMouseMapper(
      * 当映射到 ToggleKeyboard 动作的手柄按钮按下时调用。
      * 由 ControllerOverlayService 设置，触发软键盘显示/隐藏。
      */
-    var onToggleKeyboard: (() -> Unit)? = null
+    var onToggleKeyboard: (() -> Unit)? = null // 语法：var+函数类型+? 可空回调，切换系统键盘时触发
 
     /**
      * 切换捕获状态回调
@@ -174,7 +174,7 @@ class KeyboardMouseMapper(
      * 当映射到 ToggleCapture 动作的手柄按钮按下时调用。
      * 由 ControllerOverlayService 设置，触发暂停/恢复捕获。
      */
-    var onToggleCapture: (() -> Unit)? = null
+    var onToggleCapture: (() -> Unit)? = null // 语法：var+函数类型+? 可空回调，切换捕获状态时触发
 
     /**
      * 鼠标长按切换（MouseToggle）状态变化回调
@@ -183,7 +183,7 @@ class KeyboardMouseMapper(
      * 由 ControllerOverlayService 设置，用于悬浮窗边框高亮提示
      * （如右键长按锁存时改变边框颜色，释放后恢复）。
      */
-    var onMouseToggleChanged: ((MouseButton, Boolean) -> Unit)? = null
+    var onMouseToggleChanged: ((MouseButton, Boolean) -> Unit)? = null // 语法：var+函数类型+? 可空回调，MouseToggle 锁存状态变化时触发
 
     /**
      * 是否正在捕获（历史字段，当前无实际作用）
@@ -194,52 +194,52 @@ class KeyboardMouseMapper(
      * 与 [com.steamlike.controller.core.SteamInput.isCapturing] 统一管理。
      * 本字段已不再被读写，保留仅为兼容旧逻辑。
      */
-    var isCapturing: Boolean = true
+    var isCapturing: Boolean = true // 语法：var 可变变量，是否正在捕获（历史兼容字段）
 
     /**
      * 启动映射器，注册回调
      *
      * @return true=启动成功
      */
-    fun start(): Boolean {
-        steamInput.onButtonMapped = { button, isPressed, mapping ->
-            handleMapping(button, isPressed, mapping)
-        }
-        steamInput.onStickMapped = { stick, x, y ->
-            handleStick(stick, x, y)
-        }
-        steamInput.onLayerChanged = { layerName ->
-            Log.i(TAG, "Active layer: $layerName")
+    fun start(): Boolean { // 语法：fun 函数声明，返回 Boolean，启动映射器并注册回调
+        steamInput.onButtonMapped = { button, isPressed, mapping -> // 注册按钮映射回调（语法：lambda 表达式赋给属性）
+            handleMapping(button, isPressed, mapping) // 分发按钮映射到内部处理方法
+        } // 结束按钮映射 lambda
+        steamInput.onStickMapped = { stick, x, y -> // 注册摇杆映射回调（语法：lambda 表达式）
+            handleStick(stick, x, y) // 分发摇杆事件到内部处理方法
+        } // 结束摇杆映射 lambda
+        steamInput.onLayerChanged = { layerName -> // 注册操作层变化回调（语法：lambda 表达式）
+            Log.i(TAG, "Active layer: $layerName") // 打印激活层日志（语法：字符串模板 "$layerName"）
             // 通知外部监听器，传递当前所有激活层名称列表
-            onLayerChanged?.invoke(getActiveLayers())
-        }
-        steamInput.onActionSetChanged = { actionSetName ->
-            Log.i(TAG, "Action set: $actionSetName")
-            onActionSetChanged?.invoke(actionSetName)
-        }
+            onLayerChanged?.invoke(getActiveLayers()) // 安全调用触发回调，传入激活层名称列表（语法：?. 安全调用 + invoke()）
+        } // 结束操作层变化 lambda
+        steamInput.onActionSetChanged = { actionSetName -> // 注册操作集切换回调（语法：lambda 表达式）
+            Log.i(TAG, "Action set: $actionSetName") // 打印操作集切换日志（语法：字符串模板 "$actionSetName"）
+            onActionSetChanged?.invoke(actionSetName) // 安全调用触发回调，传递新操作集名称（语法：?. 安全调用）
+        } // 结束操作集切换 lambda
         // 启动右摇杆固定频率发送循环
-        startLookLoop()
-        Log.i(TAG, "KeyboardMouseMapper started")
-        return true
-    }
+        startLookLoop() // 调用内部方法启动右摇杆发送循环
+        Log.i(TAG, "KeyboardMouseMapper started") // 打印映射器启动日志
+        return true // 返回 true 表示启动成功
+    } // 结束 start 函数
 
     /**
      * 停止映射器，释放所有按键
      */
-    fun stop() {
-        stopLookLoop()
-        injector.releaseAll()
-        pressedMainKeys.clear()
-        pressedSubKeys.clear()
-        pressedMouseButtons.clear()
-        leftStickPressedKeys.clear()
-        toggledMouseButtons.clear()
-        latestLookX = 0f
-        latestLookY = 0f
-        smoothedLookX = 0f
-        smoothedLookY = 0f
-        Log.i(TAG, "KeyboardMouseMapper stopped")
-    }
+    fun stop() { // 语法：fun 函数声明，停止映射器并释放所有按键状态
+        stopLookLoop() // 停止右摇杆发送循环
+        injector.releaseAll() // 通知注入器释放所有已注入的键鼠状态
+        pressedMainKeys.clear() // 清空主键按下记录
+        pressedSubKeys.clear() // 清空子命令键按下记录
+        pressedMouseButtons.clear() // 清空鼠标按钮按下记录
+        leftStickPressedKeys.clear() // 清空左摇杆方向键集合
+        toggledMouseButtons.clear() // 清空 MouseToggle 锁存记录
+        latestLookX = 0f // 重置右摇杆最新 X
+        latestLookY = 0f // 重置右摇杆最新 Y
+        smoothedLookX = 0f // 重置平滑 X
+        smoothedLookY = 0f // 重置平滑 Y
+        Log.i(TAG, "KeyboardMouseMapper stopped") // 打印映射器停止日志
+    } // 结束 stop 函数
 
     // ====================================================================
     // SteamInput 委托方法
@@ -252,7 +252,7 @@ class KeyboardMouseMapper(
      *
      * @return 激活层名称列表（空列表=仅公共层）
      */
-    fun getActiveLayers(): List<String> = steamInput.getActiveLayers().map { it.name }
+    fun getActiveLayers(): List<String> = steamInput.getActiveLayers().map { it.name } // 语法：= 表达式体函数 + map lambda 映射，返回激活层名称列表
 
     /**
      * 处理系统 KeyEvent（按钮按下/释放）
@@ -262,7 +262,7 @@ class KeyboardMouseMapper(
      * @param event 系统按键事件
      * @return true=已处理
      */
-    fun onKeyEvent(event: KeyEvent): Boolean = steamInput.dispatchKeyEvent(event)
+    fun onKeyEvent(event: KeyEvent): Boolean = steamInput.dispatchKeyEvent(event) // 语法：= 表达式体函数，转发按键事件给 SteamInput
 
     /**
      * 处理系统 MotionEvent（摇杆移动/扳机按压）
@@ -272,38 +272,38 @@ class KeyboardMouseMapper(
      * @param event 系统运动事件
      * @return true=已处理
      */
-    fun onGenericMotionEvent(event: MotionEvent): Boolean = steamInput.dispatchGenericMotionEvent(event)
+    fun onGenericMotionEvent(event: MotionEvent): Boolean = steamInput.dispatchGenericMotionEvent(event) // 语法：= 表达式体函数，转发运动事件给 SteamInput
 
     /**
      * 清除所有激活的操作层（回到公共层）
      */
-    fun clearAllLayers() = steamInput.deactivateAllLayers()
+    fun clearAllLayers() = steamInput.deactivateAllLayers() // 语法：= 表达式体函数，清除所有激活操作层
 
     /**
      * 按名称激活操作层
      *
      * @param name 操作层名称
      */
-    fun activateLayer(name: String) = steamInput.activateLayer(name)
+    fun activateLayer(name: String) = steamInput.activateLayer(name) // 语法：= 表达式体函数，按名称激活操作层
 
     /**
      * 按名称停用操作层
      *
      * @param name 操作层名称
      */
-    fun deactivateLayer(name: String) = steamInput.deactivateLayer(name)
+    fun deactivateLayer(name: String) = steamInput.deactivateLayer(name) // 语法：= 表达式体函数，按名称停用操作层
 
     /**
      * 切换操作集（整体切换其下所有操作层）
      *
      * @param name 目标操作集名称
      */
-    fun switchActionSet(name: String) = steamInput.switchActionSet(name)
+    fun switchActionSet(name: String) = steamInput.switchActionSet(name) // 语法：= 表达式体函数，切换操作集
 
     /**
      * 当前操作集名称
      */
-    fun getActiveActionSetName(): String = steamInput.getActiveActionSetName()
+    fun getActiveActionSetName(): String = steamInput.getActiveActionSetName() // 语法：= 表达式体函数，返回当前操作集名称
 
     /**
      * 处理按键映射
@@ -321,34 +321,34 @@ class KeyboardMouseMapper(
      * @param isPressed true=按下, false=释放
      * @param mapping 按键映射
      */
-    private fun handleMapping(button: ControllerButton, isPressed: Boolean, mapping: KeyMapping) {
-        if (!isPressed) {
-            releaseButtonInjection(button)
-            return
-        }
+    private fun handleMapping(button: ControllerButton, isPressed: Boolean, mapping: KeyMapping) { // 语法：private fun 私有函数，按动作类型分发按键映射
+        if (!isPressed) { // 语法：if 分支，判断是否为松开事件
+            releaseButtonInjection(button) // 按已注入状态释放该按钮的全部键鼠状态
+            return // 直接返回，松开不按当前层映射分发
+        } // 结束 if 松开分支
 
-        when (val action = mapping.action) {
+        when (val action = mapping.action) { // 语法：when 分支表达式，同时用 val 声明局部变量 action
             // 切换动作：始终处理
-            is MappedAction.ToggleOverlay -> { onToggleOverlay?.invoke(); return }
-            is MappedAction.ToggleKeyboard -> { onToggleKeyboard?.invoke(); return }
-            is MappedAction.ToggleCapture -> { onToggleCapture?.invoke(); return }
-            else -> {}
-        }
+            is MappedAction.ToggleOverlay -> { onToggleOverlay?.invoke(); return } // 悬浮窗切换动作：触发回调后返回（语法：is 类型匹配 + 分号并列多语句）
+            is MappedAction.ToggleKeyboard -> { onToggleKeyboard?.invoke(); return } // 系统键盘切换动作：触发回调后返回（语法：is 类型匹配）
+            is MappedAction.ToggleCapture -> { onToggleCapture?.invoke(); return } // 捕获切换动作：触发回调后返回（语法：is 类型匹配）
+            else -> {} // 其他动作不在切换分支处理（语法：else 兜底分支）
+        } // 结束切换动作 when
 
         // 非切换动作：始终处理（暂停时也转发到 bridge，让游戏接收手柄输入）
-        when (val action = mapping.action) {
-            is MappedAction.KeyboardKey -> handleKeyboardKey(button, true, action.keyCode, mapping.subCommands)
-            is MappedAction.MouseClick -> handleMouseClick(button, true, action.button)
-            is MappedAction.MouseToggle -> handleMouseToggle(button, true, action.button)
-            is MappedAction.SwitchLayer -> {} // SteamInput 已处理
-            is MappedAction.MouseMove, is MappedAction.LookAround -> {} // handleStick 处理
-            is MappedAction.MouseScrollUp -> handleMouseScroll(button, SCROLL_DELTA)
-            is MappedAction.MouseScrollDown -> handleMouseScroll(button, -SCROLL_DELTA)
-            is MappedAction.ToggleOverlay,
-            is MappedAction.ToggleKeyboard,
-            is MappedAction.ToggleCapture -> {} // 已处理
-        }
-    }
+        when (val action = mapping.action) { // 语法：when 分支表达式，分发非切换动作
+            is MappedAction.KeyboardKey -> handleKeyboardKey(button, true, action.keyCode, mapping.subCommands) // 键盘按键动作：处理主键+子命令（语法：is 类型匹配）
+            is MappedAction.MouseClick -> handleMouseClick(button, true, action.button) // 鼠标点击动作：按下鼠标按钮
+            is MappedAction.MouseToggle -> handleMouseToggle(button, true, action.button) // 鼠标长按切换动作
+            is MappedAction.SwitchLayer -> {} // SteamInput 已处理 // 切换层动作：由 SteamInput 内部处理
+            is MappedAction.MouseMove, is MappedAction.LookAround -> {} // handleStick 处理 // 鼠标移动/视角动作：由 handleStick 处理
+            is MappedAction.MouseScrollUp -> handleMouseScroll(button, SCROLL_DELTA) // 鼠标上滚动作：传入正增量
+            is MappedAction.MouseScrollDown -> handleMouseScroll(button, -SCROLL_DELTA) // 鼠标下滚动作：传入负增量
+            is MappedAction.ToggleOverlay, // 悬浮窗切换动作（此处重复列出，上面已处理）
+            is MappedAction.ToggleKeyboard, // 系统键盘切换动作（此处重复列出，上面已处理）
+            is MappedAction.ToggleCapture -> {} // 已处理 // 捕获切换动作：上面已处理
+        } // 结束非切换动作 when
+    } // 结束 handleMapping 函数
 
     /**
      * 释放指定手柄按钮已注入的全部键鼠状态
@@ -363,27 +363,27 @@ class KeyboardMouseMapper(
      *
      * @param button 手柄按钮
      */
-    private fun releaseButtonInjection(button: ControllerButton) {
-        var released = false
+    private fun releaseButtonInjection(button: ControllerButton) { // 语法：private fun 私有函数，释放指定按钮的全部键鼠状态
+        var released = false // 语法：var 可变变量，标记是否发生了释放动作
         // 1. 松开子命令键（逆序）
-        pressedSubKeys.remove(button)?.reversed()?.forEach { subKeyCode ->
-            injector.sendKeyUp(subKeyCode)
-            released = true
-        }
+        pressedSubKeys.remove(button)?.reversed()?.forEach { subKeyCode -> // 取出并移除子命令列表，逆序遍历（语法：?. 安全调用链 + reversed() + forEach lambda）
+            injector.sendKeyUp(subKeyCode) // 发送子命令键松开事件
+            released = true // 标记已发生释放
+        } // 结束子命令松开 lambda
         // 2. 松开主键
-        pressedMainKeys.remove(button)?.let { mainKeyCode ->
-            injector.sendKeyUp(mainKeyCode)
-            released = true
-        }
+        pressedMainKeys.remove(button)?.let { mainKeyCode -> // 取出并移除主键码，非空时执行 lambda（语法：?. 安全调用 + let 作用域函数）
+            injector.sendKeyUp(mainKeyCode) // 发送主键松开事件
+            released = true // 标记已发生释放
+        } // 结束主键释放 lambda
         // 3. 松开鼠标按钮（MouseClick 按下态）
-        pressedMouseButtons.remove(button)?.let { mouseButton ->
-            injector.sendMouseUp(mouseButton)
-            released = true
-        }
-        if (released) {
-            Log.d(TAG, "Released button $button injections")
-        }
-    }
+        pressedMouseButtons.remove(button)?.let { mouseButton -> // 取出并移除鼠标按钮，非空时执行 lambda（语法：?. 安全调用 + let）
+            injector.sendMouseUp(mouseButton) // 发送鼠标按钮松开事件
+            released = true // 标记已发生释放
+        } // 结束鼠标按钮释放 lambda
+        if (released) { // 语法：if 分支，若本按钮确有释放动作
+            Log.d(TAG, "Released button $button injections") // 打印释放日志（语法：字符串模板 "$button"）
+        } // 结束 if (released) 分支
+    } // 结束 releaseButtonInjection 函数
 
     /**
      * 处理键盘按键映射（含子命令）
@@ -401,48 +401,49 @@ class KeyboardMouseMapper(
      * @param mainKeyCode 主键 Android KeyCode
      * @param subCommands 子命令 KeyCode 列表
      */
-    private fun handleKeyboardKey(
-        button: ControllerButton,
-        isPressed: Boolean,
-        mainKeyCode: Int,
-        subCommands: List<Int>
-    ) {
-        if (isPressed) {
+    private fun handleKeyboardKey( // 语法：private fun 私有函数声明，处理键盘按键映射（含子命令）
+        button: ControllerButton, // 手柄按钮参数
+        isPressed: Boolean, // 是否按下参数
+        mainKeyCode: Int, // 主键 Android KeyCode 参数
+        subCommands: List<Int> // 子命令 KeyCode 列表参数（语法：List<Int> 整型列表）
+    ) { // 函数体开始
+        if (isPressed) { // 语法：if 分支，按下分支
             // 防重复按下
-            if (pressedMainKeys.containsKey(button)) return
+            if (pressedMainKeys.containsKey(button)) return // 若主键已在按下状态则返回，防重复注入（语法：containsKey 映射包含键判断）
 
             // 1. 按下主键
-            injector.sendKeyDown(mainKeyCode)
-            pressedMainKeys[button] = mainKeyCode
+            injector.sendKeyDown(mainKeyCode) // 发送主键按下事件
+            pressedMainKeys[button] = mainKeyCode // 记录该按钮主键码（语法：Map 下标写入键值）
 
             // 2. 按下所有子命令键
-            val subs = mutableListOf<Int>()
-            subCommands.forEach { subKeyCode ->
-                injector.sendKeyDown(subKeyCode)
-                subs.add(subKeyCode)
-            }
-            if (subs.isNotEmpty()) {
-                pressedSubKeys[button] = subs
-            }
+            val subs = mutableListOf<Int>() // 创建可变列表收集本次按下的子命令键（语法：val+mutableListOf 可变列表）
+            subCommands.forEach { subKeyCode -> // 遍历子命令列表（语法：forEach lambda）
+                injector.sendKeyDown(subKeyCode) // 发送子命令键按下事件
+                subs.add(subKeyCode) // 把子命令键加入记录列表
+            } // 结束子命令按下 lambda
+            if (subs.isNotEmpty()) { // 语法：if 分支，若存在子命令键
+                pressedSubKeys[button] = subs // 记录该按钮的子命令键列表（语法：Map 下标写入键值）
+            } // 结束 if (subs 非空) 分支
 
-            Log.d(TAG, "KeyDown: ${KeyMapping.keyCodeToName(mainKeyCode)}" +
-                    if (subCommands.isNotEmpty()) "+${subCommands.map { KeyMapping.keyCodeToName(it) }}" else "")
-        } else {
+            Log.d(TAG, "KeyDown: ${KeyMapping.keyCodeToName(mainKeyCode)}" + // 打印主键按下日志（语法：字符串模板 "${表达式}"）
+                    // 若有子命令则追加组合键名称，否则为空字符串
+                    if (subCommands.isNotEmpty()) "+${subCommands.map { KeyMapping.keyCodeToName(it) }}" else "") // 有子命令时拼接组合名，否则空串（语法：map lambda + if 表达式）
+        } else { // 语法：if-else 分支，松开分支
             // 防重复松开
-            val main = pressedMainKeys.remove(button) ?: return
+            val main = pressedMainKeys.remove(button) ?: return // 取出并移除主键码，未按下则返回（语法：?: 空值合并）
 
             // 1. 松开所有子命令键（逆序）
-            pressedSubKeys.remove(button)?.reversed()?.forEach { subKeyCode ->
-                injector.sendKeyUp(subKeyCode)
-            }
+            pressedSubKeys.remove(button)?.reversed()?.forEach { subKeyCode -> // 取出子命令列表并逆序遍历松开（语法：?. 安全调用 + reversed() + forEach）
+                injector.sendKeyUp(subKeyCode) // 发送子命令键松开事件
+            } // 结束子命令松开 lambda
 
             // 2. 松开主键
-            injector.sendKeyUp(main)
+            injector.sendKeyUp(main) // 发送主键松开事件
 
-            Log.d(TAG, "KeyUp: ${KeyMapping.keyCodeToName(main)}" +
-                    if (subCommands.isNotEmpty()) "+${subCommands.map { KeyMapping.keyCodeToName(it) }}" else "")
-        }
-    }
+            Log.d(TAG, "KeyUp: ${KeyMapping.keyCodeToName(main)}" + // 打印主键松开日志（语法：字符串模板 "${表达式}"）
+                    if (subCommands.isNotEmpty()) "+${subCommands.map { KeyMapping.keyCodeToName(it) }}" else "") // 有子命令时拼接组合名，否则空串（语法：map lambda + if 表达式）
+        } // 结束 if-else 按下/松开分支
+    } // 结束 handleKeyboardKey 函数
 
     /**
      * 处理鼠标点击映射
@@ -451,18 +452,18 @@ class KeyboardMouseMapper(
      * @param isPressed true=按下, false=释放
      * @param mouseButton 鼠标按钮
      */
-    private fun handleMouseClick(button: ControllerButton, isPressed: Boolean, mouseButton: MouseButton) {
-        if (isPressed) {
-            if (pressedMouseButtons.containsKey(button)) return
-            injector.sendMouseDown(mouseButton)
-            pressedMouseButtons[button] = mouseButton
-            Log.d(TAG, "MouseDown: $mouseButton")
-        } else {
-            val mb = pressedMouseButtons.remove(button) ?: return
-            injector.sendMouseUp(mb)
-            Log.d(TAG, "MouseUp: $mb")
-        }
-    }
+    private fun handleMouseClick(button: ControllerButton, isPressed: Boolean, mouseButton: MouseButton) { // 语法：private fun 私有函数，处理鼠标点击映射
+        if (isPressed) { // 语法：if 分支，按下分支
+            if (pressedMouseButtons.containsKey(button)) return // 若该按钮已按下则返回，防重复（语法：containsKey 映射包含键判断）
+            injector.sendMouseDown(mouseButton) // 发送鼠标按钮按下事件
+            pressedMouseButtons[button] = mouseButton // 记录手柄按钮→鼠标按钮（语法：Map 下标写入键值）
+            Log.d(TAG, "MouseDown: $mouseButton") // 打印鼠标按下日志（语法：字符串模板 "$mouseButton"）
+        } else { // 语法：if-else 分支，松开分支
+            val mb = pressedMouseButtons.remove(button) ?: return // 取出并移除鼠标按钮，未按下则返回（语法：?: 空值合并）
+            injector.sendMouseUp(mb) // 发送鼠标按钮松开事件
+            Log.d(TAG, "MouseUp: $mb") // 打印鼠标松开日志（语法：字符串模板 "$mb"）
+        } // 结束 if-else 分支
+    } // 结束 handleMouseClick 函数
 
     /**
      * 处理鼠标长按切换映射
@@ -475,22 +476,22 @@ class KeyboardMouseMapper(
      * @param isPressed true=按下, false=释放（toggle模式中释放无操作）
      * @param mouseButton 鼠标按钮
      */
-    private fun handleMouseToggle(button: ControllerButton, isPressed: Boolean, mouseButton: MouseButton) {
-        if (!isPressed) return  // toggle模式：松开手柄键不触发任何操作
-        if (toggledMouseButtons.containsKey(button)) {
+    private fun handleMouseToggle(button: ControllerButton, isPressed: Boolean, mouseButton: MouseButton) { // 语法：private fun 私有函数，处理鼠标长按切换映射
+        if (!isPressed) return  // toggle模式：松开手柄键不触发任何操作 // toggle 锁存：松开不改变状态
+        if (toggledMouseButtons.containsKey(button)) { // 语法：if 分支，若该按钮已处于锁存按下（第二次按下，containsKey 判断）
             // 第二次按下 → 释放
-            injector.sendMouseUp(mouseButton)
-            toggledMouseButtons.remove(button)
-            onMouseToggleChanged?.invoke(mouseButton, false)
-            Log.d(TAG, "Toggle MouseUp: $mouseButton")
-        } else {
+            injector.sendMouseUp(mouseButton) // 发送鼠标按钮松开事件
+            toggledMouseButtons.remove(button) // 从锁存记录中移除该按钮
+            onMouseToggleChanged?.invoke(mouseButton, false) // 通知回调当前为松开状态（语法：?. 安全调用）
+            Log.d(TAG, "Toggle MouseUp: $mouseButton") // 打印 toggle 松开日志（语法：字符串模板）
+        } else { // 语法：if-else 分支，第一次按下
             // 第一次按下 → 按下
-            injector.sendMouseDown(mouseButton)
-            toggledMouseButtons[button] = mouseButton
-            onMouseToggleChanged?.invoke(mouseButton, true)
-            Log.d(TAG, "Toggle MouseDown: $mouseButton")
-        }
-    }
+            injector.sendMouseDown(mouseButton) // 发送鼠标按钮按下事件（保持不松开）
+            toggledMouseButtons[button] = mouseButton // 记录该按钮处于锁存按下状态（语法：Map 下标写入键值）
+            onMouseToggleChanged?.invoke(mouseButton, true) // 通知回调当前为按下状态（语法：?. 安全调用）
+            Log.d(TAG, "Toggle MouseDown: $mouseButton") // 打印 toggle 按下日志（语法：字符串模板）
+        } // 结束 if-else 分支
+    } // 结束 handleMouseToggle 函数
 
     /**
      * 处理鼠标滚轮映射
@@ -500,10 +501,10 @@ class KeyboardMouseMapper(
      * @param button 手柄按钮
      * @param delta 滚轮增量（正数=上滚，负数=下滚）
      */
-    private fun handleMouseScroll(button: ControllerButton, delta: Float) {
-        injector.sendMouseScroll(delta)
-        Log.d(TAG, "MouseScroll: delta=$delta")
-    }
+    private fun handleMouseScroll(button: ControllerButton, delta: Float) { // 语法：private fun 私有函数，处理鼠标滚轮映射
+        injector.sendMouseScroll(delta) // 发送滚轮事件（正数=上滚，负数=下滚）
+        Log.d(TAG, "MouseScroll: delta=$delta") // 打印滚轮日志（语法：字符串模板 "$delta"）
+    } // 结束 handleMouseScroll 函数
 
     /**
      * 处理摇杆事件
@@ -516,42 +517,42 @@ class KeyboardMouseMapper(
      * @param x X轴值 (-1.0~1.0)
      * @param y Y轴值 (-1.0~1.0)
      */
-    private fun handleStick(stick: ControllerStick, x: Float, y: Float) {
-        when (stick) {
-            ControllerStick.RIGHT_STICK -> {
+    private fun handleStick(stick: ControllerStick, x: Float, y: Float) { // 语法：private fun 私有函数，处理摇杆事件
+        when (stick) { // 语法：when 分支，按摇杆类型分发
+            ControllerStick.RIGHT_STICK -> { // 右摇杆分支（视角控制）
                 // 右摇杆 → 视角控制（LookAround）
                 // 只记录最新位置，实际发送由固定频率循环 [processLookTick] 消费。
                 // 事件驱动即时发送时，MotionEvent 到达时间抖动会使鼠标包时间分布不均，
                 // 游戏内镜头一顿一顿；固定 tick 发送让包节奏稳定，还原真实鼠标的高频均匀位移。
-                latestLookX = x
-                latestLookY = y
-            }
-            ControllerStick.LEFT_STICK -> {
+                latestLookX = x // 更新右摇杆最新 X 位置
+                latestLookY = y // 更新右摇杆最新 Y 位置
+            } // 结束右摇杆分支
+            ControllerStick.LEFT_STICK -> { // 左摇杆分支（WASD 8方向移动）
                 // 左摇杆 → WASD 8方向映射（固定映射，不随操作层变化）
                 // 8方向: 上(W)/下(S)/左(A)/右(D)/左上(A+W)/右上(D+W)/左下(A+S)/右下(D+S)
-                val threshold = 0.5f
-                val newKeys = mutableSetOf<Int>()
-                if (x > threshold) newKeys.add(KeyEvent.KEYCODE_D)
-                else if (x < -threshold) newKeys.add(KeyEvent.KEYCODE_A)
-                if (y > threshold) newKeys.add(KeyEvent.KEYCODE_S)
-                else if (y < -threshold) newKeys.add(KeyEvent.KEYCODE_W)
+                val threshold = 0.5f // 摇杆触发阈值，超过才视为按下方向（语法：val 只读变量，0.5f=Float 字面量）
+                val newKeys = mutableSetOf<Int>() // 本次计算出的新方向键集合（语法：val+mutableSetOf 可变集合）
+                if (x > threshold) newKeys.add(KeyEvent.KEYCODE_D) // 摇杆右偏：加入 D 键（语法：if 单行语句）
+                else if (x < -threshold) newKeys.add(KeyEvent.KEYCODE_A) // 摇杆左偏：加入 A 键（语法：else if）
+                if (y > threshold) newKeys.add(KeyEvent.KEYCODE_S) // 摇杆下偏：加入 S 键（语法：if 单行语句）
+                else if (y < -threshold) newKeys.add(KeyEvent.KEYCODE_W) // 摇杆上偏：加入 W 键（语法：else if）
 
                 // 释放不再按下的方向键
-                for (key in leftStickPressedKeys) {
-                    if (key !in newKeys) injector.sendKeyUp(key)
-                }
+                for (key in leftStickPressedKeys) { // 遍历旧集合中的方向键（语法：for(x in y) 遍历）
+                    if (key !in newKeys) injector.sendKeyUp(key) // 旧键不在新集合中则松开（语法：!in 非成员判断 + if 单行语句）
+                } // 结束旧键遍历 for
                 // 按下新增的方向键
-                for (key in newKeys) {
-                    if (key !in leftStickPressedKeys) injector.sendKeyDown(key)
-                }
-                leftStickPressedKeys.clear()
-                leftStickPressedKeys.addAll(newKeys)
-            }
-            ControllerStick.DPAD_AS_STICK -> {
+                for (key in newKeys) { // 遍历新集合中的方向键（语法：for(x in y) 遍历）
+                    if (key !in leftStickPressedKeys) injector.sendKeyDown(key) // 新键不在旧集合中则按下（语法：!in 非成员判断）
+                } // 结束新键遍历 for
+                leftStickPressedKeys.clear() // 清空旧集合
+                leftStickPressedKeys.addAll(newKeys) // 将新方向键集合整体写入
+            } // 结束左摇杆分支
+            ControllerStick.DPAD_AS_STICK -> { // D-Pad 当作摇杆的分支
                 // D-Pad 作为摇杆 → 不处理
-            }
-        }
-    }
+            } // 结束 D-Pad 分支
+        } // 结束 when 摇杆类型分支
+    } // 结束 handleStick 函数
 
     // ====================================================================
     // 右摇杆固定频率发送循环（业界标准做法: Steam Input / DS4Windows）
@@ -565,40 +566,40 @@ class KeyboardMouseMapper(
      * - 位移按**实际经过时间** dt 计算（tick 被系统调度延迟时总量不变，不丢量）
      * - 循环超时则跳过 sleep 立即进入下一轮（丢帧不堆积延迟）
      */
-    private fun startLookLoop() {
-        if (lookThreadRunning) return
-        lookThreadRunning = true
-        lookThread = Thread({
-            var lastTickNanos = SystemClock.elapsedRealtimeNanos()
-            try {
-                while (lookThreadRunning) {
-                    val tickStart = SystemClock.elapsedRealtimeNanos()
-                    val dt = ((tickStart - lastTickNanos) / 1e9f).coerceIn(0.001f, 0.05f)
-                    lastTickNanos = tickStart
-                    processLookTick(dt)
-                    val elapsedMs = (SystemClock.elapsedRealtimeNanos() - tickStart) / 1_000_000L
-                    val sleepMs = LOOK_TICK_MS - elapsedMs
-                    if (sleepMs > 0) {
-                        Thread.sleep(sleepMs)
-                    }
-                }
-            } catch (e: InterruptedException) {
+    private fun startLookLoop() { // 语法：private fun 私有函数，启动右摇杆发送循环线程
+        if (lookThreadRunning) return // 若循环已在运行则直接返回，防止重复启动（语法：if 单行语句）
+        lookThreadRunning = true // 置循环运行标志为 true
+        lookThread = Thread({ // 创建线程，参数为线程体 lambda（语法：Thread 构造 + lambda 作为 Runnable）
+            var lastTickNanos = SystemClock.elapsedRealtimeNanos() // 记录上一 tick 的纳秒时间戳（语法：var 可变变量）
+            try { // 语法：try 异常处理块开始
+                while (lookThreadRunning) { // 语法：while 循环，运行标志为 true 时持续 tick
+                    val tickStart = SystemClock.elapsedRealtimeNanos() // 记录本次 tick 起始纳秒时间（语法：val 只读变量）
+                    val dt = ((tickStart - lastTickNanos) / 1e9f).coerceIn(0.001f, 0.05f) // 计算实际间隔秒数并钳制到 [1ms,50ms]（语法：coerceIn 范围钳制 + 1e9f 科学计数法）
+                    lastTickNanos = tickStart // 更新上一 tick 时间戳
+                    processLookTick(dt) // 执行一次位移计算与发送
+                    val elapsedMs = (SystemClock.elapsedRealtimeNanos() - tickStart) / 1_000_000L // 计算本 tick 处理耗时（毫秒）（语法：1_000_000L Long 字面量 + 下划线数字）
+                    val sleepMs = LOOK_TICK_MS - elapsedMs // 计算需 sleep 时长以保持固定节奏（语法：val 只读变量）
+                    if (sleepMs > 0) { // 语法：if 分支，若还有剩余时间
+                        Thread.sleep(sleepMs) // 睡眠以维持固定 tick 频率
+                    } // 结束 if (sleepMs>0) 分支
+                } // 结束 while 循环
+            } catch (e: InterruptedException) { // 语法：catch 捕获中断异常
                 // 停止请求
-            }
-            lookThreadRunning = false
-        }, "SteamLike-LookLoop").apply { isDaemon = true }
-        lookThread?.start()
-    }
+            } // 结束 catch 块
+            lookThreadRunning = false // 循环退出后复位运行标志
+        }, "SteamLike-LookLoop").apply { isDaemon = true } // 设置线程名并设为守护线程（语法：.apply 作用域函数 + isDaemon 属性）
+        lookThread?.start() // 启动线程（语法：?. 安全调用）
+    } // 结束 startLookLoop 函数
 
     /**
      * 停止右摇杆发送循环，等待线程退出
      */
-    private fun stopLookLoop() {
-        lookThreadRunning = false
-        lookThread?.interrupt()
-        lookThread?.join(500)
-        lookThread = null
-    }
+    private fun stopLookLoop() { // 语法：private fun 私有函数，停止右摇杆发送循环
+        lookThreadRunning = false // 复位运行标志，使循环退出
+        lookThread?.interrupt() // 中断线程的 sleep（若有）（语法：?. 安全调用）
+        lookThread?.join(500) // 等待线程最多 500ms 结束（语法：?. 安全调用 + join 等待线程）
+        lookThread = null // 清空线程引用
+    } // 结束 stopLookLoop 函数
 
     /**
      * 单个 tick：读取最新摇杆位置，计算并发送鼠标位移
@@ -608,58 +609,58 @@ class KeyboardMouseMapper(
      *
      * @param dt 实际经过时间（秒），位移 = 速度 × dt
      */
-    private fun processLookTick(dt: Float) {
-        var rx = latestLookX
-        var ry = latestLookY
-        val settings = steamInput.profile.globalSettings
+    private fun processLookTick(dt: Float) { // 语法：private fun 私有函数，单个 tick 计算并发送鼠标位移
+        var rx = latestLookX // 读取最新 X 到局部变量（语法：var 可变变量）
+        var ry = latestLookY // 读取最新 Y 到局部变量（语法：var 可变变量）
+        val settings = steamInput.profile.globalSettings // 获取全局设置（灵敏度/加速/平滑）（语法：val 只读变量 + 链式属性访问）
 
         // 幅值钳制（mag>1 缩回单位圆）
-        val mag = Math.sqrt((rx * rx + ry * ry).toDouble()).toFloat()
-        if (mag > 1f) {
-            val scale = 1f / mag
-            rx *= scale
-            ry *= scale
-        }
+        val mag = Math.sqrt((rx * rx + ry * ry).toDouble()).toFloat() // 计算摇杆向量模长（语法：Math.sqrt 平方根 + toDouble/toFloat 类型转换）
+        if (mag > 1f) { // 语法：if 分支，模长超过 1（越界）
+            val scale = 1f / mag // 计算缩放系数将模长缩回单位圆（语法：val 只读变量）
+            rx *= scale // 缩放 X（语法：*= 复合赋值）
+            ry *= scale // 缩放 Y（语法：*= 复合赋值）
+        } // 结束幅值钳制分支
 
         // 加速曲线：pow(mag, accel)，轻推更慢、重推更快（精确瞄准/快速转身兼顾）
-        val accel = settings.lookAcceleration.coerceIn(0.5f, 3.0f)
-        if (rx != 0f || ry != 0f) {
-            val normMag = Math.sqrt((rx * rx + ry * ry).toDouble()).toFloat()
-            val curve = Math.pow(normMag.toDouble(), accel.toDouble()).toFloat()
-            val scale = if (normMag > 0f) curve / normMag else 0f
-            rx *= scale
-            ry *= scale
-        }
+        val accel = settings.lookAcceleration.coerceIn(0.5f, 3.0f) // 取加速度指数并钳制到 [0.5,3.0]（语法：coerceIn 范围钳制）
+        if (rx != 0f || ry != 0f) { // 语法：if 分支 + || 逻辑或，仅在摇杆有位移时计算曲线
+            val normMag = Math.sqrt((rx * rx + ry * ry).toDouble()).toFloat() // 计算缩放前的模长（语法：Math.sqrt 平方根）
+            val curve = Math.pow(normMag.toDouble(), accel.toDouble()).toFloat() // 计算加速曲线值 pow(mag,accel)（语法：Math.pow 幂运算）
+            val scale = if (normMag > 0f) curve / normMag else 0f // 计算缩放系数，模长为 0 时取 0（语法：if 作为表达式）
+            rx *= scale // 应用加速缩放 X（语法：*= 复合赋值）
+            ry *= scale // 应用加速缩放 Y（语法：*= 复合赋值）
+        } // 结束加速曲线分支
 
         // 时间常数 EMA 平滑（与 tick 频率无关的稳定平滑）
-        val tau = settings.lookSmoothing.coerceIn(0f, 0.95f) * LOOK_SMOOTH_TAU_MAX
-        val alpha = if (tau <= 0f) 1f else 1f - kotlin.math.exp(-dt / tau)
-        smoothedLookX = smoothedLookX * (1f - alpha) + rx * alpha
-        smoothedLookY = smoothedLookY * (1f - alpha) + ry * alpha
+        val tau = settings.lookSmoothing.coerceIn(0f, 0.95f) * LOOK_SMOOTH_TAU_MAX // 计算平滑时间常数 τ（语法：coerceIn 范围钳制）
+        val alpha = if (tau <= 0f) 1f else 1f - kotlin.math.exp(-dt / tau) // 计算 EMA 系数 α=1-exp(-dt/τ)（语法：if 作为表达式 + kotlin.math.exp 指数函数）
+        smoothedLookX = smoothedLookX * (1f - alpha) + rx * alpha // 对 X 做指数移动平均
+        smoothedLookY = smoothedLookY * (1f - alpha) + ry * alpha // 对 Y 做指数移动平均
 
         // 位移积分：满推 LOOK_SPEED_PX_PER_SEC × 灵敏度 × dt
         // 亚像素部分由注入器余量累积补发（不丢量、不产生脉冲）
-        val dx = smoothedLookX * settings.lookSensitivity * LOOK_SPEED_PX_PER_SEC * dt
-        val dy = smoothedLookY * settings.lookSensitivity * LOOK_SPEED_PX_PER_SEC * dt
-        if (dx != 0f || dy != 0f) {
-            injector.sendMouseMove(dx, dy)
-        }
-    }
+        val dx = smoothedLookX * settings.lookSensitivity * LOOK_SPEED_PX_PER_SEC * dt // 计算 X 方向位移（速度×灵敏度×时间）（语法：val 只读变量）
+        val dy = smoothedLookY * settings.lookSensitivity * LOOK_SPEED_PX_PER_SEC * dt // 计算 Y 方向位移（语法：val 只读变量）
+        if (dx != 0f || dy != 0f) { // 语法：if 分支 + || 逻辑或，若存在位移
+            injector.sendMouseMove(dx, dy) // 发送鼠标相对移动
+        } // 结束位移发送分支
+    } // 结束 processLookTick 函数
 
-    companion object {
+    companion object { // 语法：companion object 伴生对象，存放类级常量
         /**
          * 右摇杆满推时的鼠标移动速度（像素/秒）
          *
          * 位移 = 速度 × 实际经过时间，无论 tick/事件频率如何，速度恒定。
          */
-        private const val LOOK_SPEED_PX_PER_SEC = 480f
+        private const val LOOK_SPEED_PX_PER_SEC = 480f // 语法：const val 编译期常量，右摇杆满推移动速度（像素/秒）
 
         /**
          * 视角 EMA 平滑时间常数上限（秒）
          *
          * lookSmoothing=0.95 时 τ=45ms，lookSmoothing=0.5（默认）时 τ≈24ms。
          */
-        private const val LOOK_SMOOTH_TAU_MAX = 0.048f
+        private const val LOOK_SMOOTH_TAU_MAX = 0.048f // 语法：const val 编译期常量，EMA 平滑时间常数上限（秒）
 
         /**
          * 右摇杆发送循环 tick 间隔（毫秒）≈ 125Hz
@@ -667,9 +668,9 @@ class KeyboardMouseMapper(
          * 接近真实鼠标的回报频率（多数鼠标 125~1000Hz），
          * 每 tick 位移 1~4px，配合余量累积实现平滑连续移动。
          */
-        private const val LOOK_TICK_MS = 8L
+        private const val LOOK_TICK_MS = 8L // 语法：const val 编译期常量，tick 间隔毫秒（8L=Long 字面量，约 125Hz）
 
         /** 鼠标滚轮增量（每次按下发送的滚轮量） */
-        private const val SCROLL_DELTA = 120f
-    }
-}
+        private const val SCROLL_DELTA = 120f // 语法：const val 编译期常量，鼠标滚轮增量
+    } // 结束伴生对象
+} // 结束 KeyboardMouseMapper 类

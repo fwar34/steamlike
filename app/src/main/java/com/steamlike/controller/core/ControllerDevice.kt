@@ -1,8 +1,8 @@
-package com.steamlike.controller.core
+package com.steamlike.controller.core // 包声明（语法：package 声明当前文件所属包）
 
-import android.view.InputDevice
-import android.view.KeyEvent
-import android.view.MotionEvent
+import android.view.InputDevice // 导入输入设备类（语法：import 导入声明）
+import android.view.KeyEvent // 导入按键事件类
+import android.view.MotionEvent // 导入运动事件类
 
 /**
  * 已连接的手柄设备信息
@@ -31,18 +31,18 @@ import android.view.MotionEvent
  * @param hasAnalogTriggers 是否有模拟扳机（LT/RT 可读取 0.0~1.0 值）
  * @param hasDpad 是否有十字键
  */
-data class ControllerDevice(
-    val deviceId: Int,
-    val name: String,
-    val controllerType: ControllerType,
-    val inputDevice: InputDevice,
-    val supportsVibration: Boolean,
-    val hasLeftStick: Boolean,
-    val hasRightStick: Boolean,
-    val hasAnalogTriggers: Boolean,
-    val hasDpad: Boolean
-) {
-    companion object {
+data class ControllerDevice( // 手柄设备信息数据类（语法：data class 自动生成 equals/hashCode/toString/copy）
+    val deviceId: Int, // Android 设备 ID（语法：val 只读属性）
+    val name: String, // 设备名称
+    val controllerType: ControllerType, // 手柄类型（用于按键修正）
+    val inputDevice: InputDevice, // 原始 Android InputDevice 对象
+    val supportsVibration: Boolean, // 是否支持震动反馈
+    val hasLeftStick: Boolean, // 是否有左摇杆
+    val hasRightStick: Boolean, // 是否有右摇杆
+    val hasAnalogTriggers: Boolean, // 是否有模拟扳机
+    val hasDpad: Boolean // 是否有十字键
+) { // 数据类主体开始
+    companion object { // 伴生对象（语法：companion object 静态成员容器）
         /**
          * 从 Android InputDevice 创建 ControllerDevice
          *
@@ -55,48 +55,48 @@ data class ControllerDevice(
          * @param device Android InputDevice
          * @return ControllerDevice 实例；非手柄设备返回 null
          */
-        fun fromInputDevice(device: InputDevice): ControllerDevice? {
-            val sources = device.sources
+        fun fromInputDevice(device: InputDevice): ControllerDevice? { // 从 InputDevice 创建设备信息（语法：可空返回 ControllerDevice?）
+            val sources = device.sources // 获取设备输入来源位掩码
             // 检查是否为手柄类设备（游戏手柄或摇杆）
-            val isGamepad = sources and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD
-            val isJoystick = sources and InputDevice.SOURCE_JOYSTICK == InputDevice.SOURCE_JOYSTICK
-            if (!isGamepad && !isJoystick) return null
+            val isGamepad = sources and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD // 判断是否含游戏手柄源（语法：and 位与运算）
+            val isJoystick = sources and InputDevice.SOURCE_JOYSTICK == InputDevice.SOURCE_JOYSTICK // 判断是否含摇杆源
+            if (!isGamepad && !isJoystick) return null // 两者都不是则非手柄设备，返回 null（语法：! 逻辑非 + && 与运算）
 
             // 检测左摇杆: AXIS_X 和 AXIS_Y 同时存在
-            val hasLeftStick = device.getMotionRange(MotionEvent.AXIS_X) != null &&
-                    device.getMotionRange(MotionEvent.AXIS_Y) != null
+            val hasLeftStick = device.getMotionRange(MotionEvent.AXIS_X) != null && // 检测是否存在 AXIS_X 轴（语法：&& 跨行连接条件）
+                    device.getMotionRange(MotionEvent.AXIS_Y) != null // 且同时存在 AXIS_Y 轴
             // 检测右摇杆: AXIS_Z 或 AXIS_RX 任一存在
-            val hasRightStick = device.getMotionRange(MotionEvent.AXIS_Z) != null ||
-                    device.getMotionRange(MotionEvent.AXIS_RX) != null
+            val hasRightStick = device.getMotionRange(MotionEvent.AXIS_Z) != null || // 检测是否存在 AXIS_Z 轴（语法：|| 或运算）
+                    device.getMotionRange(MotionEvent.AXIS_RX) != null // 或存在 AXIS_RX 轴
             // 检测模拟扳机: AXIS_LTRIGGER 或 AXIS_BRAKE 任一存在
-            val hasAnalogTriggers = device.getMotionRange(MotionEvent.AXIS_LTRIGGER) != null ||
-                    device.getMotionRange(MotionEvent.AXIS_BRAKE) != null
+            val hasAnalogTriggers = device.getMotionRange(MotionEvent.AXIS_LTRIGGER) != null || // 检测是否存在 AXIS_LTRIGGER 轴
+                    device.getMotionRange(MotionEvent.AXIS_BRAKE) != null // 或存在 AXIS_BRAKE 轴
             // 检测十字键
-            val hasDpad = sources and InputDevice.SOURCE_DPAD == InputDevice.SOURCE_DPAD
+            val hasDpad = sources and InputDevice.SOURCE_DPAD == InputDevice.SOURCE_DPAD // 判断是否含 D-Pad 来源
 
             // 检测震动支持
-            val vibrator = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                device.vibrator
-            } else {
-                @Suppress("DEPRECATION")
-                device.vibrator
-            }
-            val supportsVibration = vibrator?.hasVibrator() == true
+            val vibrator = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) { // 获取震动器（语法：if 表达式）
+                device.vibrator // API 31+ 直接读取震动器
+            } else { // 旧版本分支
+                @Suppress("DEPRECATION") // 抑制弃用警告（语法：@Suppress 注解）
+                device.vibrator // 旧版本同样读取震动器
+            } // 结束 if 表达式
+            val supportsVibration = vibrator?.hasVibrator() == true // 判断震动器是否有震动能力（语法：?. 安全调用）
 
-            return ControllerDevice(
-                deviceId = device.id,
-                name = device.name,
-                controllerType = ControllerType.fromVendorProduct(device.vendorId, device.productId),
-                inputDevice = device,
-                supportsVibration = supportsVibration,
-                hasLeftStick = hasLeftStick,
-                hasRightStick = hasRightStick,
-                hasAnalogTriggers = hasAnalogTriggers,
-                hasDpad = hasDpad
-            )
-        }
-    }
-}
+            return ControllerDevice( // 构造设备信息对象（语法：具名参数构造）
+                deviceId = device.id, // 设备 ID
+                name = device.name, // 设备名称
+                controllerType = ControllerType.fromVendorProduct(device.vendorId, device.productId), // 按厂商/产品 ID 识别手柄类型
+                inputDevice = device, // 保存原始 InputDevice
+                supportsVibration = supportsVibration, // 震动支持标记
+                hasLeftStick = hasLeftStick, // 左摇杆标记
+                hasRightStick = hasRightStick, // 右摇杆标记
+                hasAnalogTriggers = hasAnalogTriggers, // 模拟扳机标记
+                hasDpad = hasDpad // 十字键标记
+            ) // 结束 ControllerDevice 构造
+        } // 结束 fromInputDevice 函数
+    } // 结束 companion object
+} // 结束 ControllerDevice 数据类
 
 /**
  * 手柄输入映射器
@@ -114,7 +114,7 @@ data class ControllerDevice(
  * 在 [SteamInput.dispatchKeyEvent] 和 [SteamInput.dispatchGenericMotionEvent] 中调用，
  * 将系统事件转换为统一的内部表示后再进行动作分发。
  */
-object ControllerInputMapper {
+object ControllerInputMapper { // 输入映射器单例（语法：object 单例对象）
 
     /**
      * Android KeyCode → ControllerButton 默认映射表
@@ -122,26 +122,26 @@ object ControllerInputMapper {
      * 适用于 Xbox 风格手柄（A/B/X/Y 按标准布局）。
      * PS 手柄需要额外使用 [psKeyCodeOverrides] 修正。
      */
-    private val keyCodeMap: Map<Int, ControllerButton> = mapOf(
-        KeyEvent.KEYCODE_BUTTON_A to ControllerButton.A,
-        KeyEvent.KEYCODE_BUTTON_B to ControllerButton.B,
-        KeyEvent.KEYCODE_BUTTON_X to ControllerButton.X,
-        KeyEvent.KEYCODE_BUTTON_Y to ControllerButton.Y,
-        KeyEvent.KEYCODE_BUTTON_L1 to ControllerButton.LEFT_SHOULDER,    // LB
-        KeyEvent.KEYCODE_BUTTON_R1 to ControllerButton.RIGHT_SHOULDER,   // RB
-        KeyEvent.KEYCODE_BUTTON_THUMBL to ControllerButton.LEFT_STICK_CLICK,   // L3
-        KeyEvent.KEYCODE_BUTTON_THUMBR to ControllerButton.RIGHT_STICK_CLICK,  // R3
-        KeyEvent.KEYCODE_BUTTON_L2 to ControllerButton.LEFT_TRIGGER_CLICK,     // L2 按到底
-        KeyEvent.KEYCODE_BUTTON_R2 to ControllerButton.RIGHT_TRIGGER_CLICK,    // R2 按到底
-        KeyEvent.KEYCODE_BUTTON_START to ControllerButton.MENU,
-        KeyEvent.KEYCODE_BUTTON_SELECT to ControllerButton.OPTIONS,
-        KeyEvent.KEYCODE_BUTTON_MODE to ControllerButton.GUIDE,           // Home/PS键
-        KeyEvent.KEYCODE_DPAD_UP to ControllerButton.DPAD_UP,
-        KeyEvent.KEYCODE_DPAD_DOWN to ControllerButton.DPAD_DOWN,
-        KeyEvent.KEYCODE_DPAD_LEFT to ControllerButton.DPAD_LEFT,
-        KeyEvent.KEYCODE_DPAD_RIGHT to ControllerButton.DPAD_RIGHT,
-        KeyEvent.KEYCODE_BUTTON_C to ControllerButton.TOUCHPAD_CLICK      // PS 触控板点击
-    )
+    private val keyCodeMap: Map<Int, ControllerButton> = mapOf( // Android 键码→统一按钮映射表（语法：mapOf 不可变 Map + 显式类型）
+        KeyEvent.KEYCODE_BUTTON_A to ControllerButton.A, // A 键映射（语法：to 中缀函数构造 Pair）
+        KeyEvent.KEYCODE_BUTTON_B to ControllerButton.B, // B 键映射
+        KeyEvent.KEYCODE_BUTTON_X to ControllerButton.X, // X 键映射
+        KeyEvent.KEYCODE_BUTTON_Y to ControllerButton.Y, // Y 键映射
+        KeyEvent.KEYCODE_BUTTON_L1 to ControllerButton.LEFT_SHOULDER,    // LB // 左肩键映射
+        KeyEvent.KEYCODE_BUTTON_R1 to ControllerButton.RIGHT_SHOULDER,   // RB // 右肩键映射
+        KeyEvent.KEYCODE_BUTTON_THUMBL to ControllerButton.LEFT_STICK_CLICK,   // L3 // 左摇杆按下映射
+        KeyEvent.KEYCODE_BUTTON_THUMBR to ControllerButton.RIGHT_STICK_CLICK,  // R3 // 右摇杆按下映射
+        KeyEvent.KEYCODE_BUTTON_L2 to ControllerButton.LEFT_TRIGGER_CLICK,     // L2 按到底 // 左扳机点击映射
+        KeyEvent.KEYCODE_BUTTON_R2 to ControllerButton.RIGHT_TRIGGER_CLICK,    // R2 按到底 // 右扳机点击映射
+        KeyEvent.KEYCODE_BUTTON_START to ControllerButton.MENU, // Start 键→菜单键映射
+        KeyEvent.KEYCODE_BUTTON_SELECT to ControllerButton.OPTIONS, // Select 键→选项键映射
+        KeyEvent.KEYCODE_BUTTON_MODE to ControllerButton.GUIDE,           // Home/PS键 // 中央 Home 键映射
+        KeyEvent.KEYCODE_DPAD_UP to ControllerButton.DPAD_UP, // 十字键上映射
+        KeyEvent.KEYCODE_DPAD_DOWN to ControllerButton.DPAD_DOWN, // 十字键下映射
+        KeyEvent.KEYCODE_DPAD_LEFT to ControllerButton.DPAD_LEFT, // 十字键左映射
+        KeyEvent.KEYCODE_DPAD_RIGHT to ControllerButton.DPAD_RIGHT, // 十字键右映射
+        KeyEvent.KEYCODE_BUTTON_C to ControllerButton.TOUCHPAD_CLICK      // PS 触控板点击 // PS 触控板键映射
+    ) // 结束 mapOf
 
     /**
      * PS 手柄按键覆盖表
@@ -156,12 +156,12 @@ object ControllerInputMapper {
      *
      * 注意: 这里只覆盖 A/B/X，Y 不变（Y/△ 在两种手柄上位置一致）
      */
-    private val psKeyCodeOverrides: Map<Int, ControllerButton> = mapOf(
-        KeyEvent.KEYCODE_BUTTON_A to ControllerButton.X,  // PS × → Xbox X
-        KeyEvent.KEYCODE_BUTTON_B to ControllerButton.B,  // PS ○ → Xbox B（不变）
-        KeyEvent.KEYCODE_BUTTON_X to ControllerButton.A,  // PS □ → Xbox A
-        KeyEvent.KEYCODE_BUTTON_Y to ControllerButton.Y   // PS △ → Xbox Y（不变）
-    )
+    private val psKeyCodeOverrides: Map<Int, ControllerButton> = mapOf( // PS 手柄按键修正表（语法：mapOf 不可变 Map）
+        KeyEvent.KEYCODE_BUTTON_A to ControllerButton.X,  // PS × → Xbox X // PS × 修正为 X
+        KeyEvent.KEYCODE_BUTTON_B to ControllerButton.B,  // PS ○ → Xbox B（不变）// PS ○ 保持 B
+        KeyEvent.KEYCODE_BUTTON_X to ControllerButton.A,  // PS □ → Xbox A // PS □ 修正为 A
+        KeyEvent.KEYCODE_BUTTON_Y to ControllerButton.Y   // PS △ → Xbox Y（不变）// PS △ 保持 Y
+    ) // 结束 mapOf
 
     /**
      * 将 Android KeyCode 映射为统一的 ControllerButton
@@ -174,15 +174,15 @@ object ControllerInputMapper {
      * @param controllerType 手柄类型（用于决定是否应用 PS 修正）
      * @return 对应的 ControllerButton；未映射的按键返回 null
      */
-    fun mapKeyCode(keyCode: Int, controllerType: ControllerType): ControllerButton? {
+    fun mapKeyCode(keyCode: Int, controllerType: ControllerType): ControllerButton? { // 键码→统一按钮（语法：可空返回 ControllerButton?）
         // PS 手柄特殊处理: ×/○ 与 A/B 位置互换
-        if (controllerType == ControllerType.PS3 || controllerType == ControllerType.PS4 ||
-            controllerType == ControllerType.PS5_DUALSENSE
-        ) {
-            psKeyCodeOverrides[keyCode]?.let { return it }
-        }
-        return keyCodeMap[keyCode]
-    }
+        if (controllerType == ControllerType.PS3 || controllerType == ControllerType.PS4 || // 判断是否 PS3/PS4 手柄（语法：|| 或运算跨行）
+            controllerType == ControllerType.PS5_DUALSENSE // 或 PS5 手柄
+        ) { // 结束类型判断
+            psKeyCodeOverrides[keyCode]?.let { return it } // 查 PS 修正表，命中即返回（语法：?. 安全调用 + let + 局部返回）
+        } // 结束 if
+        return keyCodeMap[keyCode] // 否则查默认映射表
+    } // 结束 mapKeyCode 函数
 
     /**
      * 从 MotionEvent 读取摇杆的 2D 位置
@@ -199,30 +199,30 @@ object ControllerInputMapper {
      * @param device 输入设备（用于查询轴范围）
      * @return 摇杆位置向量
      */
-    fun getStickValue(event: MotionEvent, stick: ControllerStick, device: InputDevice): Vector2 {
-        return when (stick) {
-            ControllerStick.LEFT_STICK -> {
-                val x = getCenteredAxis(event, device, MotionEvent.AXIS_X)
-                val y = getCenteredAxis(event, device, MotionEvent.AXIS_Y)
-                Vector2(x, y)
-            }
-            ControllerStick.RIGHT_STICK -> {
+    fun getStickValue(event: MotionEvent, stick: ControllerStick, device: InputDevice): Vector2 { // 读取摇杆 2D 位置（语法：返回 Vector2）
+        return when (stick) { // 按摇杆类型分支（语法：when 表达式）
+            ControllerStick.LEFT_STICK -> { // 左摇杆分支
+                val x = getCenteredAxis(event, device, MotionEvent.AXIS_X) // 读取 X 轴归一化值
+                val y = getCenteredAxis(event, device, MotionEvent.AXIS_Y) // 读取 Y 轴归一化值
+                Vector2(x, y) // 构造位置向量
+            } // 结束左摇杆分支
+            ControllerStick.RIGHT_STICK -> { // 右摇杆分支
                 // 右摇杆 X 轴: 优先 AXIS_Z，回退到 AXIS_RX
-                var x = getCenteredAxis(event, device, MotionEvent.AXIS_Z)
-                if (x == 0f) x = getCenteredAxis(event, device, MotionEvent.AXIS_RX)
+                var x = getCenteredAxis(event, device, MotionEvent.AXIS_Z) // 读取 Z 轴值（语法：var 可变变量）
+                if (x == 0f) x = getCenteredAxis(event, device, MotionEvent.AXIS_RX) // Z 轴为零则回退读 RX 轴
                 // 右摇杆 Y 轴: 优先 AXIS_RZ，回退到 AXIS_RY
-                var y = getCenteredAxis(event, device, MotionEvent.AXIS_RZ)
-                if (y == 0f) y = getCenteredAxis(event, device, MotionEvent.AXIS_RY)
-                Vector2(x, y)
-            }
-            ControllerStick.DPAD_AS_STICK -> {
+                var y = getCenteredAxis(event, device, MotionEvent.AXIS_RZ) // 读取 RZ 轴值
+                if (y == 0f) y = getCenteredAxis(event, device, MotionEvent.AXIS_RY) // RZ 轴为零则回退读 RY 轴
+                Vector2(x, y) // 构造位置向量
+            } // 结束右摇杆分支
+            ControllerStick.DPAD_AS_STICK -> { // 十字键当摇杆分支
                 // D-Pad 作为摇杆: HAT 轴值仅 -1/0/1
-                val x = event.getAxisValue(MotionEvent.AXIS_HAT_X).coerceIn(-1f, 1f)
-                val y = event.getAxisValue(MotionEvent.AXIS_HAT_Y).coerceIn(-1f, 1f)
-                Vector2(x, y)
-            }
-        }
-    }
+                val x = event.getAxisValue(MotionEvent.AXIS_HAT_X).coerceIn(-1f, 1f) // 读取 HAT_X 并限幅（语法：coerceIn 限幅函数）
+                val y = event.getAxisValue(MotionEvent.AXIS_HAT_Y).coerceIn(-1f, 1f) // 读取 HAT_Y 并限幅
+                Vector2(x, y) // 构造位置向量
+            } // 结束十字键分支
+        } // 结束 when
+    } // 结束 getStickValue 函数
 
     /**
      * 从 MotionEvent 读取扳机的模拟值
@@ -238,21 +238,21 @@ object ControllerInputMapper {
      * @param device 输入设备
      * @return 扳机值（0.0~1.0）
      */
-    fun getTriggerValue(event: MotionEvent, trigger: ControllerTrigger, device: InputDevice): Float {
-        val rawValue = when (trigger) {
-            ControllerTrigger.LEFT_TRIGGER -> {
-                var v = event.getAxisValue(MotionEvent.AXIS_LTRIGGER)
-                if (v <= 0f) v = event.getAxisValue(MotionEvent.AXIS_BRAKE)
-                v
-            }
-            ControllerTrigger.RIGHT_TRIGGER -> {
-                var v = event.getAxisValue(MotionEvent.AXIS_RTRIGGER)
-                if (v <= 0f) v = event.getAxisValue(MotionEvent.AXIS_GAS)
-                v
-            }
-        }
-        return normalizeTrigger(rawValue, device, trigger)
-    }
+    fun getTriggerValue(event: MotionEvent, trigger: ControllerTrigger, device: InputDevice): Float { // 读取扳机模拟值（语法：返回 Float）
+        val rawValue = when (trigger) { // 按扳机类型读取原始值（语法：when 表达式）
+            ControllerTrigger.LEFT_TRIGGER -> { // 左扳机分支
+                var v = event.getAxisValue(MotionEvent.AXIS_LTRIGGER) // 读取 LTRIGGER 轴值
+                if (v <= 0f) v = event.getAxisValue(MotionEvent.AXIS_BRAKE) // 值无效则回退读 BRAKE 轴
+                v // 返回读取值
+            } // 结束左扳机分支
+            ControllerTrigger.RIGHT_TRIGGER -> { // 右扳机分支
+                var v = event.getAxisValue(MotionEvent.AXIS_RTRIGGER) // 读取 RTRIGGER 轴值
+                if (v <= 0f) v = event.getAxisValue(MotionEvent.AXIS_GAS) // 值无效则回退读 GAS 轴
+                v // 返回读取值
+            } // 结束右扳机分支
+        } // 结束 when
+        return normalizeTrigger(rawValue, device, trigger) // 归一化到 0~1 并返回
+    } // 结束 getTriggerValue 函数
 
     /**
      * 读取摇杆轴值并归一化到 -1.0~1.0
@@ -268,17 +268,17 @@ object ControllerInputMapper {
      * @param axis 轴常量（如 AXIS_X）
      * @return 归一化后的轴值（-1.0~1.0）
      */
-    private fun getCenteredAxis(event: MotionEvent, device: InputDevice, axis: Int): Float {
-        val range = device.getMotionRange(axis, event.source) ?: return 0f
-        val value = event.getAxisValue(axis)
-        val flat = range.flat  // 设备的死区值
-        val mid = (range.min + range.max) / 2.0f  // 轴的中点
-        val adjValue = value - mid  // 相对中点的位移
-        val maxDistance = if (adjValue > 0) range.max - mid else mid - range.min
-        val normalized = if (maxDistance == 0f) 0f else (adjValue / maxDistance).coerceIn(-1f, 1f)
+    private fun getCenteredAxis(event: MotionEvent, device: InputDevice, axis: Int): Float { // 读轴值并归一化（语法：private 私有函数 + 返回 Float）
+        val range = device.getMotionRange(axis, event.source) ?: return 0f // 获取轴范围，无则返回 0（语法：?: 空值合并）
+        val value = event.getAxisValue(axis) // 读取原始轴值
+        val flat = range.flat  // 设备的死区值 // 设备死区阈值
+        val mid = (range.min + range.max) / 2.0f  // 轴的中点 // 轴范围中点
+        val adjValue = value - mid  // 相对中点的位移 // 相对中点的位移
+        val maxDistance = if (adjValue > 0) range.max - mid else mid - range.min // 按位移方向取最大距离（语法：if 表达式）
+        val normalized = if (maxDistance == 0f) 0f else (adjValue / maxDistance).coerceIn(-1f, 1f) // 归一化到 -1~1（语法：coerceIn 限幅）
         // 应用设备死区: 小于 flat 的输入归零
-        return if (kotlin.math.abs(normalized) < flat) 0f else normalized
-    }
+        return if (kotlin.math.abs(normalized) < flat) 0f else normalized // 死区内归零否则返回原值（语法：kotlin.math.abs 绝对值）
+    } // 结束 getCenteredAxis 函数
 
     /**
      * 归一化扳机值到 0.0~1.0
@@ -294,20 +294,20 @@ object ControllerInputMapper {
      * @param trigger 扳机类型（用于查询对应轴）
      * @return 归一化后的扳机值（0.0~1.0）
      */
-    private fun normalizeTrigger(rawValue: Float, device: InputDevice, trigger: ControllerTrigger): Float {
-        val axis = when (trigger) {
-            ControllerTrigger.LEFT_TRIGGER -> MotionEvent.AXIS_LTRIGGER
-            ControllerTrigger.RIGHT_TRIGGER -> MotionEvent.AXIS_RTRIGGER
-        }
-        val range = device.getMotionRange(axis, InputDevice.SOURCE_JOYSTICK)
-            ?: return rawValue.coerceIn(0f, 1f)
-        val min = range.min
-        val max = range.max
+    private fun normalizeTrigger(rawValue: Float, device: InputDevice, trigger: ControllerTrigger): Float { // 归一化扳机值（语法：private 私有函数）
+        val axis = when (trigger) { // 按扳机类型取对应轴（语法：when 表达式）
+            ControllerTrigger.LEFT_TRIGGER -> MotionEvent.AXIS_LTRIGGER // 左扳机对应轴
+            ControllerTrigger.RIGHT_TRIGGER -> MotionEvent.AXIS_RTRIGGER // 右扳机对应轴
+        } // 结束 when
+        val range = device.getMotionRange(axis, InputDevice.SOURCE_JOYSTICK) // 查询轴范围
+            ?: return rawValue.coerceIn(0f, 1f) // 无范围则直接限幅返回（语法：?: 空值合并跨行）
+        val min = range.min // 轴最小值
+        val max = range.max // 轴最大值
         // 如果范围是 -1.0~1.0，需要转换为 0.0~1.0
-        return if (min >= -1.01f && min <= -0.99f && max >= 0.99f && max <= 1.01f) {
-            ((rawValue + 1f) / 2f).coerceIn(0f, 1f)
-        } else {
-            rawValue.coerceIn(0f, 1f)
-        }
-    }
-}
+        return if (min >= -1.01f && min <= -0.99f && max >= 0.99f && max <= 1.01f) { // 判断轴范围是否为 -1~1（语法：&& 与运算）
+            ((rawValue + 1f) / 2f).coerceIn(0f, 1f) // 用 (value+1)/2 公式转换并限幅
+        } else { // 其他范围分支
+            rawValue.coerceIn(0f, 1f) // 直接限幅到 0~1
+        } // 结束 if
+    } // 结束 normalizeTrigger 函数
+} // 结束 ControllerInputMapper 单例对象

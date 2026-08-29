@@ -1,17 +1,17 @@
-package com.steamlike.controller.core
+package com.steamlike.controller.core // 包声明（语法：package 声明当前文件所属包）
 
-import com.steamlike.controller.injection.MouseButton
+import com.steamlike.controller.injection.MouseButton // 导入鼠标按钮枚举（语法：import 导入声明）
 
 /**
  * 鼠标按钮显示名称扩展函数
  */
-fun MouseButton.toDisplayName(): String = when (this) {
-    MouseButton.LEFT -> "鼠标左键"
-    MouseButton.RIGHT -> "鼠标右键"
-    MouseButton.MIDDLE -> "鼠标中键"
-    MouseButton.FORWARD -> "鼠标前进键"
-    MouseButton.BACK -> "鼠标后退键"
-}
+fun MouseButton.toDisplayName(): String = when (this) { // 扩展函数：鼠标按钮转中文名（语法：fun MouseButton.xxx() 扩展函数 + when 表达式 + this 接收者）
+    MouseButton.LEFT -> "鼠标左键" // 左键显示名（语法：when 分支 -> 返回值）
+    MouseButton.RIGHT -> "鼠标右键" // 右键显示名
+    MouseButton.MIDDLE -> "鼠标中键" // 中键显示名
+    MouseButton.FORWARD -> "鼠标前进键" // 前进键显示名
+    MouseButton.BACK -> "鼠标后退键" // 后退键显示名
+} // 结束 toDisplayName 扩展函数
 
 /**
  * 映射动作类型（sealed class，密封类）
@@ -31,7 +31,7 @@ fun MouseButton.toDisplayName(): String = when (this) {
  * 适用于有限状态的场景（如动作类型枚举）。与 enum class 不同，密封类每个子类可以
  * 有不同的字段，更灵活。
  */
-sealed class MappedAction {
+sealed class MappedAction { // 映射动作密封类（语法：sealed class 密封类，子类须在同一文件定义）
 
     /**
      * 键盘按键动作
@@ -48,7 +48,7 @@ sealed class MappedAction {
      *
      * @param keyCode Android [KeyEvent.KEYCODE_*] 常量
      */
-    data class KeyboardKey(val keyCode: Int) : MappedAction()
+    data class KeyboardKey(val keyCode: Int) : MappedAction() // 键盘按键动作（语法：data class 数据类 + 冒号继承密封类）
 
     /**
      * 鼠标点击动作
@@ -57,7 +57,7 @@ sealed class MappedAction {
      *
      * @param button 鼠标按钮（[MouseButton.LEFT]/[MouseButton.RIGHT]/[MouseButton.MIDDLE]）
      */
-    data class MouseClick(val button: MouseButton) : MappedAction()
+    data class MouseClick(val button: MouseButton) : MappedAction() // 鼠标点击动作
 
     /**
      * 切换操作层动作
@@ -67,7 +67,7 @@ sealed class MappedAction {
      *
      * @param layerName 目标层名称（如 "Layer1"、"Combat"）
      */
-    data class SwitchLayer(val layerName: String) : MappedAction()
+    data class SwitchLayer(val layerName: String) : MappedAction() // 切换操作层动作
 
     /**
      * 鼠标移动动作（摇杆专用）
@@ -75,7 +75,7 @@ sealed class MappedAction {
      * 将摇杆映射为鼠标相对移动，用于控制光标位置。
      * 摇杆X/Y值会乘以 [GlobalSettings.cursorSpeed] 后发送给 Windows。
      */
-    data object MouseMove : MappedAction()
+    data object MouseMove : MappedAction() // 鼠标移动动作（语法：data object 数据单例对象）
 
     /**
      * 视角控制动作（摇杆专用）
@@ -83,7 +83,7 @@ sealed class MappedAction {
      * 将摇杆映射为鼠标相对移动，用于控制游戏视角（如 WoW 中的右键拖拽视角）。
      * 摇杆X/Y值会乘以 [GlobalSettings.lookSensitivity] 后发送给 Windows。
      */
-    data object LookAround : MappedAction()
+    data object LookAround : MappedAction() // 视角控制动作
 
     /**
      * 鼠标长按切换动作
@@ -93,7 +93,7 @@ sealed class MappedAction {
      *
      * @param button 鼠标按钮（[MouseButton.LEFT]/[MouseButton.RIGHT]等）
      */
-    data class MouseToggle(val button: MouseButton) : MappedAction()
+    data class MouseToggle(val button: MouseButton) : MappedAction() // 鼠标长按切换动作
 
     /**
      * 鼠标滚轮上滚动作
@@ -101,7 +101,7 @@ sealed class MappedAction {
      * 将手柄按键映射为鼠标滚轮向上滚动（发送一次固定增量的滚轮事件）。
      * 每次按下发送一次滚轮上滚，无需松开。
      */
-    data object MouseScrollUp : MappedAction()
+    data object MouseScrollUp : MappedAction() // 鼠标滚轮上滚动作
 
     /**
      * 鼠标滚轮下滚动作
@@ -109,7 +109,7 @@ sealed class MappedAction {
      * 将手柄按键映射为鼠标滚轮向下滚动（发送一次固定增量的滚轮事件）。
      * 每次按下发送一次滚轮下滚，无需松开。
      */
-    data object MouseScrollDown : MappedAction()
+    data object MouseScrollDown : MappedAction() // 鼠标滚轮下滚动作
 
     /**
      * 切换悬浮窗显示/隐藏
@@ -117,7 +117,7 @@ sealed class MappedAction {
      * 按下时切换悬浮窗在收起和按键映射列表之间切换。
      * 与手柄 Home 键的内置功能相同，但可映射到任意按钮。
      */
-    data object ToggleOverlay : MappedAction()
+    data object ToggleOverlay : MappedAction() // 切换悬浮窗动作
 
     /**
      * 切换安卓系统键盘显示/隐藏
@@ -125,7 +125,7 @@ sealed class MappedAction {
      * 按下时切换软键盘的显示状态。
      * 在需要触摸输入的游戏场景中很有用（如输入聊天文字）。
      */
-    data object ToggleKeyboard : MappedAction()
+    data object ToggleKeyboard : MappedAction() // 切换安卓系统键盘动作
 
     /**
      * 切换手柄捕获状态
@@ -133,8 +133,8 @@ sealed class MappedAction {
      * 按下时切换 GamepadInputView 的显示/隐藏（暂停/恢复手柄事件捕获）。
      * 暂停时系统返回手势恢复，恢复时手柄事件重新被捕获。
      */
-    data object ToggleCapture : MappedAction()
-}
+    data object ToggleCapture : MappedAction() // 切换手柄捕获状态动作
+} // 结束 MappedAction 密封类
 
 /**
  * 按键映射定义
@@ -165,43 +165,43 @@ sealed class MappedAction {
  * @param action 主动作
  * @param subCommands 子命令列表（最多 3 个 Android [KeyEvent.KEYCODE_*] 常量）
  */
-data class KeyMapping(
-    val action: MappedAction,
-    val subCommands: List<Int> = emptyList()
-) {
-    init {
-        require(subCommands.size <= MAX_SUB_COMMANDS) {
-            "子命令最多 $MAX_SUB_COMMANDS 个，当前 ${subCommands.size} 个"
-        }
-    }
+data class KeyMapping( // 按键映射定义（语法：data class 数据类）
+    val action: MappedAction, // 主动作
+    val subCommands: List<Int> = emptyList() // 子命令列表（语法：默认参数 = emptyList()）
+) { // 数据类主体开始
+    init { // 初始化块校验（语法：init 初始化块）
+        require(subCommands.size <= MAX_SUB_COMMANDS) { // 校验子命令数量不超上限（语法：require 前置条件检查）
+            "子命令最多 $MAX_SUB_COMMANDS 个，当前 ${subCommands.size} 个" // 错误消息（语法：字符串模板 $var 与 ${expr}）
+        } // 结束 require
+    } // 结束 init 块
 
     /**
      * 转换为人类可读的描述字符串（用于 UI 显示）
      *
      * 示例: "Alt+3"、"Ctrl+Shift+3"、"鼠标左键"、"切换到 Layer1"
      */
-    fun describe(): String {
-        val parts = mutableListOf<String>()
-        when (action) {
-            is MappedAction.KeyboardKey -> parts.add(keyCodeToName(action.keyCode))
-            is MappedAction.MouseClick -> parts.add(action.button.toDisplayName())
-            is MappedAction.SwitchLayer -> parts.add("切换→${action.layerName}")
-            is MappedAction.MouseMove -> parts.add("鼠标移动")
-            is MappedAction.LookAround -> parts.add("视角控制")
-            is MappedAction.MouseToggle -> parts.add("长按${action.button.toDisplayName()}")
-            is MappedAction.MouseScrollUp -> parts.add("滚轮上滚")
-            is MappedAction.MouseScrollDown -> parts.add("滚轮下滚")
-            is MappedAction.ToggleOverlay -> parts.add("切换悬浮窗")
-            is MappedAction.ToggleKeyboard -> parts.add("切换键盘")
-            is MappedAction.ToggleCapture -> parts.add("切换捕获")
-        }
-        subCommands.forEach { parts.add(keyCodeToName(it)) }
-        return parts.joinToString("+")
-    }
+    fun describe(): String { // 转为可读描述（语法：fun 成员函数声明）
+        val parts = mutableListOf<String>() // 描述片段列表（语法：mutableListOf + <String> 泛型）
+        when (action) { // 按动作类型分支（语法：when 表达式）
+            is MappedAction.KeyboardKey -> parts.add(keyCodeToName(action.keyCode)) // 键盘键：加入按键名（语法：is 类型判断分支）
+            is MappedAction.MouseClick -> parts.add(action.button.toDisplayName()) // 鼠标点击：加入按钮名
+            is MappedAction.SwitchLayer -> parts.add("切换→${action.layerName}") // 层切换：加入目标层名
+            is MappedAction.MouseMove -> parts.add("鼠标移动") // 鼠标移动描述
+            is MappedAction.LookAround -> parts.add("视角控制") // 视角控制描述
+            is MappedAction.MouseToggle -> parts.add("长按${action.button.toDisplayName()}") // 鼠标长按描述
+            is MappedAction.MouseScrollUp -> parts.add("滚轮上滚") // 滚轮上滚描述
+            is MappedAction.MouseScrollDown -> parts.add("滚轮下滚") // 滚轮下滚描述
+            is MappedAction.ToggleOverlay -> parts.add("切换悬浮窗") // 切换悬浮窗描述
+            is MappedAction.ToggleKeyboard -> parts.add("切换键盘") // 切换键盘描述
+            is MappedAction.ToggleCapture -> parts.add("切换捕获") // 切换捕获描述
+        } // 结束 when
+        subCommands.forEach { parts.add(keyCodeToName(it)) } // 追加各子命令名（语法：forEach lambda + it 默认参数名）
+        return parts.joinToString("+") // 用 + 拼接为最终描述
+    } // 结束 describe 函数
 
-    companion object {
+    companion object { // 伴生对象（语法：companion object 静态成员容器）
         /** 子命令最大数量 */
-        const val MAX_SUB_COMMANDS = 3
+        const val MAX_SUB_COMMANDS = 3 // 子命令数量上限（语法：const val 编译期常量）
 
         /**
          * Android KeyCode 转换为人类可读名称
@@ -216,68 +216,68 @@ data class KeyMapping(
          * - Shift=59/60, Ctrl=113/114, Alt=57/58
          * - Space=62, Enter=66, Tab=61, Esc=111
          */
-        fun keyCodeToName(keyCode: Int): String {
+        fun keyCodeToName(keyCode: Int): String { // 键码转名称（语法：伴生对象内静态函数）
             // 字母 A-Z (KEYCODE_A=29 ~ KEYCODE_Z=54)
-            if (keyCode in 29..54) {
-                return ('A' + (keyCode - 29)).toString()
-            }
+            if (keyCode in 29..54) { // 判断是否字母区（语法：in 范围判断 + 区间 29..54）
+                return ('A' + (keyCode - 29)).toString() // 计算对应字母字符并转字符串（语法：Char 算术 + toString）
+            } // 结束 if
             // 数字 0-9 (KEYCODE_0=7 ~ KEYCODE_9=16)
-            if (keyCode in 7..16) {
-                return ('0' + (keyCode - 7)).toString()
-            }
+            if (keyCode in 7..16) { // 判断是否数字区
+                return ('0' + (keyCode - 7)).toString() // 计算对应数字字符并转字符串
+            } // 结束 if
             // 功能键 F1-F12 (KEYCODE_F1=131 ~ KEYCODE_F12=142)
-            if (keyCode in 131..142) {
-                return "F${keyCode - 131 + 1}"
-            }
+            if (keyCode in 131..142) { // 判断是否功能键区
+                return "F${keyCode - 131 + 1}" // 计算功能键编号（语法：字符串模板 ${expr}）
+            } // 结束 if
             // 其他常用键
-            return when (keyCode) {
-                62 -> "Space"           // KEYCODE_SPACE
-                66 -> "Enter"           // KEYCODE_ENTER
-                61 -> "Tab"             // KEYCODE_TAB
-                111 -> "Esc"            // KEYCODE_ESCAPE
-                4 -> "Back"             // KEYCODE_BACK
-                67 -> "Backspace"       // KEYCODE_DEL
-                59, 60 -> "Shift"        // KEYCODE_SHIFT_LEFT/RIGHT
-                113, 114 -> "Ctrl"       // KEYCODE_CTRL_LEFT/RIGHT
-                57, 58 -> "Alt"          // KEYCODE_ALT_LEFT/RIGHT
-                19 -> "↑"               // KEYCODE_DPAD_UP
-                20 -> "↓"               // KEYCODE_DPAD_DOWN
-                21 -> "←"               // KEYCODE_DPAD_LEFT
-                22 -> "→"               // KEYCODE_DPAD_RIGHT
-                69 -> "-"               // KEYCODE_MINUS
-                70 -> "="               // KEYCODE_EQUALS
-                71 -> "["               // KEYCODE_LEFT_BRACKET
-                72 -> "]"               // KEYCODE_RIGHT_BRACKET
-                74 -> ";"               // KEYCODE_SEMICOLON
-                75 -> "'"               // KEYCODE_APOSTROPHE
-                73 -> "\\"              // KEYCODE_BACKSLASH
-                55 -> ","               // KEYCODE_COMMA
-                56 -> "."               // KEYCODE_PERIOD
-                76 -> "/"               // KEYCODE_SLASH
-                68 -> "`"               // KEYCODE_GRAVE
-                115 -> "CapsLock"       // KEYCODE_CAPS_LOCK
-                143 -> "NumLock"        // KEYCODE_NUM_LOCK
-                116 -> "ScrollLock"     // KEYCODE_SCROLL_LOCK
-                124 -> "Insert"         // KEYCODE_INSERT
-                123 -> "Home"           // KEYCODE_HOME
-                92 -> "PageUp"          // KEYCODE_PAGE_UP
-                93 -> "PageDown"        // KEYCODE_PAGE_DOWN
-                122 -> "End"            // KEYCODE_MOVE_END
-                144 -> "Num0"           // KEYCODE_NUMPAD_0
-                145 -> "Num1"           // KEYCODE_NUMPAD_1
-                146 -> "Num2"           // KEYCODE_NUMPAD_2
-                147 -> "Num3"           // KEYCODE_NUMPAD_3
-                148 -> "Num4"           // KEYCODE_NUMPAD_4
-                149 -> "Num5"           // KEYCODE_NUMPAD_5
-                150 -> "Num6"           // KEYCODE_NUMPAD_6
-                151 -> "Num7"           // KEYCODE_NUMPAD_7
-                152 -> "Num8"           // KEYCODE_NUMPAD_8
-                153 -> "Num9"           // KEYCODE_NUMPAD_9
-                else -> "Key($keyCode)"
-            }
-        }
-    }
-}
+            return when (keyCode) { // 常用键查表（语法：when 分支表达式）
+                62 -> "Space"           // KEYCODE_SPACE // 空格键
+                66 -> "Enter"           // KEYCODE_ENTER // 回车键
+                61 -> "Tab"             // KEYCODE_TAB // Tab 键
+                111 -> "Esc"            // KEYCODE_ESCAPE // Esc 键
+                4 -> "Back"             // KEYCODE_BACK // 返回键
+                67 -> "Backspace"       // KEYCODE_DEL // 退格键
+                59, 60 -> "Shift"        // KEYCODE_SHIFT_LEFT/RIGHT // 左右 Shift 键
+                113, 114 -> "Ctrl"       // KEYCODE_CTRL_LEFT/RIGHT // 左右 Ctrl 键
+                57, 58 -> "Alt"          // KEYCODE_ALT_LEFT/RIGHT // 左右 Alt 键
+                19 -> "↑"               // KEYCODE_DPAD_UP // 上方向键
+                20 -> "↓"               // KEYCODE_DPAD_DOWN // 下方向键
+                21 -> "←"               // KEYCODE_DPAD_LEFT // 左方向键
+                22 -> "→"               // KEYCODE_DPAD_RIGHT // 右方向键
+                69 -> "-"               // KEYCODE_MINUS // 减号
+                70 -> "="               // KEYCODE_EQUALS // 等号
+                71 -> "["               // KEYCODE_LEFT_BRACKET // 左方括号
+                72 -> "]"               // KEYCODE_RIGHT_BRACKET // 右方括号
+                74 -> ";"               // KEYCODE_SEMICOLON // 分号
+                75 -> "'"               // KEYCODE_APOSTROPHE // 撇号
+                73 -> "\\"              // KEYCODE_BACKSLASH // 反斜杠
+                55 -> ","               // KEYCODE_COMMA // 逗号
+                56 -> "."               // KEYCODE_PERIOD // 句号
+                76 -> "/"               // KEYCODE_SLASH // 斜杠
+                68 -> "`"               // KEYCODE_GRAVE // 反引号
+                115 -> "CapsLock"       // KEYCODE_CAPS_LOCK // 大写锁定键
+                143 -> "NumLock"        // KEYCODE_NUM_LOCK // 数字锁定键
+                116 -> "ScrollLock"     // KEYCODE_SCROLL_LOCK // 滚动锁定键
+                124 -> "Insert"         // KEYCODE_INSERT // 插入键
+                123 -> "Home"           // KEYCODE_HOME // Home 键
+                92 -> "PageUp"          // KEYCODE_PAGE_UP // 上翻页键
+                93 -> "PageDown"        // KEYCODE_PAGE_DOWN // 下翻页键
+                122 -> "End"            // KEYCODE_MOVE_END // End 键
+                144 -> "Num0"           // KEYCODE_NUMPAD_0 // 小键盘数字 0
+                145 -> "Num1"           // KEYCODE_NUMPAD_1 // 小键盘数字 1
+                146 -> "Num2"           // KEYCODE_NUMPAD_2 // 小键盘数字 2
+                147 -> "Num3"           // KEYCODE_NUMPAD_3 // 小键盘数字 3
+                148 -> "Num4"           // KEYCODE_NUMPAD_4 // 小键盘数字 4
+                149 -> "Num5"           // KEYCODE_NUMPAD_5 // 小键盘数字 5
+                150 -> "Num6"           // KEYCODE_NUMPAD_6 // 小键盘数字 6
+                151 -> "Num7"           // KEYCODE_NUMPAD_7 // 小键盘数字 7
+                152 -> "Num8"           // KEYCODE_NUMPAD_8 // 小键盘数字 8
+                153 -> "Num9"           // KEYCODE_NUMPAD_9 // 小键盘数字 9
+                else -> "Key($keyCode)" // 未知键兜底（语法：else 兜底分支 + 字符串模板）
+            } // 结束 when
+        } // 结束 keyCodeToName 函数
+    } // 结束 companion object
+} // 结束 KeyMapping 数据类
 
 /**
  * 操作层
@@ -298,15 +298,15 @@ data class KeyMapping(
  * @param name 层名称（如 "Common"、"Layer1"、"战斗"）
  * @param buttonMappings 按键映射表（ControllerButton → KeyMapping）
  */
-data class OperationLayer(
-    val name: String,
-    val buttonMappings: MutableMap<ControllerButton, KeyMapping> = mutableMapOf()
-) {
+data class OperationLayer( // 操作层定义（语法：data class 数据类）
+    val name: String, // 层名称（语法：val 只读属性）
+    val buttonMappings: MutableMap<ControllerButton, KeyMapping> = mutableMapOf() // 按键映射表（语法：MutableMap 可变 Map + 默认参数）
+) { // 数据类主体开始
     /**
      * 查询本层是否有指定按钮的映射
      */
-    fun getMapping(button: ControllerButton): KeyMapping? = buttonMappings[button]
-}
+    fun getMapping(button: ControllerButton): KeyMapping? = buttonMappings[button] // 查询按钮映射（语法：表达式体函数 + 可空返回 KeyMapping?）
+} // 结束 OperationLayer 数据类
 
 /**
  * 全局设置（所有层统一）
@@ -319,13 +319,13 @@ data class OperationLayer(
  * @param lookSmoothing 视角平滑系数（0.0~0.95），0=关闭平滑，越大越顺滑但延迟略增。默认 0.5
  * @param lookAcceleration 视角加速曲线指数（0.5~3.0），1.0=线性，>1轻推更慢重推更快，<1相反。默认 1.5
  */
-data class GlobalSettings(
-    val deadzone: Float = 0.15f,
-    val lookSensitivity: Float = 0.5f,
-    val cursorSpeed: Float = 1.0f,
-    val lookSmoothing: Float = 0.5f,
-    val lookAcceleration: Float = 1.5f
-)
+data class GlobalSettings( // 全局设置（语法：data class 数据类）
+    val deadzone: Float = 0.15f, // 摇杆死区（语法：默认参数 = 0.15f）
+    val lookSensitivity: Float = 0.5f, // 视角灵敏度倍率
+    val cursorSpeed: Float = 1.0f, // 光标移动速度倍率
+    val lookSmoothing: Float = 0.5f, // 视角平滑系数
+    val lookAcceleration: Float = 1.5f // 视角加速曲线指数
+) // 结束 GlobalSettings 数据类
 
 /**
  * 操作集（Action Set）
@@ -343,22 +343,22 @@ data class GlobalSettings(
  * @param commonLayer 本操作集的公共层（始终激活）
  * @param layers 本操作集的操作层列表（最多 [ControllerProfile.MAX_LAYERS] 个）
  */
-data class ActionSet(
-    val name: String,
-    val commonLayer: OperationLayer,
-    val layers: List<OperationLayer>
-) {
+data class ActionSet( // 操作集定义（语法：data class 数据类）
+    val name: String, // 操作集名称
+    val commonLayer: OperationLayer, // 本操作集的公共层
+    val layers: List<OperationLayer> // 本操作集的操作层列表
+) { // 数据类主体开始
     /**
      * 本操作集所有层（公共层 + 操作层），用于 UI 显示
      */
-    val allLayers: List<OperationLayer> get() = listOf(commonLayer) + layers
+    val allLayers: List<OperationLayer> get() = listOf(commonLayer) + layers // 全部层列表（语法：自定义 getter + listOf + List 加法拼接）
 
     /**
      * 按名称查找本操作集内的层
      */
-    fun findLayer(name: String): OperationLayer? =
-        allLayers.firstOrNull { it.name == name }
-}
+    fun findLayer(name: String): OperationLayer? = // 按名称查找层（语法：表达式体函数跨行）
+        allLayers.firstOrNull { it.name == name } // 取第一个名称匹配的层（语法：firstOrNull lambda + it）
+} // 结束 ActionSet 数据类
 
 /**
  * 控制器完整配置
@@ -374,48 +374,48 @@ data class ActionSet(
  * @param activeActionSetName 当前生效的操作集名称（不存在时回退到第一个操作集）
  * @param globalSettings 全局摇杆设置（所有操作集统一）
  */
-data class ControllerProfile(
-    val actionSets: List<ActionSet>,
-    val activeActionSetName: String = DEFAULT_ACTION_SET_NAME,
-    val globalSettings: GlobalSettings = GlobalSettings()
-) {
+data class ControllerProfile( // 控制器完整配置（语法：data class 数据类）
+    val actionSets: List<ActionSet>, // 操作集列表
+    val activeActionSetName: String = DEFAULT_ACTION_SET_NAME, // 当前生效操作集名称（语法：默认参数引用伴生常量）
+    val globalSettings: GlobalSettings = GlobalSettings() // 全局摇杆设置（语法：默认参数构造对象）
+) { // 数据类主体开始
     /**
      * 当前生效的操作集（名称匹配失败时回退到第一个）
      */
-    val activeActionSet: ActionSet
-        get() = actionSets.firstOrNull { it.name == activeActionSetName } ?: actionSets.first()
+    val activeActionSet: ActionSet // 当前生效操作集（语法：属性无初始值，靠 getter 提供）
+        get() = actionSets.firstOrNull { it.name == activeActionSetName } ?: actionSets.first() // 按名查找，失败回退第一个（语法：firstOrNull + ?: 空值合并）
 
     /**
      * 当前操作集的公共层（始终激活）
      */
-    val commonLayer: OperationLayer get() = activeActionSet.commonLayer
+    val commonLayer: OperationLayer get() = activeActionSet.commonLayer // 当前操作集的公共层（语法：getter 表达式体）
 
     /**
      * 当前操作集的操作层列表
      */
-    val layers: List<OperationLayer> get() = activeActionSet.layers
+    val layers: List<OperationLayer> get() = activeActionSet.layers // 当前操作集的操作层列表
 
     /**
      * 当前操作集所有层（公共层 + 操作层），用于 UI 显示
      */
-    val allLayers: List<OperationLayer> get() = activeActionSet.allLayers
+    val allLayers: List<OperationLayer> get() = activeActionSet.allLayers // 当前操作集全部层
 
     /**
      * 按名称查找当前操作集内的层
      */
-    fun findLayer(name: String): OperationLayer? = activeActionSet.findLayer(name)
+    fun findLayer(name: String): OperationLayer? = activeActionSet.findLayer(name) // 在当前操作集内按名查找层
 
     /**
      * 按名称查找操作集
      */
-    fun findActionSet(name: String): ActionSet? = actionSets.firstOrNull { it.name == name }
+    fun findActionSet(name: String): ActionSet? = actionSets.firstOrNull { it.name == name } // 按名称查找操作集
 
-    companion object {
+    companion object { // 伴生对象（语法：companion object 静态成员容器）
         /** 操作层最大数量 */
-        const val MAX_LAYERS = 10
+        const val MAX_LAYERS = 10 // 操作层数量上限（语法：const val 编译期常量）
 
         /** 默认操作集名称 */
-        const val DEFAULT_ACTION_SET_NAME = "默认"
+        const val DEFAULT_ACTION_SET_NAME = "默认" // 默认操作集名称
 
         /**
          * 创建默认配置（单个「默认」操作集，内含 Common 层 + 10 个操作层）
@@ -438,50 +438,50 @@ data class ControllerProfile(
          *
          * 操作层无默认按键映射；切换由 Common 层的 SwitchLayer 映射完成。
          */
-        fun createDefault(): ControllerProfile {
+        fun createDefault(): ControllerProfile { // 创建默认配置（语法：伴生对象内静态函数）
             // Common 层层切换按键映射
             // 注意：RIGHT_STICK_CLICK (R3) 保留为 LookAround 视角控制，不作为层切换键
             // Layer8 的触发键改为 TOUCHPAD_CLICK，避免覆盖 R3 的 LookAround 映射
-            val switchKeys = listOf(
-                ControllerButton.DPAD_UP to "Layer1",
-                ControllerButton.DPAD_DOWN to "Layer2",
-                ControllerButton.DPAD_LEFT to "Layer3",
-                ControllerButton.DPAD_RIGHT to "Layer4",
-                ControllerButton.LEFT_SHOULDER to "Layer5",
-                ControllerButton.RIGHT_SHOULDER to "Layer6",
-                ControllerButton.LEFT_STICK_CLICK to "Layer7",
-                ControllerButton.TOUCHPAD_CLICK to "Layer8",
-                ControllerButton.LEFT_TRIGGER_CLICK to "Layer9",
-                ControllerButton.RIGHT_TRIGGER_CLICK to "Layer10"
-            )
+            val switchKeys = listOf( // 层切换键映射表（语法：listOf 创建 Pair 列表）
+                ControllerButton.DPAD_UP to "Layer1", // 上方向键→Layer1（语法：to 中缀函数构造 Pair）
+                ControllerButton.DPAD_DOWN to "Layer2", // 下方向键→Layer2
+                ControllerButton.DPAD_LEFT to "Layer3", // 左方向键→Layer3
+                ControllerButton.DPAD_RIGHT to "Layer4", // 右方向键→Layer4
+                ControllerButton.LEFT_SHOULDER to "Layer5", // 左肩键→Layer5
+                ControllerButton.RIGHT_SHOULDER to "Layer6", // 右肩键→Layer6
+                ControllerButton.LEFT_STICK_CLICK to "Layer7", // 左摇杆按下→Layer7
+                ControllerButton.TOUCHPAD_CLICK to "Layer8", // 触控板点击→Layer8
+                ControllerButton.LEFT_TRIGGER_CLICK to "Layer9", // 左扳机点击→Layer9
+                ControllerButton.RIGHT_TRIGGER_CLICK to "Layer10" // 右扳机点击→Layer10
+            ) // 结束 listOf
 
-            val common = OperationLayer(name = "Common")
+            val common = OperationLayer(name = "Common") // 创建公共层（语法：具名参数 name =）
             // 公共层默认按键映射（除层切换外的按键）
-            common.buttonMappings[ControllerButton.A] = KeyMapping(MappedAction.KeyboardKey(62))  // KEYCODE_SPACE
-            common.buttonMappings[ControllerButton.B] = KeyMapping(MappedAction.MouseClick(MouseButton.RIGHT))
-            common.buttonMappings[ControllerButton.X] = KeyMapping(MappedAction.MouseClick(MouseButton.LEFT))
-            common.buttonMappings[ControllerButton.Y] = KeyMapping(MappedAction.KeyboardKey(37))  // KEYCODE_I
-            common.buttonMappings[ControllerButton.MENU] = KeyMapping(MappedAction.KeyboardKey(111))  // KEYCODE_ESCAPE
-            common.buttonMappings[ControllerButton.OPTIONS] = KeyMapping(MappedAction.KeyboardKey(41))  // KEYCODE_M
-            common.buttonMappings[ControllerButton.RIGHT_STICK_CLICK] = KeyMapping(MappedAction.LookAround)
+            common.buttonMappings[ControllerButton.A] = KeyMapping(MappedAction.KeyboardKey(62))  // KEYCODE_SPACE // A键→空格（跳跃）
+            common.buttonMappings[ControllerButton.B] = KeyMapping(MappedAction.MouseClick(MouseButton.RIGHT)) // B键→鼠标右键
+            common.buttonMappings[ControllerButton.X] = KeyMapping(MappedAction.MouseClick(MouseButton.LEFT)) // X键→鼠标左键
+            common.buttonMappings[ControllerButton.Y] = KeyMapping(MappedAction.KeyboardKey(37))  // KEYCODE_I // Y键→I 键
+            common.buttonMappings[ControllerButton.MENU] = KeyMapping(MappedAction.KeyboardKey(111))  // KEYCODE_ESCAPE // MENU→Esc 键
+            common.buttonMappings[ControllerButton.OPTIONS] = KeyMapping(MappedAction.KeyboardKey(41))  // KEYCODE_M // OPTIONS→M 键
+            common.buttonMappings[ControllerButton.RIGHT_STICK_CLICK] = KeyMapping(MappedAction.LookAround) // R3→视角控制
             // 层切换按键映射（按住激活对应层，松开回公共层）
-            switchKeys.forEach { (button, layerName) ->
-                common.buttonMappings[button] = KeyMapping(MappedAction.SwitchLayer(layerName))
-            }
+            switchKeys.forEach { (button, layerName) -> // 遍历层切换键生成映射（语法：forEach lambda + 解构声明）
+                common.buttonMappings[button] = KeyMapping(MappedAction.SwitchLayer(layerName)) // 绑定 SwitchLayer 动作到按钮
+            } // 结束 forEach
             // 右摇杆默认视角控制
             // 摇杆映射不在 buttonMappings 中，而是通过 ControllerStick 单独处理
 
             // 操作层：无默认按键映射，层切换由 Common 层的 SwitchLayer 映射完成
-            val layers = (1..MAX_LAYERS).map { i ->
-                OperationLayer(name = "Layer$i")
-            }
+            val layers = (1..MAX_LAYERS).map { i -> // 创建 1 到 10 的操作层（语法：(1..n) 区间 + map lambda）
+                OperationLayer(name = "Layer$i") // 每层命名为 Layer1..Layer10（语法：字符串模板 $i）
+            } // 结束 map
 
-            return ControllerProfile(
-                actionSets = listOf(
-                    ActionSet(name = DEFAULT_ACTION_SET_NAME, commonLayer = common, layers = layers)
-                ),
-                globalSettings = GlobalSettings()
-            )
-        }
-    }
-}
+            return ControllerProfile( // 构造并返回默认配置（语法：具名参数构造）
+                actionSets = listOf( // 操作集列表参数
+                    ActionSet(name = DEFAULT_ACTION_SET_NAME, commonLayer = common, layers = layers) // 单个「默认」操作集
+                ), // 结束操作集列表
+                globalSettings = GlobalSettings() // 使用默认全局设置
+            ) // 结束 ControllerProfile 构造
+        } // 结束 createDefault 函数
+    } // 结束 companion object
+} // 结束 ControllerProfile 数据类

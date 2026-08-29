@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>  <!-- XML 声明：版本 1.0，编码 UTF-8 -->
 <!--
   操作层与操作集设置 Activity 布局（深色美化版）
 
@@ -11,6 +11,9 @@
   6. 按键映射列表（NonScrollListView 全展开，随内容区整体滚动）
   7. 底部保存按钮
 -->
+<!-- 语法：LinearLayout 线性布局（子控件按方向依次排列）；xmlns:android 声明 android 命名空间
+     layout_width/height=match_parent：宽高与父容器同宽高；orientation=vertical：子控件垂直排列；
+     background=@drawable/bg_panel：页面根背景（深色）；fitsSystemWindows=true：内容区自动避开系统状态栏/导航栏 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -21,6 +24,10 @@
     <!-- ===== 标题栏（固定，不随内容滚动）=====
          系统 ActionBar 在挖孔屏横屏时会避让挖孔区，标题不贴边；
          自定义标题栏位于内容区内，随内容从屏幕左缘开始，横屏贴边。 -->
+    <!-- 语法：LinearLayout 线性布局；标题栏容器（水平排列）
+         layout_width=match_parent：与父容器同宽；layout_height=wrap_content：高度随内容自适应；
+         orientation=horizontal：子控件水平排列；gravity=center_vertical：子控件垂直居中；
+         padding=16dp：四边内边距；paddingBottom=12dp：底部内边距覆盖为 12dp（使底部更窄） -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -30,6 +37,10 @@
         android:paddingBottom="12dp">
 
         <!-- 返回按钮 -->
+        <!-- 语法：TextView 文本控件；这里用作返回按钮
+             id=@+id/btn_back：新建返回按钮 id（代码 findViewById 使用）；layout_width/height=wrap_content：尺寸自适应内容；
+             text=‹ 返回：按钮显示文字；textSize=15sp：字号；textColor=#FFFFFFFF：不透明白色；
+             padding=10dp：内边距（增大点击区域）；background=@drawable/bg_button：普通按钮圆角背景 -->
         <TextView
             android:id="@+id/btn_back"
             android:layout_width="wrap_content"
@@ -41,6 +52,10 @@
             android:background="@drawable/bg_button" />
 
         <!-- 标题 -->
+        <!-- 语法：TextView 文本控件；页面标题
+             layout_width=0dp：宽度为 0，配合 layout_weight 参与剩余空间分配；layout_height=wrap_content：高度自适应；
+             layout_weight=1：权重占满剩余宽度；layout_marginStart=12dp：左侧外边距（RTL 感知）；
+             text=层与操作集设置：标题文字；textSize=22sp：字号；textStyle=bold：加粗；textColor=#FFFFFFFF：白色 -->
         <TextView
             android:layout_width="0dp"
             android:layout_height="wrap_content"
@@ -50,15 +65,21 @@
             android:textSize="22sp"
             android:textStyle="bold"
             android:textColor="#FFFFFFFF" />
-    </LinearLayout>
+    </LinearLayout>  <!-- 结束标题栏容器 -->
 
     <!-- ===== 可滚动内容区 ===== -->
+    <!-- 语法：ScrollView 可滚动容器（内容超出时上下滚动）
+         layout_width=match_parent：与父容器同宽；layout_height=0dp：高度为 0 配合 weight 占满剩余空间；
+         layout_weight=1：权重占满标题栏之外的剩余高度；fillViewport=true：内容不足一屏时拉伸子视图填满视口 -->
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
         android:fillViewport="true">
 
+        <!-- 语法：LinearLayout 线性布局；滚动区内的垂直容器
+             layout_width=match_parent：与父容器同宽；layout_height=wrap_content：高度由内容决定；
+             orientation=vertical：垂直排列；paddingLeft/Right=16dp：左右内边距；paddingBottom=16dp：底部内边距 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -68,6 +89,10 @@
             android:paddingBottom="16dp">
 
         <!-- ===== 操作集区域 ===== -->
+        <!-- 语法：TextView 文本控件；操作集区域说明标题
+             layout_width=match_parent：与父容器同宽；layout_height=wrap_content：高度自适应；
+             text=操作集（切换时其下所有操作层整体切换）：说明文字；textSize=14sp：字号；
+             textColor=#FFFFD54F：黄色（警示强调）；paddingBottom=4dp：底部内边距 -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -77,6 +102,9 @@
             android:paddingBottom="4dp" />
 
         <!-- 操作集选择行（选择即切换当前操作集） -->
+        <!-- 语法：LinearLayout 线性布局；操作集选择行（水平排列）
+             layout_width=match_parent：与父容器同宽；layout_height=wrap_content：高度自适应；
+             orientation=horizontal：水平排列；gravity=center_vertical：子控件垂直居中；paddingBottom=6dp：底部内边距 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -84,6 +112,8 @@
             android:gravity="center_vertical"
             android:paddingBottom="6dp">
 
+            <!-- 语法：TextView 文本控件；"当前:" 标签
+                 layout_width/height=wrap_content：自适应；text=当前: ：标签文字；textSize=15sp：字号；textColor=#FFDDDDDD：浅灰 -->
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -92,15 +122,23 @@
                 android:textColor="#FFDDDDDD" />
 
             <!-- 操作集下拉选择器（切换操作集） -->
+            <!-- 语法：Spinner 下拉选择器控件；用于选择/切换操作集
+                 id=@+id/spinner_action_set：新建选择器 id；layout_width=0dp：宽度 0 配合 weight；
+                 layout_height=wrap_content：高度自适应；layout_weight=1：占满剩余宽度；
+                 paddingHorizontal=10dp：水平（左右）内边距 -->
             <Spinner
                 android:id="@+id/spinner_action_set"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:paddingHorizontal="10dp" />
-        </LinearLayout>
+        </LinearLayout>  <!-- 结束操作集选择行 -->
 
         <!-- 操作集管理按钮行：添加 / 拷贝 / 改名 / 删除 -->
+        <!-- 语法：LinearLayout 线性布局；四个管理按钮水平排列
+             layout_width=match_parent：与父容器同宽；layout_height=wrap_content：高度自适应；
+             orientation=horizontal：水平排列；baselineAligned=false：不按文字基线对齐（防止换行导致按钮错位）；
+             paddingBottom=10dp：底部内边距 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -108,6 +146,10 @@
             android:baselineAligned="false"
             android:paddingBottom="10dp">
 
+            <!-- 语法：Button 按钮控件；"添加" 按钮
+                 id=@+id/btn_action_set_add：新建添加按钮 id；layout_width=0dp：配合 weight 平分；
+                 layout_height=wrap_content：高度自适应；layout_weight=1：四按钮平分宽度；layout_marginEnd=3dp：右侧外边距；
+                 text=添加：按钮文字；textColor=#FFFFFFFF：白色；textSize=12sp：字号；background=@drawable/bg_button：普通按钮圆角样式 -->
             <Button
                 android:id="@+id/btn_action_set_add"
                 android:layout_width="0dp"
@@ -119,6 +161,10 @@
                 android:textSize="12sp"
                 android:background="@drawable/bg_button" />
 
+            <!-- 语法：Button 按钮控件；"拷贝" 按钮
+                 id=@+id/btn_action_set_copy：新建拷贝按钮 id；layout_width=0dp：配合 weight；
+                 layout_height=wrap_content：高度自适应；layout_weight=1：平分宽度；layout_marginEnd=3dp：右侧外边距；
+                 text=拷贝：按钮文字；textColor=#FFFFFFFF：白色；textSize=12sp：字号；background=@drawable/bg_button：普通按钮样式 -->
             <Button
                 android:id="@+id/btn_action_set_copy"
                 android:layout_width="0dp"
@@ -130,6 +176,10 @@
                 android:textSize="12sp"
                 android:background="@drawable/bg_button" />
 
+            <!-- 语法：Button 按钮控件；"改名" 按钮
+                 id=@+id/btn_action_set_rename：新建改名按钮 id；layout_width=0dp：配合 weight；
+                 layout_height=wrap_content：高度自适应；layout_weight=1：平分宽度；layout_marginEnd=3dp：右侧外边距；
+                 text=改名：按钮文字；textColor=#FFFFFFFF：白色；textSize=12sp：字号；background=@drawable/bg_button：普通按钮样式 -->
             <Button
                 android:id="@+id/btn_action_set_rename"
                 android:layout_width="0dp"
@@ -141,6 +191,10 @@
                 android:textSize="12sp"
                 android:background="@drawable/bg_button" />
 
+            <!-- 语法：Button 按钮控件；"删除" 按钮
+                 id=@+id/btn_action_set_delete：新建删除按钮 id；layout_width=0dp：配合 weight；
+                 layout_height=wrap_content：高度自适应；layout_weight=1：平分宽度；
+                 text=删除：按钮文字；textColor=#FFFFFFFF：白色；textSize=12sp：字号；background=@drawable/bg_button：普通按钮样式 -->
             <Button
                 android:id="@+id/btn_action_set_delete"
                 android:layout_width="0dp"
@@ -150,9 +204,12 @@
                 android:textColor="#FFFFFFFF"
                 android:textSize="12sp"
                 android:background="@drawable/bg_button" />
-        </LinearLayout>
+        </LinearLayout>  <!-- 结束操作集管理按钮行 -->
 
         <!-- ===== 操作层选择行 ===== -->
+        <!-- 语法：LinearLayout 线性布局；操作层选择行
+             layout_width=match_parent：与父容器同宽；layout_height=wrap_content：高度自适应；
+             orientation=horizontal：水平排列；gravity=center_vertical：子控件垂直居中；paddingBottom=8dp：底部内边距 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -160,6 +217,8 @@
             android:gravity="center_vertical"
             android:paddingBottom="8dp">
 
+            <!-- 语法：TextView 文本控件；"选择操作层:" 标签
+                 layout_width/height=wrap_content：自适应；text=选择操作层: ：标签文字；textSize=16sp：字号；textColor=#FFDDDDDD：浅灰 -->
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -168,16 +227,22 @@
                 android:textColor="#FFDDDDDD" />
 
             <!-- 操作层下拉选择器，包含 Common + Layer1-Layer10（使用系统默认风格） -->
+            <!-- 语法：Spinner 下拉选择器控件；用于选择操作层
+                 id=@+id/spinner_layer：新建操作层选择器 id；layout_width=0dp：宽度 0 配合 weight；
+                 layout_height=wrap_content：高度自适应；layout_weight=1：占满剩余宽度；paddingHorizontal=10dp：水平内边距 -->
             <Spinner
                 android:id="@+id/spinner_layer"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:paddingHorizontal="10dp" />
-        </LinearLayout>
+        </LinearLayout>  <!-- 结束操作层选择行 -->
 
         <!-- ===== 层信息行（名称 + 切入按键） ===== -->
         <!-- baselineAligned=false: 文字换行成两行时，Button 会因文本基线对齐被下推导致错位/底部拥挤 -->
+        <!-- 语法：LinearLayout 线性布局；层信息行
+             layout_width=match_parent：与父容器同宽；layout_height=wrap_content：高度自适应；
+             orientation=horizontal：水平排列；baselineAligned=false：不按文字基线对齐；paddingBottom=8dp：底部内边距 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -186,6 +251,10 @@
             android:paddingBottom="8dp">
 
             <!-- 编辑当前操作层名称 -->
+            <!-- 语法：Button 按钮控件；"层名称" 按钮
+                 id=@+id/btn_edit_layer_name：新建编辑层名称按钮 id；layout_width=0dp：配合 weight；
+                 layout_height=wrap_content：高度自适应；layout_weight=1：平分宽度；layout_marginEnd=4dp：右侧外边距；
+                 text=层名称：按钮文字；textColor=#FFFFFFFF：白色；background=@drawable/bg_button：普通按钮样式 -->
             <Button
                 android:id="@+id/btn_edit_layer_name"
                 android:layout_width="0dp"
@@ -197,6 +266,10 @@
                 android:background="@drawable/bg_button" />
 
             <!-- 编辑当前操作层切入按键（公共层 SwitchLayer 映射，Common 层禁用） -->
+            <!-- 语法：Button 按钮控件；"切入按键" 按钮
+                 id=@+id/btn_edit_trigger：新建编辑切入按键按钮 id；layout_width=0dp：配合 weight；
+                 layout_height=wrap_content：高度自适应；layout_weight=1：平分宽度；layout_marginStart=4dp：左侧外边距；
+                 text=切入按键：按钮文字；textColor=#FFFFFFFF：白色；background=@drawable/bg_button：普通按钮样式 -->
             <Button
                 android:id="@+id/btn_edit_trigger"
                 android:layout_width="0dp"
@@ -206,9 +279,13 @@
                 android:text="切入按键"
                 android:textColor="#FFFFFFFF"
                 android:background="@drawable/bg_button" />
-        </LinearLayout>
+        </LinearLayout>  <!-- 结束层信息行 -->
 
         <!-- ===== 按键映射列表标题 ===== -->
+        <!-- 语法：TextView 文本控件；映射列表标题
+             layout_width=match_parent：与父容器同宽；layout_height=wrap_content：高度自适应；
+             text=按键映射（点击编辑）:：标题文字；textSize=16sp：字号；textColor=#FFDDDDDD：浅灰；
+             paddingTop=8dp：顶部内边距；paddingBottom=4dp：底部内边距 -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -222,6 +299,9 @@
           当前层映射摘要
           显示当前操作层的名称与已映射按键数量，便于快速了解该层配置。
         -->
+        <!-- 语法：TextView 文本控件；映射摘要信息
+             id=@+id/text_mapping_summary：新建摘要文本 id（代码中动态填充）；layout_width=match_parent：与父容器同宽；
+             layout_height=wrap_content：高度自适应；textSize=12sp：字号；textColor=#FF8BC34A：绿色；paddingBottom=6dp：底部内边距 -->
         <TextView
             android:id="@+id/text_mapping_summary"
             android:layout_width="match_parent"
@@ -236,6 +316,11 @@
           使用 NonScrollListView 全展开所有行，由外层 ScrollView 统一接管滚动，
           避免内容超出屏幕后列表被压缩导致无法滚动。
         -->
+        <!-- 语法：自定义控件（项目内 NonScrollListView，禁用自身滚动、全展开所有行）
+             id=@+id/list_mappings：新建映射列表 id；layout_width=match_parent：与父容器同宽；
+             layout_height=wrap_content：高度自适应（全展开所有条目）；background=@drawable/bg_card：圆角卡片样式；
+             divider=#33FFFFFF：列表分隔线颜色（20% 不透明度白色）；dividerHeight=1dp：分隔线高度；
+             listSelector=@drawable/list_selector_mapping：列表行按压/选中高亮样式；padding=6dp：内边距 -->
         <com.steamlike.controller.NonScrollListView
             android:id="@+id/list_mappings"
             android:layout_width="match_parent"
@@ -247,6 +332,10 @@
             android:padding="6dp" />
 
         <!-- ===== 底部保存按钮 ===== -->
+        <!-- 语法：Button 按钮控件；"保存配置" 按钮
+             id=@+id/btn_save：新建保存按钮 id；layout_width=match_parent：与父容器同宽；
+             layout_height=wrap_content：高度自适应；text=保存配置：按钮文字；textColor=#FFFFFFFF：白色；
+             background=@drawable/bg_button_green：绿色主操作按钮样式；layout_marginTop=10dp：顶部外边距 -->
         <Button
             android:id="@+id/btn_save"
             android:layout_width="match_parent"
@@ -256,8 +345,8 @@
             android:background="@drawable/bg_button_green"
             android:layout_marginTop="10dp" />
 
-        </LinearLayout>
+        </LinearLayout>  <!-- 结束滚动区内垂直容器 -->
 
-    </ScrollView>
+    </ScrollView>  <!-- 结束 ScrollView 滚动区 -->
 
-</LinearLayout>
+</LinearLayout>  <!-- 结束根 LinearLayout -->
