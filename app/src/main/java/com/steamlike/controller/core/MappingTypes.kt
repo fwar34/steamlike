@@ -86,6 +86,17 @@ sealed class MappedAction { // 映射动作密封类（语法：sealed class 密
     data class SwitchLayerAndKey(val layerName: String, val keyCode: Int) : MappedAction() // 切换层+按键同时生效动作
 
     /**
+     * 数字小键盘按键动作
+     *
+     * 按下时注入一个数字小键盘按键（Num1~Num9、Num0、NumLock），用于配合游戏内
+     * 动作条分组/翻页快捷键（例如 WoW 中用 Num1~Num9 快速切换动作条分组）。
+     * 与 [KeyboardKey] 注入路径相同，由 BridgeInputInjector 转换为 Windows VK 码注入。
+     *
+     * @param keyCode Android [KeyEvent.KEYCODE_NUMPAD_*] 常量
+     */
+    data class NumpadKey(val keyCode: Int) : MappedAction() // 数字小键盘按键动作
+
+    /**
      * 鼠标移动动作（摇杆专用）
      *
      * 将摇杆映射为鼠标相对移动，用于控制光标位置。
@@ -203,6 +214,7 @@ data class KeyMapping( // 按键映射定义（语法：data class 数据类）
             is MappedAction.MouseClick -> parts.add(action.button.toDisplayName()) // 鼠标点击：加入按钮名
             is MappedAction.SwitchLayer -> parts.add("切换→${action.layerName}") // 层切换：加入目标层名
             is MappedAction.SwitchLayerAndKey -> parts.add("切换→${action.layerName}+${keyCodeToName(action.keyCode)}") // 层切换+按键：加入目标层名和按键名
+            is MappedAction.NumpadKey -> parts.add("小键盘${keyCodeToName(action.keyCode)}") // 数字小键盘：加入小键盘键名
             is MappedAction.MouseMove -> parts.add("鼠标移动") // 鼠标移动描述
             is MappedAction.LookAround -> parts.add("视角控制") // 视角控制描述
             is MappedAction.MouseToggle -> parts.add("长按${action.button.toDisplayName()}") // 鼠标长按描述

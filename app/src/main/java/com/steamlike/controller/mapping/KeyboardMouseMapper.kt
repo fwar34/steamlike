@@ -339,6 +339,7 @@ class KeyboardMouseMapper( // 语法：class 类声明，定义键盘/鼠标映�
         when (val action = mapping.action) { // 语法：when 分支表达式，分发非切换动作
             is MappedAction.KeyboardKey -> handleKeyboardKey(button, true, action.keyCode, mapping.subCommands) // 键盘按键动作：处理主键+子命令（语法：is 类型匹配）
             is MappedAction.SwitchLayerAndKey -> handleKeyboardKey(button, true, action.keyCode, mapping.subCommands) // 切层+按键动作：按键盘键注入（层切换由 SteamInput 处理）
+            is MappedAction.NumpadKey -> handleKeyboardKey(button, true, action.keyCode, mapping.subCommands) // 数字小键盘动作：按键盘键注入（VK 映射到小键盘键）
             is MappedAction.MouseClick -> handleMouseClick(button, true, action.button) // 鼠标点击动作：按下鼠标按钮
             is MappedAction.MouseToggle -> handleMouseToggle(button, true, action.button) // 鼠标长按切换动作
             is MappedAction.SwitchLayer -> {} // SteamInput 已处理 // 切换层动作：由 SteamInput 内部处理

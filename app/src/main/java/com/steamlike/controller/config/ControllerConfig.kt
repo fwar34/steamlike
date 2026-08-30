@@ -323,6 +323,10 @@ object ControllerConfig { // 单例对象：配置的 JSON 序列化/反序列�
                 json.put("layerName", action.layerName) // 写入目标层名
                 json.put("keyCode", action.keyCode) // 写入同时按下的键盘键码
             } // 结束切层+按键分支
+            is MappedAction.NumpadKey -> { // 数字小键盘类型
+                json.put("type", "numpadKey") // 写入类型标识
+                json.put("keyCode", action.keyCode) // 写入小键盘键码
+            } // 结束数字小键盘分支
             is MappedAction.MouseMove -> { // 鼠标移动类型
                 json.put("type", "mouseMove") // 写入类型标识
             } // 结束鼠标移动分支
@@ -376,6 +380,10 @@ object ControllerConfig { // 单例对象：配置的 JSON 序列化/反序列�
                 val keyCode = json.getInt("keyCode") // 读取同时按下的键盘键码
                 MappedAction.SwitchLayerAndKey(layerName, keyCode) // 构造切层+按键动作
             } // 结束切层+按键分支
+            "numpadKey" -> { // 数字小键盘类型
+                val keyCode = json.getInt("keyCode") // 读取小键盘键码
+                MappedAction.NumpadKey(keyCode) // 构造数字小键盘动作
+            } // 结束数字小键盘分支
             "mouseMove" -> MappedAction.MouseMove // 鼠标移动：直接返回单例对象
             "lookAround" -> MappedAction.LookAround // 视角环绕：直接返回单例对象
             "mouseScrollUp" -> MappedAction.MouseScrollUp // 滚轮上滚：直接返回单例对象

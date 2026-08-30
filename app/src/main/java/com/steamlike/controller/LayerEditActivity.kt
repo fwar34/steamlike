@@ -117,6 +117,20 @@ class LayerEditActivity : AppCompatActivity() { // 定义操作层编辑 Activit
          */
         val keyboardKeyOptions: List<Pair<String, Int>> = buildKeyboardKeyOptions() // 只读属性：键盘按键选项列表（显示名→KeyCode），由构建函数初始化（语法：val=只读变量，List<Pair<...>>=泛型列表）
 
+        val numpadKeyOptions: List<Pair<String, Int>> = listOf( // 只读属性：数字小键盘按键选项列表（显示名→KeyCode），供「数字小键盘」动作类型使用
+            "Num1" to KeyEvent.KEYCODE_NUMPAD_1, // 小键盘数字 1（语法：to=创建 Pair 键值对）
+            "Num2" to KeyEvent.KEYCODE_NUMPAD_2, // 小键盘数字 2
+            "Num3" to KeyEvent.KEYCODE_NUMPAD_3, // 小键盘数字 3
+            "Num4" to KeyEvent.KEYCODE_NUMPAD_4, // 小键盘数字 4
+            "Num5" to KeyEvent.KEYCODE_NUMPAD_5, // 小键盘数字 5
+            "Num6" to KeyEvent.KEYCODE_NUMPAD_6, // 小键盘数字 6
+            "Num7" to KeyEvent.KEYCODE_NUMPAD_7, // 小键盘数字 7
+            "Num8" to KeyEvent.KEYCODE_NUMPAD_8, // 小键盘数字 8
+            "Num9" to KeyEvent.KEYCODE_NUMPAD_9, // 小键盘数字 9
+            "Num0" to KeyEvent.KEYCODE_NUMPAD_0, // 小键盘数字 0
+            "NumLock" to KeyEvent.KEYCODE_NUM_LOCK, // 数字锁定键
+        ) // 结束数字小键盘选项列表
+
         /**
          * 构建键盘按键选项列表
          *
@@ -737,9 +751,9 @@ class LayerEditActivity : AppCompatActivity() { // 定义操作层编辑 Activit
 
         // ===== 设置动作类型 Spinner =====
         // 0=未设置(取消映射), 1=键盘按键, 2=鼠标点击, 3=鼠标长按, 4=切换操作层,
-        // 5=滚轮上滚, 6=滚轮下滚, 7=切换悬浮窗, 8=切换键盘, 9=切换捕获, 10=切换层+按键
+        // 5=滚轮上滚, 6=滚轮下滚, 7=切换悬浮窗, 8=切换键盘, 9=切换捕获, 10=切换层+按键, 11=数字小键盘
         val actionTypes = listOf("未设置", "键盘按键", "鼠标点击", "鼠标长按", "切换操作层", // 定义动作类型选项列表（语法：listOf=列表工厂）
-            "滚轮上滚", "滚轮下滚", "切换悬浮窗", "切换键盘", "切换捕获", "切换层+按键") // 动作类型列表续行（共 11 种）
+            "滚轮上滚", "滚轮下滚", "切换悬浮窗", "切换键盘", "切换捕获", "切换层+按键", "数字小键盘") // 动作类型列表续行（共 12 种）
         // 设置动作类型下拉框的适配器（语法：ArrayAdapter=数组适配器，also{}=作用域函数）
         spinnerActionType.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, actionTypes).also {
             it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) // 设置下拉展开项的布局资源
@@ -752,6 +766,7 @@ class LayerEditActivity : AppCompatActivity() { // 定义操作层编辑 Activit
             is MappedAction.MouseToggle -> 3 // 鼠标长按动作 → 类型 3
             is MappedAction.SwitchLayer -> 4 // 切换层动作 → 类型 4
             is MappedAction.SwitchLayerAndKey -> 10 // 切层+按键动作 → 类型 10
+            is MappedAction.NumpadKey -> 11 // 数字小键盘动作 → 类型 11
             is MappedAction.MouseScrollUp -> 5 // 滚轮上滚动作 → 类型 5
             is MappedAction.MouseScrollDown -> 6 // 滚轮下滚动作 → 类型 6
             is MappedAction.ToggleOverlay -> 7 // 切换悬浮窗动作 → 类型 7
@@ -796,6 +811,10 @@ class LayerEditActivity : AppCompatActivity() { // 定义操作层编辑 Activit
                 val keyPos = keyboardKeyOptions.indexOfFirst { it.second == action.keyCode } // 查找与同时按键 KeyCode 匹配的选项下标
                 if (keyPos >= 0) spinnerExtraKey.setSelection(keyPos) // 找到则设置额外按键选中项
             } // 结束切层+按键分支
+            is MappedAction.NumpadKey -> { // 若为数字小键盘动作
+                val pos = numpadKeyOptions.indexOfFirst { it.second == action.keyCode } // 查找与小键盘键码匹配的选项下标
+                if (pos >= 0) spinnerActionValue.setSelection(pos) // 找到则设置动作值下拉框选中项
+            } // 结束数字小键盘分支
             else -> {} // 其它类型无需设置初始动作值
         } // 结束初始动作值设置 when 块
 
@@ -859,7 +878,7 @@ class LayerEditActivity : AppCompatActivity() { // 定义操作层编辑 Activit
                     layer.buttonMappings.remove(button) // 从映射表移除该按键的映射
                     Log.i(TAG, "Mapping removed: ${buttonDisplayName(button)}") // 打印日志：映射已移除（语法：字符串模板）
                 } else { // 否则（选择了具体动作类型）
-                    // 构建动作（actionType-1 映射回 0=键盘/1=鼠标点击/2=鼠标长按/3=切换层/9=切层+按键）
+                    // 构建动作（actionType-1 映射回 0=键盘/1=鼠标点击/2=鼠标长按/3=切换层/9=切层+按键/10=数字小键盘）
                     val action = buildAction( // 调用构建动作函数（跨行参数）
                         actionType - 1, // 动作类型减去 1 还原为构建函数使用的索引
                         spinnerActionValue.selectedItemPosition, // 动作值下拉框当前选中位置
@@ -1509,10 +1528,11 @@ class LayerEditActivity : AppCompatActivity() { // 定义操作层编辑 Activit
      * - 鼠标点击 (type=2): 显示 左键/中键/右键
      * - 鼠标长按 (type=3): 显示 左键/中键/右键
      * - 切换操作层 (type=4): 显示所有操作层名称
+     * - 数字小键盘 (type=11): 显示小键盘数字键组
      *
      * @param spinner 动作值 Spinner
      * @param label 动作值标签（根据类型更新文字）
-     * @param actionType 动作类型 (0=未设置, 1=键盘, 2=鼠标点击, 3=鼠标长按, 4=切换层)
+     * @param actionType 动作类型 (0=未设置, 1=键盘, 2=鼠标点击, 3=鼠标长按, 4=切换层, 10=切层+按键, 11=数字小键盘)
      */
     private fun setupActionValueSpinner(spinner: Spinner, label: TextView, actionType: Int) { // 私有函数：根据动作类型设置动作值下拉框选项
         val options: List<String> = when (actionType) { // 按动作类型计算选项列表（语法：when=分支表达式，显式声明 List<String> 类型）
@@ -1540,6 +1560,10 @@ class LayerEditActivity : AppCompatActivity() { // 定义操作层编辑 Activit
                 label.text = "选择目标层:" // 更新动作标签文字
                 layerNames // 返回所有层名称作为选项
             } // 结束切层+按键分支
+            11 -> {  // 数字小键盘 // 数字小键盘类型分支
+                label.text = "选择小键盘按键:" // 更新动作标签文字
+                numpadKeyOptions.map { it.first } // 返回所有小键盘按键显示名
+            } // 结束数字小键盘分支
             5 -> {  // 滚轮上滚 // 滚轮上滚类型分支
                 label.text = "按下时发送滚轮上滚事件" // 更新动作标签文字
                 listOf("（滚轮上滚）") // 返回占位选项
@@ -1572,7 +1596,7 @@ class LayerEditActivity : AppCompatActivity() { // 定义操作层编辑 Activit
     /**
      * 根据动作类型和选中位置构建 [MappedAction]
      *
-     * @param actionType 动作类型 (0=键盘, 1=鼠标点击, 2=鼠标长按, 3=切换层, 9=切层+按键)
+     * @param actionType 动作类型 (0=键盘, 1=鼠标点击, 2=鼠标长按, 3=切换层, 9=切层+按键, 10=数字小键盘)
      * @param valuePosition 动作值 Spinner 的选中位置
      * @param extraValuePosition 附加按键 Spinner 的选中位置（仅切层+按键类型使用，默认 0）
      * @return 对应的 MappedAction 实例
@@ -1597,6 +1621,7 @@ class LayerEditActivity : AppCompatActivity() { // 定义操作层编辑 Activit
                     keyboardKeyOptions[extraValuePosition].second // 同时按下的键盘键码（附加按键下拉框选中项）
                 ) // 结束 SwitchLayerAndKey 构造
             } // 结束切层+按键分支
+            10 -> MappedAction.NumpadKey(numpadKeyOptions[valuePosition].second) // 数字小键盘动作：用所选小键盘键码构建（语法：下标访问列表元素）
             4 -> MappedAction.MouseScrollUp   // 滚轮上滚 // 滚轮上滚动作
             5 -> MappedAction.MouseScrollDown  // 滚轮下滚 // 滚轮下滚动作
             6 -> MappedAction.ToggleOverlay   // 切换悬浮窗 // 切换悬浮窗动作
