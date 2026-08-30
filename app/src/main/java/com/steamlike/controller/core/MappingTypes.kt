@@ -232,6 +232,32 @@ data class KeyMapping( // 按键映射定义（语法：data class 数据类）
         /** 子命令最大数量 */
         const val MAX_SUB_COMMANDS = 3 // 子命令数量上限（语法：const val 编译期常量）
 
+        /** Shift 符号键码偏移：数字键码 + 该偏移 = 需要按住 Shift 的数字键符号（如 1008=Shift+1 → "!"） */
+        const val SHIFT_SYMBOL_OFFSET = 1000 // Shift 符号键码偏移常量
+
+        /** Shift 符号字符表：数字键码(7~16) → 按住 Shift 时输出的符号字符（用整数键码，避免测试依赖 Android 框架） */
+        private val shiftSymbolChars = mapOf( // Shift 符号字符映射表（语法：mapOf 不可变映射）
+            7 to ')',  // KEYCODE_0 // Shift+0 → 右括号
+            8 to '!',  // KEYCODE_1 // Shift+1 → 叹号
+            9 to '@',  // KEYCODE_2 // Shift+2 → at 符号
+            10 to '#', // KEYCODE_3 // Shift+3 → 井号
+            11 to '$', // KEYCODE_4 // Shift+4 → 美元符号
+            12 to '%', // KEYCODE_5 // Shift+5 → 百分号
+            13 to '^', // KEYCODE_6 // Shift+6 → 脱字符
+            14 to '&', // KEYCODE_7 // Shift+7 → 与号
+            15 to '*', // KEYCODE_8 // Shift+8 → 星号
+            16 to '(', // KEYCODE_9 // Shift+9 → 左括号
+            68 to '~', // KEYCODE_GRAVE // Shift+` → 波浪号
+            69 to '_', // KEYCODE_MINUS // Shift+- → 下划线
+            70 to '+', // KEYCODE_EQUALS // Shift+= → 加号
+        ) // 结束符号字符映射
+
+        /** 判断是否为 Shift 符号键码（键码 = 偏移 + 数字键码） */
+        fun isShiftSymbolKey(keyCode: Int): Boolean = keyCode >= SHIFT_SYMBOL_OFFSET // 符号键码判断函数（语法：单表达式函数）
+
+        /** 取 Shift 符号键码对应的实际数字键码 */
+        fun shiftSymbolBaseKey(keyCode: Int): Int = keyCode - SHIFT_SYMBOL_OFFSET // 还原为实际数字键码函数
+
         /**
          * Android KeyCode 转换为人类可读名称
          *
@@ -246,6 +272,10 @@ data class KeyMapping( // 按键映射定义（语法：data class 数据类）
          * - Space=62, Enter=66, Tab=61, Esc=111
          */
         fun keyCodeToName(keyCode: Int): String { // 键码转名称（语法：伴生对象内静态函数）
+            // Shift 符号键（编码 = SHIFT_SYMBOL_OFFSET + 数字键码）优先识别
+            if (isShiftSymbolKey(keyCode)) { // 判断是否 Shift 符号编码（语法：if 分支 + 单表达式函数调用）
+                return shiftSymbolChars[shiftSymbolBaseKey(keyCode)]?.toString() ?: keyCode.toString() // 返回对应符号字符，未知编码则返回原始数字（语法：Map 下标 + ?: 空值合并）
+            } // 结束 Shift 符号识别
             // 字母 A-Z (KEYCODE_A=29 ~ KEYCODE_Z=54)
             if (keyCode in 29..54) { // 判断是否字母区（语法：in 范围判断 + 区间 29..54）
                 return ('A' + (keyCode - 29)).toString() // 计算对应字母字符并转字符串（语法：Char 算术 + toString）

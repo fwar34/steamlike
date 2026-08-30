@@ -409,21 +409,34 @@ class KeyboardMouseMapper( // 语法：class 类声明，定义键盘/鼠标映�
         mainKeyCode: Int, // 主键 Android KeyCode 参数
         subCommands: List<Int> // 子命令 KeyCode 列表参数（语法：List<Int> 整型列表）
     ) { // 函数体开始
+        // 识别主键是否为 Shift 符号键（编码 = SHIFT_SYMBOL_OFFSET + 数字键码，如 "!" = Shift+1）
+        val isShiftSymbol = KeyMapping.isShiftSymbolKey(mainKeyCode) // 是否 Shift 符号键
+        val actualKey = if (isShiftSymbol) KeyMapping.shiftSymbolBaseKey(mainKeyCode) else mainKeyCode // 还原为实际数字键码（语法：if 表达式）
         if (isPressed) { // 语法：if 分支，按下分支
             // 防重复按下
             if (pressedMainKeys.containsKey(button)) return // 若主键已在按下状态则返回，防重复注入（语法：containsKey 映射包含键判断）
 
-            // 1. 按下主键
-            injector.sendKeyDown(mainKeyCode) // 发送主键按下事件
-            pressedMainKeys[button] = mainKeyCode // 记录该按钮主键码（语法：Map 下标写入键值）
+            // 1. 按下主键（符号键需先按住左 Shift 修饰）
+            val subs = mutableListOf<Int>() // 创建可变列表收集需随主键一起松开的修饰/子命令键（语法：val+mutableListOf 可变列表）
+            if (isShiftSymbol) { // 符号键：先按下左 Shift
+                injector.sendKeyDown(KeyEvent.KEYCODE_SHIFT_LEFT) // 发送左 Shift 按下事件
+                subs.add(KeyEvent.KEYCODE_SHIFT_LEFT) // 记录 Shift 供松开
+            } // 结束符号键 Shift 分支
+            injector.sendKeyDown(actualKey) // 发送主键（数字键）按下事件
+            pressedMainKeys[button] = actualKey // 记录该按钮主键码（语法：Map 下标写入键值）
 
-            // 2. 按下所有子命令键
-            val subs = mutableListOf<Int>() // 创建可变列表收集本次按下的子命令键（语法：val+mutableListOf 可变列表）
+            // 2. 按下所有子命令键（子命令也可能为符号键，同样需 Shift 修饰）
             subCommands.forEach { subKeyCode -> // 遍历子命令列表（语法：forEach lambda）
-                injector.sendKeyDown(subKeyCode) // 发送子命令键按下事件
-                subs.add(subKeyCode) // 把子命令键加入记录列表
+                val subShift = KeyMapping.isShiftSymbolKey(subKeyCode) // 子命令是否为符号键
+                val subActual = if (subShift) KeyMapping.shiftSymbolBaseKey(subKeyCode) else subKeyCode // 还原子命令实际键码
+                if (subShift) { // 符号子命令：按下左 Shift 并记录
+                    injector.sendKeyDown(KeyEvent.KEYCODE_SHIFT_LEFT) // 发送左 Shift 按下事件
+                    subs.add(KeyEvent.KEYCODE_SHIFT_LEFT) // 记录 Shift 供松开
+                } // 结束符号子命令 Shift 分支
+                injector.sendKeyDown(subActual) // 发送子命令键按下事件
+                subs.add(subActual) // 把子命令键加入记录列表
             } // 结束子命令按下 lambda
-            if (subs.isNotEmpty()) { // 语法：if 分支，若存在子命令键
+            if (subs.isNotEmpty()) { // 语法：if 分支，若存在修饰/子命令键
                 pressedSubKeys[button] = subs // 记录该按钮的子命令键列表（语法：Map 下标写入键值）
             } // 结束 if (subs 非空) 分支
 
@@ -434,7 +447,7 @@ class KeyboardMouseMapper( // 语法：class 类声明，定义键盘/鼠标映�
             // 防重复松开
             val main = pressedMainKeys.remove(button) ?: return // 取出并移除主键码，未按下则返回（语法：?: 空值合并）
 
-            // 1. 松开所有子命令键（逆序）
+            // 1. 松开所有子命令键（逆序，含符号子命令附带的 Shift）
             pressedSubKeys.remove(button)?.reversed()?.forEach { subKeyCode -> // 取出子命令列表并逆序遍历松开（语法：?. 安全调用 + reversed() + forEach）
                 injector.sendKeyUp(subKeyCode) // 发送子命令键松开事件
             } // 结束子命令松开 lambda

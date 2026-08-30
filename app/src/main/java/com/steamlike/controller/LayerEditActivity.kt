@@ -153,6 +153,22 @@ class LayerEditActivity : AppCompatActivity() { // 定义操作层编辑 Activit
                 list.add(d.toString() to keyCode) // 将「数字显示名 to KeyCode」对添加到列表
             } // 结束数字遍历 for 循环
 
+            // ===== 数字键的 Shift 符号 =====
+            // 按住 Shift 时数字键输出的符号（键码 = SHIFT_SYMBOL_OFFSET + 对应数字键码，注入时自动按住 Shift）
+            list.add("!（Shift+1）" to KeyMapping.SHIFT_SYMBOL_OFFSET + KeyEvent.KEYCODE_1) // Shift+1 → 叹号
+            list.add("@（Shift+2）" to KeyMapping.SHIFT_SYMBOL_OFFSET + KeyEvent.KEYCODE_2) // Shift+2 → at 符号
+            list.add("#（Shift+3）" to KeyMapping.SHIFT_SYMBOL_OFFSET + KeyEvent.KEYCODE_3) // Shift+3 → 井号
+            list.add("$（Shift+4）" to KeyMapping.SHIFT_SYMBOL_OFFSET + KeyEvent.KEYCODE_4) // Shift+4 → 美元符号
+            list.add("%（Shift+5）" to KeyMapping.SHIFT_SYMBOL_OFFSET + KeyEvent.KEYCODE_5) // Shift+5 → 百分号
+            list.add("^（Shift+6）" to KeyMapping.SHIFT_SYMBOL_OFFSET + KeyEvent.KEYCODE_6) // Shift+6 → 脱字符
+            list.add("&（Shift+7）" to KeyMapping.SHIFT_SYMBOL_OFFSET + KeyEvent.KEYCODE_7) // Shift+7 → 与号
+            list.add("*（Shift+8）" to KeyMapping.SHIFT_SYMBOL_OFFSET + KeyEvent.KEYCODE_8) // Shift+8 → 星号
+            list.add("(（Shift+9）" to KeyMapping.SHIFT_SYMBOL_OFFSET + KeyEvent.KEYCODE_9) // Shift+9 → 左括号
+            list.add(")（Shift+0）" to KeyMapping.SHIFT_SYMBOL_OFFSET + KeyEvent.KEYCODE_0) // Shift+0 → 右括号
+            list.add("~（Shift+`）" to KeyMapping.SHIFT_SYMBOL_OFFSET + KeyEvent.KEYCODE_GRAVE) // Shift+` → 波浪号
+            list.add("_（Shift+-）" to KeyMapping.SHIFT_SYMBOL_OFFSET + KeyEvent.KEYCODE_MINUS) // Shift+- → 下划线
+            list.add("+（Shift+=）" to KeyMapping.SHIFT_SYMBOL_OFFSET + KeyEvent.KEYCODE_EQUALS) // Shift+= → 加号
+
             // ===== 功能键 F1-F12 =====
             // KEYCODE_F1 到 KEYCODE_F12 是连续的 (131~142)
             for (i in 1..12) { // 循环遍历 1 到 12（对应 F1-F12）
@@ -787,36 +803,49 @@ class LayerEditActivity : AppCompatActivity() { // 定义操作层编辑 Activit
         // 设置初始动作类型选择
         spinnerActionType.setSelection(initialActionType) // 设置动作类型下拉框的初始选中项
 
+        // ===== 定义「恢复动作值定位」局部函数 =====
+        // 打开对话框时定位到当前映射的按键；动作类型切换重建适配器后也需重新定位，
+        // 否则下拉框会回到第一项（如映射的是"4"却显示"A"）
+        var restoring = false // 标志：正在恢复定位（防止 setSelection 触发的嵌套回调递归重建适配器）
+        fun restoreActionValueSelection() { // 局部函数：根据已有映射恢复动作值下拉框选中项（语法：fun 局部函数）
+            restoring = true // 置位恢复标志，抑制嵌套回调
+            try { // 语法：try-finally 异常安全（无论是否异常都复位标志）
+                when (val action = existingMapping?.action) { // 根据已有映射动作设置动作值选中（语法：when(值)=分支，val action=在 when 内声明绑定变量）
+                    is MappedAction.KeyboardKey -> { // 若为键盘按键动作
+                        val pos = keyboardKeyOptions.indexOfFirst { it.second == action.keyCode } // 查找与已存 KeyCode 匹配的选项下标（语法：indexOfFirst=按条件查找 lambda，it=隐式参数）
+                        if (pos >= 0) spinnerActionValue.setSelection(pos) // 找到则设置动作值下拉框选中项
+                    } // 结束键盘按键分支
+                    is MappedAction.MouseClick -> { // 若为鼠标点击动作
+                        val pos = mouseButtonOptions.indexOfFirst { it.second == action.button } // 查找与已存鼠标按键匹配的选项下标
+                        if (pos >= 0) spinnerActionValue.setSelection(pos) // 找到则设置选中项
+                    } // 结束鼠标点击分支
+                    is MappedAction.MouseToggle -> { // 若为鼠标长按动作
+                        val pos = mouseButtonOptions.indexOfFirst { it.second == action.button } // 查找与已存鼠标按键匹配的选项下标
+                        if (pos >= 0) spinnerActionValue.setSelection(pos) // 找到则设置选中项
+                    } // 结束鼠标长按分支
+                    is MappedAction.SwitchLayer -> { // 若为切换层动作
+                        val pos = layerNames.indexOfFirst { it == action.layerName } // 查找与目标层名匹配的选项下标
+                        if (pos >= 0) spinnerActionValue.setSelection(pos) // 找到则设置选中项
+                    } // 结束切换层分支
+                    is MappedAction.SwitchLayerAndKey -> { // 若为切层+按键动作
+                        val pos = layerNames.indexOfFirst { it == action.layerName } // 查找与目标层名匹配的选项下标
+                        if (pos >= 0) spinnerActionValue.setSelection(pos) // 找到则设置目标层选中项
+                        val keyPos = keyboardKeyOptions.indexOfFirst { it.second == action.keyCode } // 查找与同时按键 KeyCode 匹配的选项下标
+                        if (keyPos >= 0) spinnerExtraKey.setSelection(keyPos) // 找到则设置额外按键选中项
+                    } // 结束切层+按键分支
+                    is MappedAction.NumpadKey -> { // 若为数字小键盘动作
+                        val pos = numpadKeyOptions.indexOfFirst { it.second == action.keyCode } // 查找与小键盘键码匹配的选项下标
+                        if (pos >= 0) spinnerActionValue.setSelection(pos) // 找到则设置动作值下拉框选中项
+                    } // 结束数字小键盘分支
+                    else -> {} // 其它类型无需设置动作值
+                } // 结束恢复定位 when 块
+            } finally { // 语法：finally 块始终执行
+                restoring = false // 复位恢复标志
+            } // 结束 finally
+        } // 结束 restoreActionValueSelection 局部函数
+
         // 设置初始动作值选择（基于已有映射）
-        when (val action = existingMapping?.action) { // 根据已有映射动作设置动作值初始选中（语法：when(值)=分支，val action=在 when 内声明绑定变量）
-            is MappedAction.KeyboardKey -> { // 若为键盘按键动作
-                val pos = keyboardKeyOptions.indexOfFirst { it.second == action.keyCode } // 查找与已存 KeyCode 匹配的选项下标（语法：indexOfFirst=按条件查找 lambda，it=隐式参数）
-                if (pos >= 0) spinnerActionValue.setSelection(pos) // 找到则设置动作值下拉框选中项
-            } // 结束键盘按键分支
-            is MappedAction.MouseClick -> { // 若为鼠标点击动作
-                val pos = mouseButtonOptions.indexOfFirst { it.second == action.button } // 查找与已存鼠标按键匹配的选项下标
-                if (pos >= 0) spinnerActionValue.setSelection(pos) // 找到则设置选中项
-            } // 结束鼠标点击分支
-            is MappedAction.MouseToggle -> { // 若为鼠标长按动作
-                val pos = mouseButtonOptions.indexOfFirst { it.second == action.button } // 查找与已存鼠标按键匹配的选项下标
-                if (pos >= 0) spinnerActionValue.setSelection(pos) // 找到则设置选中项
-            } // 结束鼠标长按分支
-            is MappedAction.SwitchLayer -> { // 若为切换层动作
-                val pos = layerNames.indexOfFirst { it == action.layerName } // 查找与目标层名匹配的选项下标
-                if (pos >= 0) spinnerActionValue.setSelection(pos) // 找到则设置选中项
-            } // 结束切换层分支
-            is MappedAction.SwitchLayerAndKey -> { // 若为切层+按键动作
-                val pos = layerNames.indexOfFirst { it == action.layerName } // 查找与目标层名匹配的选项下标
-                if (pos >= 0) spinnerActionValue.setSelection(pos) // 找到则设置目标层选中项
-                val keyPos = keyboardKeyOptions.indexOfFirst { it.second == action.keyCode } // 查找与同时按键 KeyCode 匹配的选项下标
-                if (keyPos >= 0) spinnerExtraKey.setSelection(keyPos) // 找到则设置额外按键选中项
-            } // 结束切层+按键分支
-            is MappedAction.NumpadKey -> { // 若为数字小键盘动作
-                val pos = numpadKeyOptions.indexOfFirst { it.second == action.keyCode } // 查找与小键盘键码匹配的选项下标
-                if (pos >= 0) spinnerActionValue.setSelection(pos) // 找到则设置动作值下拉框选中项
-            } // 结束数字小键盘分支
-            else -> {} // 其它类型无需设置初始动作值
-        } // 结束初始动作值设置 when 块
+        restoreActionValueSelection() // 调用局部函数恢复动作值选中项
 
         // ===== 子命令管理 =====
         // 子命令 Spinner 列表（动态添加/删除）
@@ -846,6 +875,7 @@ class LayerEditActivity : AppCompatActivity() { // 定义操作层编辑 Activit
         // 用户切换动作类型时，更新动作值 Spinner 的选项
         spinnerActionType.onItemSelectedListener = object : AdapterView.OnItemSelectedListener { // 设置动作类型下拉框选择监听：匿名对象实现接口（语法：object:接口=匿名对象）
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) { // 覆写：动作类型切换时回调（语法：override=覆写）
+                if (restoring) return // 恢复定位过程中触发的嵌套回调：直接返回，避免重建适配器破坏已定位的选择（语法：if 单行返回）
                 // 重新设置动作值 Spinner 的选项
                 setupActionValueSpinner(spinnerActionValue, tvActionLabel, position) // 按新类型重建动作值下拉框的选项
                 // 未设置/切换操作层/滚轮/悬浮窗/键盘/捕获时隐藏子命令区域（切层+按键类型支持子命令故显示）
@@ -855,6 +885,8 @@ class LayerEditActivity : AppCompatActivity() { // 定义操作层编辑 Activit
                         View.GONE else View.VISIBLE // 隐藏子命令区，否则显示
                 // 额外按键区域仅「切换层+按键」类型显示
                 layoutExtraKey.visibility = if (position == 10) View.VISIBLE else View.GONE // 仅切层+按键类型显示附加按键区
+                // 已有映射时重新定位动作值（重建适配器后恢复到当前映射按键，避免显示成第一项）
+                restoreActionValueSelection() // 调用局部函数恢复动作值选中项（内部置位 restoring 防递归）
             } // 结束 onItemSelected 回调
 
             override fun onNothingSelected(parent: AdapterView<*>?) {} // 覆写：无选项选中时回调，空实现
