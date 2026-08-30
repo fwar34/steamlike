@@ -332,6 +332,13 @@ data class KeyMapping( // 按键映射定义（语法：data class 数据类）
                 151 -> "Num7"           // KEYCODE_NUMPAD_7 // 小键盘数字 7
                 152 -> "Num8"           // KEYCODE_NUMPAD_8 // 小键盘数字 8
                 153 -> "Num9"           // KEYCODE_NUMPAD_9 // 小键盘数字 9
+                154 -> "Num/"           // KEYCODE_NUMPAD_DIVIDE // 小键盘除号
+                155 -> "Num*"           // KEYCODE_NUMPAD_MULTIPLY // 小键盘乘号
+                156 -> "Num-"           // KEYCODE_NUMPAD_SUBTRACT // 小键盘减号
+                157 -> "Num+"           // KEYCODE_NUMPAD_ADD // 小键盘加号
+                158 -> "Num."           // KEYCODE_NUMPAD_DOT // 小键盘小数点
+                159 -> "Num,"           // KEYCODE_NUMPAD_COMMA // 小键盘逗号
+                160 -> "NumEnter"       // KEYCODE_NUMPAD_ENTER // 小键盘回车
                 else -> "Key($keyCode)" // 未知键兜底（语法：else 兜底分支 + 字符串模板）
             } // 结束 when
         } // 结束 keyCodeToName 函数

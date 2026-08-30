@@ -273,6 +273,13 @@ class BridgeInputInjector(  // 语法：class 声明类；桥接输入注入器�
             KeyEvent.KEYCODE_NUMPAD_7 -> 0x67  // 映射小键盘7键
             KeyEvent.KEYCODE_NUMPAD_8 -> 0x68  // 映射小键盘8键
             KeyEvent.KEYCODE_NUMPAD_9 -> 0x69  // 映射小键盘9键
+            KeyEvent.KEYCODE_NUMPAD_DIVIDE -> 0x6F     // VK_DIVIDE // 映射小键盘除号键
+            KeyEvent.KEYCODE_NUMPAD_MULTIPLY -> 0x6A   // VK_MULTIPLY // 映射小键盘乘号键
+            KeyEvent.KEYCODE_NUMPAD_SUBTRACT -> 0x6D   // VK_SUBTRACT // 映射小键盘减号键
+            KeyEvent.KEYCODE_NUMPAD_ADD -> 0x6B        // VK_ADD // 映射小键盘加号键
+            KeyEvent.KEYCODE_NUMPAD_DOT -> 0x6E        // VK_DECIMAL // 映射小键盘小数点键
+            KeyEvent.KEYCODE_NUMPAD_COMMA -> 0x6C      // VK_SEPARATOR // 映射小键盘逗号键（键盘分隔符）
+            KeyEvent.KEYCODE_NUMPAD_ENTER -> 0x0D      // VK_RETURN // 映射小键盘回车键（与主回车同为 VK_RETURN）
 
             // ===== 其他 =====
             KeyEvent.KEYCODE_CAPS_LOCK -> 0x14     // VK_CAPITAL // 映射大写锁定键
